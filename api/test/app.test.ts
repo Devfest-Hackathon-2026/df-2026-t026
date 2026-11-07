@@ -98,6 +98,15 @@ test('発言者が分からないうちは反映できない', async () => {
   assert.equal(ok.status, 200);
 });
 
+test('CORS は指定したオリジンだけを許可する', async () => {
+  const store = new MemoryStore();
+  const restricted = createApp({ store, patchify: fakePatchify, check: fakeCheck, allowOrigin: 'https://a.web.app,https://a.firebaseapp.com' });
+  const origin = async (o: string) =>
+    (await restricted.request('/health', { headers: { Origin: o } })).headers.get('Access-Control-Allow-Origin');
+  assert.equal(await origin('https://a.firebaseapp.com'), 'https://a.firebaseapp.com');
+  assert.equal(await origin('https://evil.example.com'), null);
+});
+
 test('入力の形が違えば 400 を返す', async () => {
   const { status } = await call('POST', '/manuals/demo-kitchen/utterances', { text: '' });
   assert.equal(status, 400);
