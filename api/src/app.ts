@@ -14,7 +14,7 @@ export interface Deps {
   store: Store;
   patchify: Patchify;
   check: CheckPatch;
-  /** CORS で許可するオリジン。未指定ならすべて許可（ローカル開発用） */
+  /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
 }
 
@@ -38,7 +38,7 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 export function createApp({ store, patchify, check, allowOrigin }: Deps) {
   const app = new Hono<Env>();
-  app.use(cors({ origin: allowOrigin ?? '*' }));
+  app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは単一ユーザー。入れるときはここでトークンから userId を決める
   app.use(async (c, next) => {
     c.set('userId', 'demo');
