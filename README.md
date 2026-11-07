@@ -6,6 +6,7 @@
 |---|---|
 | `app/` | Flutter クライアント（Web） |
 | `api/` | Hono バックエンド |
+| `infra/` | Terraform（Cloud Run・Firestore・Firebase Hosting・GitHub Actions 連携）。手順は [infra/README.md](infra/README.md) |
 | `eval/` | 衝突検知の評価セットとスクリプト |
 | `docs/` | 仕様・ADR |
 
