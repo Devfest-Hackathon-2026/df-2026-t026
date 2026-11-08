@@ -229,7 +229,7 @@ class _CheckScreenState extends State<CheckScreen> {
         alignment: Alignment.centerRight,
         child: MoonFilledButton(
           onTap: ready && !_busy ? () => _resolve(chk, p) : null,
-          leading: _busy ? const ButtonLoader() : const Icon(LucideIcons.stamp),
+          leading: _busy ? const ButtonLoader() : null,
           label: const Text('確定する'),
         ),
       ),

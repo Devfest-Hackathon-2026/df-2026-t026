@@ -95,9 +95,12 @@ class _ManualScreenState extends State<ManualScreen> {
     }
     // 狭い画面ではパネルの切り替えをタブに並べ、タブの中にさらに切り替えを重ねない
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(
+      // 幅が足りないときはタブを横にスクロールさせる
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
         child: MoonTabBar(
+          tabBarSize: MoonTabBarSize.sm,
           initialIndex: _tab,
           onTabChanged: (i) => setState(() {
             _tab = i;

@@ -52,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _createButton() => MoonFilledButton(
-        leading: const Icon(LucideIcons.plus),
         label: const Text('マニュアルを登録'),
         onTap: _create,
       );
@@ -76,6 +75,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final manuals = snap.data!;
 
     final k = context.tokens;
+    // 狭い画面では表の列をやめ、記録数と状態を名前の下に並べる
+    final table = MediaQuery.sizeOf(context).width >= k.wideLayout;
     return Container(
       color: k.colors.canvas,
       child: Narrow(
@@ -88,9 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           SizedBox(height: k.space.xl),
           if (manuals.isEmpty) _empty() else ...[
-            _headerRow(),
+            if (table) _headerRow(),
             const Rule(),
-            for (final m in manuals) ...[_row(m), const Rule()],
+            for (final m in manuals) ...[_row(m, table: table), const Rule()],
           ],
         ]),
       ),
@@ -110,25 +111,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _row(ManualSummary m) {
+  Widget _row(ManualSummary m, {required bool table}) {
     final k = context.tokens;
+    final status = m.openCount > 0
+        ? StatusTag('確認待ち ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
+        : Text('確認待ちなし', style: k.text.small);
     return MoonMenuItem(
       onTap: () => _open(m.id),
       menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
       horizontalGap: 0,
-      label: Row(children: [
-        Expanded(child: Text(m.title, style: k.text.heading)),
-        SizedBox(width: k.numberColumn, child: Text('${m.utteranceCount} 件', style: k.text.body)),
-        SizedBox(
-          width: k.numberColumn,
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: m.openCount > 0
-                ? StatusTag('確認待ち ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
-                : Text('なし', style: k.text.small),
-          ),
-        ),
-      ]),
+      label: table
+          ? Row(children: [
+              Expanded(child: Text(m.title, style: k.text.heading)),
+              SizedBox(width: k.numberColumn, child: Text('${m.utteranceCount} 件', style: k.text.body)),
+              SizedBox(width: k.numberColumn, child: Align(alignment: Alignment.centerLeft, child: status)),
+            ])
+          : Text(m.title, style: k.text.heading),
+      content: table
+          ? null
+          : Padding(
+              padding: EdgeInsets.only(top: k.space.xs),
+              child: Wrap(spacing: k.space.md, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                Text('記録 ${m.utteranceCount} 件', style: k.text.small),
+                status,
+              ]),
+            ),
       trailing: SizedBox(width: k.gutter, child: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted)),
     );
   }
@@ -143,8 +150,6 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: k.radius.surface,
       ),
       child: Column(children: [
-        Icon(LucideIcons.notebookPen, color: k.colors.inkMuted),
-        SizedBox(height: k.space.md),
         Text('まだマニュアルがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(

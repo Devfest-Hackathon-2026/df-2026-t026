@@ -39,39 +39,42 @@ class _NewManualScreenState extends State<NewManualScreen> {
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアルを登録']),
         Expanded(
-          child: Narrow(
-            child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-              PageTitle('マニュアルを登録', meta: [Text('以後の変更は、このマニュアルへの差分として積み上げます', style: k.text.small)]),
-              SizedBox(height: k.space.xl),
-              Text('何のマニュアル？', style: k.text.heading),
-              SizedBox(height: k.space.sm),
-              MoonTextInput(
-                controller: _title,
-                hintText: '例: キッチンマニュアル / ホールの接客',
-                onChanged: (_) => setState(() {}),
-              ),
-              SizedBox(height: k.space.xl),
-              Text('今のマニュアル', style: k.text.heading),
-              SizedBox(height: k.space.xs),
-              Text('そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。', style: k.text.small),
-              SizedBox(height: k.space.sm),
-              MoonTextArea(
-                controller: _body,
-                height: k.editorHeight,
-                expands: true,
-                textStyle: k.text.body,
-                onChanged: (_) => setState(() {}),
-              ),
-              SizedBox(height: k.space.xl),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: MoonFilledButton(
-                  onTap: _ready && !_busy ? _create : null,
-                  leading: _busy ? const ButtonLoader() : null,
-                  label: Text(_busy ? '登録中…' : 'この内容で登録する'),
+          child: Container(
+            color: k.colors.canvas,
+            child: Narrow(
+              child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+                PageTitle('マニュアルを登録', meta: [Text('以後の変更は、このマニュアルへの差分として積み上げます', style: k.text.small)]),
+                SizedBox(height: k.space.xl),
+                Text('何のマニュアル？', style: k.text.heading),
+                SizedBox(height: k.space.sm),
+                MoonTextInput(
+                  controller: _title,
+                  hintText: '例: キッチンマニュアル / ホールの接客',
+                  onChanged: (_) => setState(() {}),
                 ),
-              ),
-            ]),
+                SizedBox(height: k.space.xl),
+                Text('今のマニュアル', style: k.text.heading),
+                SizedBox(height: k.space.xs),
+                Text('そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。', style: k.text.small),
+                SizedBox(height: k.space.sm),
+                MoonTextArea(
+                  controller: _body,
+                  height: k.editorHeight,
+                  expands: true,
+                  textStyle: k.text.body,
+                  onChanged: (_) => setState(() {}),
+                ),
+                SizedBox(height: k.space.xl),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MoonFilledButton(
+                    onTap: _ready && !_busy ? _create : null,
+                    leading: _busy ? const ButtonLoader() : null,
+                    label: Text(_busy ? '登録中…' : 'この内容で登録する'),
+                  ),
+                ),
+              ]),
+            ),
           ),
         ),
       ]),

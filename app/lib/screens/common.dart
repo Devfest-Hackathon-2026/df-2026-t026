@@ -164,7 +164,7 @@ class Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final n = name ?? '?';
+    final n = name == null || name!.isEmpty ? '?' : name!;
     final colors = k.colors.avatars;
     return MoonAvatar(
       avatarSize: MoonAvatarSize.xs,
@@ -395,7 +395,6 @@ class LoadFailed extends StatelessWidget {
           Text('読み込めませんでした：$message', style: k.text.body, textAlign: TextAlign.center),
           SizedBox(height: k.space.lg),
           MoonOutlinedButton(
-            leading: const Icon(LucideIcons.refreshCw),
             label: const Text('もう一度読み込む'),
             onTap: onRetry,
           ),
