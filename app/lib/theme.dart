@@ -132,6 +132,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// マニュアルを貼り付ける欄の高さ
   final double editorHeight = 320;
 
+  /// 入力ページで言われたことを書く欄の高さ
+  final double composerHeight = 160;
+
   /// 確認印の傾き（ラジアン）。手で押した印に見せる
   final double stampTilt = -0.08;
   final double stampDiameter = 80;
