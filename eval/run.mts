@@ -3,15 +3,13 @@
  *   pnpm --dir api eval              # Gemini（Vertex AI）で回す
  *   pnpm --dir api eval -- --fake    # 偽の Gemini で、スクリプト自体が動くかだけ確かめる
  *   pnpm --dir api eval -- --compare eval/results/<前回>.json   # 前回の結果と比べる
- *   pnpm --dir api eval -- --assess  # 差分化と分類を1回の呼び出しにまとめた試作で回す（#25）
  */
 import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
-import { assessWithGemini } from '../api/src/assess.ts';
-import { checkWithGemini, type CheckPatch, type Kind } from '../api/src/conflict/check.ts';
-import { fakeCheck, fakePatchify } from '../api/src/fake-ai.ts';
-import { patchifyWithGemini, type Patchify } from '../api/src/foundation/patchify.ts';
+import { assessWithGemini, type Assess } from '../api/src/assess.ts';
+import type { Kind } from '../api/src/conflict/check.ts';
+import { fakeAssess } from '../api/src/fake-ai.ts';
 import { generateJson, type GenerateJson } from '../api/src/gemini.ts';
 
 interface Case {
@@ -27,42 +25,22 @@ const cases = JSON.parse(readFileSync(new URL('./cases.json', import.meta.url), 
 const fake = process.argv.includes('--fake');
 const compareIndex = process.argv.indexOf('--compare');
 const comparePath = compareIndex >= 0 ? process.argv[compareIndex + 1] : null;
-const assess = process.argv.includes('--assess');
 const model = fake ? 'fake' : (process.env.GEMINI_MODEL ?? 'gemini-3.8-flash');
-const mode = assess ? 'まとめて1回（assess）' : '差分化→分類（patchify→check）';
+const mode = '差分化と分類を1回（assess）';
 // 呼び出し回数を数える。形が崩れたときの呼び直しや SDK のやり直しは数えない
 let calls = 0;
 const counted: GenerateJson = (req) => (calls++, generateJson(req));
-const patchify: Patchify = fake ? (i) => (calls++, fakePatchify(i)) : (i) => patchifyWithGemini(i, counted);
-const check: CheckPatch = fake ? (i) => (calls++, fakeCheck(i)) : (i) => checkWithGemini(i, counted);
+const assess: Assess = fake ? (i) => (calls++, fakeAssess(i)) : (i) => assessWithGemini(i, counted);
 // 軽い順。1件の発言から複数のパッチが出たら重い方を採る
 const kinds: Kind[] = ['same', 'addition', 'qualification', 'contradiction'];
 
 /** 1件の発言から複数のパッチが出たら、いちばん重い分類をその発言の判定にする（矛盾が1つでもあれば聞きに行くため） */
 async function judge(c: Case): Promise<{ kind: Kind; reason: string }> {
   const lines = c.manual.split('\n');
-  if (assess && !fake) {
-    const r = await assessWithGemini(
-      { lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: c.utterance, today: c.today, speakers: [] },
-      counted,
-    );
-    if (r.items.length === 0) return { kind: 'addition', reason: 'パッチなし' };
-    return r.items.map((x) => x.check).reduce((a, b) => (kinds.indexOf(b.kind) > kinds.indexOf(a.kind) ? b : a));
-  }
-  const draft = await patchify({ lines, text: c.utterance, today: c.today, speakers: [] });
+  const r = await assess({ lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: c.utterance, today: c.today, speakers: [] });
   // パッチがなければマニュアルは変わらず、聞きにも行かない
-  if (draft.patches.length === 0) return { kind: 'addition', reason: 'パッチなし' };
-  const results = await Promise.all(
-    draft.patches.map((patch) =>
-      check({
-        lines: lines.map((text) => ({ text, note: null })),
-        confirmations: [],
-        utterance: { text: c.utterance, speaker: draft.speaker, saidAt: draft.saidAt ?? c.today },
-        patch,
-      }),
-    ),
-  );
-  return results.reduce((a, b) => (kinds.indexOf(b.kind) > kinds.indexOf(a.kind) ? b : a));
+  if (r.items.length === 0) return { kind: 'addition', reason: 'パッチなし' };
+  return r.items.map((x) => x.check).reduce((a, b) => (kinds.indexOf(b.kind) > kinds.indexOf(a.kind) ? b : a));
 }
 
 console.log(`AI=${fake ? 'fake' : `gemini（${model}）`}  ${mode}  ${cases.length} 件\n`);
@@ -166,7 +144,7 @@ for (const e of kinds) {
 const dir = new URL('./results/', import.meta.url);
 mkdirSync(dir, { recursive: true });
 const stamp = report.ranAt.replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-const base = new URL(`${stamp}-${model}${assess ? '-assess' : ''}`, dir);
+const base = new URL(`${stamp}-${model}`, dir);
 writeFileSync(`${base.pathname}.json`, `${JSON.stringify(report, null, 2)}\n`);
 writeFileSync(`${base.pathname}.md`, `${md.join('\n')}\n`);
 console.log(`\n${md.join('\n')}\n\n結果: ${base.pathname}.json（PR に貼る表は .md）`);

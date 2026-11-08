@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkWithGemini } from '../src/conflict/check.ts';
-import { patchifyWithGemini } from '../src/foundation/patchify.ts';
+import { assessWithGemini } from '../src/assess.ts';
 import { routeWithGemini, transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
@@ -20,87 +19,84 @@ function stub(response: unknown) {
   return { generate, calls };
 }
 
-test('差分化：行番号を行の文字列に直す', async () => {
-  const { generate, calls } = stub({
-    speaker: '田中さん',
-    saidAt: '2026-11-03',
-    patches: [
-      { op: 'replace', lineNo: 2, text: '- 塩 小さじ1/2', summary: '塩: 小さじ1 → 小さじ1/2' },
-      { op: 'insert', lineNo: 5, text: '- おかわりは1回まで', summary: 'おかわり' },
-      { op: 'insert', lineNo: null, text: '- 閉店後に床を掃く', summary: '掃除' },
-    ],
-  });
-  const r = await patchifyWithGemini({ lines, text: '田中さんから…', today: '2026-11-03', speakers: [] }, generate);
+const ask = { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらに合わせればよいですか？' };
+
+/** まとめた呼び出しの応答のパッチ1件。指定しない項目は「追記」 */
+const item = (o: Record<string, unknown>) => ({
+  op: 'insert', lineNo: null, text: '- x', summary: 'x',
+  kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null, ...o,
+});
+
+function assessWith(patches: unknown[]) {
+  const s = stub({ speaker: '田中さん', saidAt: '2026-11-03', patches });
+  const run = () =>
+    assessWithGemini(
+      { lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: '田中さんから…', today: '2026-11-03', speakers: [] },
+      s.generate,
+    );
+  return { run, calls: s.calls };
+}
+
+test('差分化と分類を1回で受け取り、行番号を行の文字列に直す', async () => {
+  const { run, calls } = assessWith([
+    item({ op: 'replace', lineNo: 2, text: '- 塩 小さじ1/2', kind: 'contradiction', conflictLineNo: 2, ask }),
+    item({ op: 'insert', lineNo: 5, text: '- おかわりは1回まで' }),
+    item({ op: 'insert', lineNo: null, text: '- 閉店後に床を掃く' }),
+  ]);
+  const r = await run();
+  assert.equal(calls.length, 1);
   assert.deepEqual(
-    r.patches.map((p) => [p.op, p.line]),
-    [['replace', '- 塩 小さじ1'], ['insert', '- 大盛りは250gまで'], ['insert', null]],
+    r.items.map((x) => [x.patch.op, x.patch.line, x.check.kind, x.check.conflictLine]),
+    [
+      ['replace', '- 塩 小さじ1', 'contradiction', '- 塩 小さじ1'],
+      ['insert', '- 大盛りは250gまで', 'addition', null],
+      ['insert', null, 'addition', null],
+    ],
   );
+  assert.deepEqual(r.items[0].check.ask, ask);
   // マニュアル全文を行番号付きで渡している
   assert.match(calls[0].prompt, /L2: - 塩 小さじ1\n/);
 });
 
 test('差分化：見出しや範囲外の行を置き換えようとしたら受け付けない', async () => {
   for (const lineNo of [1, 3, 6]) {
-    const { generate } = stub({ speaker: null, saidAt: null, patches: [{ op: 'replace', lineNo, text: 'x', summary: 'x' }] });
-    await assert.rejects(patchifyWithGemini({ lines, text: 'x', today: '2026-11-03', speakers: [] }, generate));
+    await assert.rejects(assessWith([item({ op: 'replace', lineNo })]).run());
   }
 });
 
-const input = {
-  lines: lines.map((text) => ({ text, note: null })),
-  confirmations: [],
-  utterance: { text: '田中さんから塩は小さじ1/2', speaker: '田中さん', saidAt: '2026-11-03' },
-  patch: { op: 'replace' as const, line: '- 塩 小さじ1', text: '- 塩 小さじ1/2', summary: '' },
-};
-const ask = { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらに合わせればよいですか？' };
-
-test('分類：矛盾なら衝突相手の行を文字列で返す', async () => {
-  const { generate } = stub({ kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask });
-  const r = await checkWithGemini(input, generate);
-  assert.equal(r.conflictLine, '- 塩 小さじ1');
-  assert.deepEqual(r.ask, ask);
-});
-
 test('分類：矛盾でなければ衝突相手と確認先は返さない', async () => {
-  const { generate } = stub({ kind: 'qualification', conflictLineNo: 2, sameLineNo: null, reason: '条件付き', ask });
-  const r = await checkWithGemini(input, generate);
-  assert.equal(r.conflictLine, null);
-  assert.equal(r.ask, null);
+  const r = await assessWith([item({ kind: 'qualification', conflictLineNo: 2, ask })]).run();
+  assert.equal(r.items[0].check.conflictLine, null);
+  assert.equal(r.items[0].check.ask, null);
 });
 
 test('分類：矛盾なのに確認先や衝突相手がなければ受け付けない', async () => {
   for (const bad of [
-    { kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: 'x', ask: null },
-    { kind: 'contradiction', conflictLineNo: null, sameLineNo: null, reason: 'x', ask },
-    { kind: 'contradiction', conflictLineNo: 4, sameLineNo: null, reason: 'x', ask },
+    { kind: 'contradiction', conflictLineNo: 2, ask: null },
+    { kind: 'contradiction', conflictLineNo: null, ask },
+    { kind: 'contradiction', conflictLineNo: 4, ask },
   ]) {
-    await assert.rejects(checkWithGemini(input, stub(bad).generate));
+    await assert.rejects(assessWith([item(bad)]).run());
   }
 });
 
 test('分類：同じ内容なら、その行を文字列で返す', async () => {
-  const { generate } = stub({ kind: 'same', conflictLineNo: null, sameLineNo: 2, reason: '言い方違い', ask: null });
-  const r = await checkWithGemini(input, generate);
-  assert.equal(r.sameLine, '- 塩 小さじ1');
-  assert.equal(r.conflictLine, null);
-  assert.equal(r.ask, null);
+  const r = await assessWith([item({ kind: 'same', sameLineNo: 2 })]).run();
+  assert.equal(r.items[0].check.sameLine, '- 塩 小さじ1');
+  assert.equal(r.items[0].check.conflictLine, null);
 });
 
 test('分類：同じ内容なのに、項目の行番号がなければ受け付けない', async () => {
   for (const sameLineNo of [null, 1, 3]) {
-    await assert.rejects(checkWithGemini(input, stub({ kind: 'same', conflictLineNo: null, sameLineNo, reason: 'x', ask: null }).generate));
+    await assert.rejects(assessWith([item({ kind: 'same', sameLineNo })]).run());
   }
 });
 
 test('Gemini に渡すスキーマに、使えないキーワードを含めない', async () => {
-  const p = stub({ speaker: null, saidAt: null, patches: [] });
-  await patchifyWithGemini({ lines, text: 'x', today: '2026-11-03', speakers: [] }, p.generate);
-  const c = stub({ kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null });
-  await checkWithGemini(input, c.generate);
-  for (const req of [p.calls[0], c.calls[0]]) {
-    const json = JSON.stringify(toGeminiSchema(req.schema));
-    assert.doesNotMatch(json, /"\$schema"|"pattern"/);
-  }
+  const { run, calls } = assessWith([]);
+  await run();
+  const json = JSON.stringify(toGeminiSchema(calls[0].schema));
+  assert.doesNotMatch(json, /"\$schema"|"pattern"/);
 });
 
 test('振り分け：番号をマニュアルの添字に直し、重複を除く', async () => {
@@ -175,34 +171,4 @@ test('呼び出し：応答が上限時間を過ぎたら打ち切り、やり�
   const r = await ai.models.generateContent({ model: 'm', contents: 'x' });
   assert.equal(r.text, 'ok');
   assert.equal(calls, 2);
-});
-
-test('まとめて判定（assess）：パッチと分類を1回で受け取り、行番号を行の文字列に直す', async () => {
-  const { assessWithGemini } = await import('../src/assess.ts');
-  const ask = { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらに合わせればよいですか？' };
-  const { generate, calls } = stub({
-    speaker: '田中さん',
-    saidAt: '2026-11-03',
-    patches: [
-      { op: 'replace', lineNo: 2, text: '- 塩 小さじ1/2', summary: '塩', kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask },
-      { op: 'insert', lineNo: 5, text: '- おかわりは1回まで', summary: 'おかわり', kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: '追記', ask: null },
-    ],
-  });
-  const r = await assessWithGemini(
-    { lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: 'x', today: '2026-11-03', speakers: [] },
-    generate,
-  );
-  assert.equal(calls.length, 1);
-  assert.deepEqual(
-    r.items.map((x) => [x.patch.line, x.check.kind, x.check.conflictLine]),
-    [['- 塩 小さじ1', 'contradiction', '- 塩 小さじ1'], ['- 大盛りは250gまで', 'addition', null]],
-  );
-  const bad = stub({
-    speaker: null,
-    saidAt: null,
-    patches: [{ op: 'replace', lineNo: 2, text: 'x', summary: 'x', kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: 'x', ask: null }],
-  });
-  await assert.rejects(
-    assessWithGemini({ lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: 'x', today: '2026-11-03', speakers: [] }, bad.generate),
-  );
 });

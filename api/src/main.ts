@@ -1,10 +1,9 @@
 import { serve } from '@hono/node-server';
 
 import { createApp } from './app.ts';
-import { checkWithGemini } from './conflict/check.ts';
-import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from './fake-ai.ts';
+import { assessWithGemini } from './assess.ts';
+import { fakeAssess, fakeRoute, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
-import { patchifyWithGemini } from './foundation/patchify.ts';
 import { routeWithGemini, transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
@@ -16,8 +15,7 @@ await seed(store, 'demo');
 
 const app = createApp({
   store,
-  patchify: useGemini ? (i) => patchifyWithGemini(i) : fakePatchify,
-  check: useGemini ? (i) => checkWithGemini(i) : fakeCheck,
+  assess: useGemini ? (i) => assessWithGemini(i) : fakeAssess,
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   route: useGemini ? (i) => routeWithGemini(i) : fakeRoute,
   allowOrigin: process.env.ALLOW_ORIGIN,

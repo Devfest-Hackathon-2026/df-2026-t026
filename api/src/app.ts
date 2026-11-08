@@ -5,16 +5,16 @@ import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
-import { checkInput, type Check, type CheckPatch } from './conflict/check.ts';
+import type { Assess } from './assess.ts';
+import { manualContext, type Check } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
-import type { Patchify } from './foundation/patchify.ts';
 import type { Route, Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
 
 export interface Deps {
   store: Store;
-  patchify: Patchify;
-  check: CheckPatch;
+  /** 差分化と分類（ADR 0006） */
+  assess: Assess;
   transcribe: Transcribe;
   route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
@@ -63,7 +63,7 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, patchify, check, transcribe, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, transcribe, route, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
@@ -133,12 +133,12 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
 
-  // 取り込み → 差分化（土台） → 分類（衝突検知）
+  // 取り込み → 差分化（土台）と分類（衝突検知）。Gemini は1回（ADR 0006）
   async function record(userId: string, manualId: string, text: string, today: string) {
     const s = await load(userId, manualId);
 
     const speakers = [...new Set(s.utterances.map((u) => u.speaker).filter((x): x is string => !!x))];
-    const draft = await patchify({ lines: s.lines.map((l) => l.text), text, today, speakers });
+    const draft = await assess({ ...manualContext(s.lines, s.patches, s.utterances, s.checks), text, today, speakers });
     const utterance: Utterance = {
       id: randomUUID(),
       text,
@@ -146,7 +146,7 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
       saidAt: draft.saidAt ?? today,
       createdAt: now(),
     };
-    const patches: Patch[] = draft.patches.map((p) => ({
+    const patches: Patch[] = draft.items.map(({ patch: p }) => ({
       ...p,
       id: randomUUID(),
       utteranceId: utterance.id,
@@ -157,16 +157,14 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
     await store.put(userId, manualId, 'utterances', utterance);
     await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
 
-    const checks = await Promise.all(
-      patches.map(async (p): Promise<Check> => ({
-        ...(await check(checkInput(s.lines, s.patches, s.utterances, s.checks, utterance, p))),
-        id: randomUUID(),
-        patchId: p.id,
-        utteranceId: utterance.id,
-        resolution: null,
-        createdAt: now(),
-      })),
-    );
+    const checks: Check[] = patches.map((p, i) => ({
+      ...draft.items[i].check,
+      id: randomUUID(),
+      patchId: p.id,
+      utteranceId: utterance.id,
+      resolution: null,
+      createdAt: now(),
+    }));
     await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
     return { utteranceId: utterance.id, state: await load(userId, manualId) };
   }

@@ -1,28 +1,34 @@
 import { z } from 'zod';
 
-import { checkRules, type CheckInput, type CheckResult } from './conflict/check.ts';
+import { checkRules, type CheckResult, type ManualContext } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
-import { patchifySystem, type PatchifyResult } from './foundation/patchify.ts';
+import { patchifySystem } from './foundation/patchify.ts';
 import { generateJson, hasText, isItem, isoDate, lineNo, numbered, type GenerateJson } from './gemini.ts';
 
 /*
- * 差分化（patchify）と分類（check）を Gemini 1回で行う（#25）。
- * 呼び出し回数と待ちの段数を減らすため。保存の形（patches / checks）は分けたままにする。
- * いまは eval で精度を比べるための試作で、app.ts にはつないでいない。
+ * 差分化（土台）と分類（衝突検知）を Gemini 1回で行う（ADR 0006）。
+ * 呼び出し回数と待ちの段数を減らすため。指示文はそれぞれのモジュールが持ち、
+ * 保存の形（patches / checks）も分けたままにする。
  */
 
-export interface AssessInput {
-  /** 現行マニュアルの全行と、その行の出どころ */
-  lines: CheckInput['lines'];
-  confirmations: string[];
+export interface AssessInput extends ManualContext {
   text: string;
+  /** 「昨日」などを解釈する基準日（YYYY-MM-DD） */
   today: string;
+  /** これまでに記録した発言者。表記ゆれを揃えるのに使う */
   speakers: string[];
 }
 
-export interface AssessResult extends Omit<PatchifyResult, 'patches'> {
+export interface AssessResult {
+  /** 文中に発言者が書かれていなければ null。推測では埋めない */
+  speaker: string | null;
+  saidAt: string | null;
+  /** パッチと、その分類。指示がなければ空 */
   items: { patch: PatchDraft; check: CheckResult }[];
 }
+
+/** 口頭で言われたことを、パッチ候補とその分類にする */
+export type Assess = (input: AssessInput) => Promise<AssessResult>;
 
 const system = `${patchifySystem}
 
