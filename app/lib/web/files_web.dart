@@ -48,7 +48,12 @@ Future<List<PickedFile>> takePhoto() {
     ..accept = 'image/*'
     ..setAttribute('capture', 'environment');
   final done = Completer<List<PickedFile>>();
-  input.addEventListener('change', ((web.Event _) => _read(input.files).then(done.complete)).toJS);
+  input.addEventListener(
+    'change',
+    ((web.Event _) {
+      _read(input.files).then(done.complete);
+    }).toJS,
+  );
   input.addEventListener('cancel', ((web.Event _) => done.complete([])).toJS);
   input.click();
   return done.future;
