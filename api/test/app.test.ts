@@ -4,7 +4,7 @@ import { beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
-import { seed } from '../src/seed.ts';
+import { seed, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
 let app: ReturnType<typeof createApp>;
@@ -360,4 +360,29 @@ test('リワインド：聞き取れなければ 422、録音が無ければ 400
     silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
   assert.equal((await post({ data: '' })).status, 400);
+});
+
+test('起動時のデモの履歴は、反映済みのパッチが順に当たり、食い違いの確認が1件だけ残る', async () => {
+  const store = new MemoryStore();
+  await seedWithHistory(store, 'demo');
+  app = createApp({ store, ...ai });
+
+  const { status, json } = await call('GET', '/manuals/demo-kitchen');
+  assert.equal(status, 200);
+  const texts = json.lines.map((l: any) => l.text);
+  assert.ok(texts.includes('- まな板は使うたびに熱湯をかける（週1回は漂白する）'));
+  assert.ok(texts.includes('- 保温は2時間まで（過ぎたらまかないに回す）'));
+  assert.ok(texts.includes('- 洗った皿は左の棚に戻す'));
+  assert.ok(texts.includes('- 冷蔵庫の温度を開店前と閉店後に記録する'));
+  // ノートのままと確定した行と、まだ確認していない行は変わらない。デモで使う塩の行にも触れない
+  assert.ok(texts.includes('- 大盛りは250gまで'));
+  assert.ok(texts.includes('- ガスの元栓を閉めて写真を撮る'));
+  assert.ok(texts.includes('- 塩 小さじ1'));
+
+  const manuals = (await call('GET', '/manuals')).json;
+  assert.deepEqual(manuals.map((m: any) => [m.id, m.openCount]).sort(), [['demo-hall', 0], ['demo-kitchen', 1]]);
+
+  // 2回目の起動では積み直さない
+  await seedWithHistory(store, 'demo');
+  assert.equal((await store.list('demo', 'demo-kitchen', 'utterances')).length, json.utterances.length);
 });
