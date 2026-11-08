@@ -7,7 +7,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
 import { checkInput, type Check, type CheckPatch } from './conflict/check.ts';
-import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
+import { applyPatch, PatchError, render, type Manual, type Patch, type PatchDraft, type Utterance } from './foundation/manual.ts';
 import type { Patchify } from './foundation/patchify.ts';
 import { readFiles, type Route, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
@@ -57,7 +57,12 @@ const NewIntake = z
 const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS) });
 /** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
 const MAX_DICTATION_BYTES = 16000 * 2 * 65;
-const EditUtterance =z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
+const EditUtterance =z.object({
+  speaker: z.string().trim().min(1).optional(),
+  saidAt: date.optional(),
+  /** 直した書き起こし。変わっていれば差分と分類を作り直す */
+  text: z.string().trim().min(1).optional(),
+});
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
@@ -150,12 +155,17 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
 
+  type State = Awaited<ReturnType<typeof load>>;
+
+  const draftOf = (s: State, text: string, today: string) => {
+    const speakers = [...new Set(s.utterances.map((u) => u.speaker).filter((x): x is string => !!x))];
+    return patchify({ lines: s.lines.map((l) => l.text), text, today, speakers });
+  };
+
   // 取り込み → 差分化（土台） → 分類（衝突検知）
   async function record(userId: string, manualId: string, text: string, today: string) {
     const s = await load(userId, manualId);
-
-    const speakers = [...new Set(s.utterances.map((u) => u.speaker).filter((x): x is string => !!x))];
-    const draft = await patchify({ lines: s.lines.map((l) => l.text), text, today, speakers });
+    const draft = await draftOf(s, text, today);
     const utterance: Utterance = {
       id: randomUUID(),
       text,
@@ -163,7 +173,13 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
       saidAt: draft.saidAt ?? today,
       createdAt: now(),
     };
-    const patches: Patch[] = draft.patches.map((p) => ({
+    await propose(userId, manualId, s, utterance, draft.patches);
+    return { utteranceId: utterance.id, state: await load(userId, manualId) };
+  }
+
+  /** 発言を保存し、差分の候補ごとに分類して保存する。s にはこの発言の差分と分類を含めない */
+  async function propose(userId: string, manualId: string, s: State, utterance: Utterance, drafts: PatchDraft[]) {
+    const patches: Patch[] = drafts.map((p) => ({
       ...p,
       id: randomUUID(),
       utteranceId: utterance.id,
@@ -185,7 +201,6 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
       })),
     );
     await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
-    return { utteranceId: utterance.id, state: await load(userId, manualId) };
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
@@ -276,7 +291,39 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
     const body = EditUtterance.parse(await c.req.json());
     const s = await load(userId, manualId);
     const u = find(s.utterances, c.req.param('uid'), '発言');
-    await store.put(userId, manualId, 'utterances', { ...u, ...body });
+    const { text, ...meta } = body;
+    if (!text || text === u.text) {
+      await store.put(userId, manualId, 'utterances', { ...u, ...meta });
+      return c.json(await load(userId, manualId));
+    }
+
+    // 書き起こしの聞き間違いを直す。反映・確定したものは本文や確認の記録に残っているので直させない
+    const patches = s.patches.filter((p) => p.utteranceId === u.id);
+    const checks = s.checks.filter((x) => x.utteranceId === u.id);
+    if (patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution)) {
+      throw new HTTPException(409, { message: '反映・確定した差分があるので、書き起こしは直せません' });
+    }
+    const rest: State = {
+      ...s,
+      utterances: s.utterances.filter((x) => x.id !== u.id),
+      patches: s.patches.filter((p) => p.utteranceId !== u.id),
+      checks: s.checks.filter((x) => x.utteranceId !== u.id),
+    };
+    // 「昨日」などは記録した日を基準に読む
+    const recordedOn = new Date(u.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+    const draft = await draftOf(rest, text, recordedOn);
+    await Promise.all([
+      ...patches.map((p) => store.remove(userId, manualId, 'patches', p.id)),
+      ...checks.map((x) => store.remove(userId, manualId, 'checks', x.id)),
+    ]);
+    // 利用者が確認モーダルで入れた発言者・日付を、読み直した結果より優先する
+    const fixed: Utterance = {
+      ...u,
+      text,
+      speaker: meta.speaker ?? draft.speaker ?? u.speaker,
+      saidAt: meta.saidAt ?? draft.saidAt ?? u.saidAt,
+    };
+    await propose(userId, manualId, rest, fixed, draft.patches);
     return c.json(await load(userId, manualId));
   });
 
