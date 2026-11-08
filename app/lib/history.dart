@@ -26,6 +26,9 @@ class Commit {
   /// 枝ではその記録の確認、幹ではこの版を作った確定の記録
   final Check? check;
 
+  /// 版のとき、この版のあいだに残した、枝にしない記録（同じ内容・未反映・反映しない）
+  final asides = <Commit>[];
+
   bool get onBranch => patch != null;
 }
 
@@ -50,6 +53,9 @@ class GraphRow {
   /// 下から伸びてきて、この版に合流するレーン
   final merges = <int>{};
 
+  /// 確認していない枝が、記録した所から今まで通り抜けるレーン。点線で描く
+  final waiting = <int>{};
+
   /// この行で枝のレーンを使っている記録。枝の線を、その記録の状態の色で描くため
   final branches = <int, Commit>{};
 }
@@ -63,7 +69,8 @@ class History {
 }
 
 /// 元の本文と反映済みのパッチ（ADR 0001）から、ノートの版と枝を組み立てる。
-/// 食い違った記録は、記録した時点の版から分かれ、確定した版に合流する枝として描く
+/// 枝はノートと食い違った記録だけで、記録した時点の版から分かれ、確定した版に合流する。
+/// まだ確認していない枝は、今（いちばん新しい行）まで伸ばす
 History buildHistory(ManualState s) {
   // バックエンドの render と同じく反映した順に当てる。反映日時が同じなら記録した順（s.patches は記録順）
   final applied = [for (final (i, p) in s.patches.indexed) if (p.status == 'applied') (i, p)]
@@ -101,7 +108,7 @@ History buildHistory(ManualState s) {
       check: s.resolvedChecks.where((c) => c.resolution!.utteranceId == e.said.id).firstOrNull,
     ));
   }
-  final branches = [
+  final records = [
     for (final p in s.patches)
       if (p.status != 'applied')
         Commit(
@@ -116,6 +123,12 @@ History buildHistory(ManualState s) {
           check: s.checkOf(p.id),
         ),
   ];
+  // 同じ内容・未反映・反映しないはノートと食い違っていないので、枝にせず記録したときの版に付ける
+  final branches = [for (final r in records) if (r.check?.kind == Kind.contradiction) r];
+  for (final r in records) {
+    if (r.check?.kind == Kind.contradiction) continue;
+    trunk.lastWhere((t) => t.at.compareTo(r.at) <= 0, orElse: () => trunk.first).asides.add(r);
+  }
 
   // 古い順に並べる。同じ日時なら幹を先にする
   final rows = <GraphRow>[];
@@ -143,10 +156,12 @@ History buildHistory(ManualState s) {
     if (!r.commit.onBranch) continue;
     final f = trunkRows.lastWhere((i) => i < d);
     final resolved = r.commit.check?.resolution;
+    final open = r.commit.check?.isOpen ?? false;
     final m = resolved == null
         ? -1
         : rows.indexWhere((x) => !x.commit.onBranch && x.commit.said?.id == resolved.utteranceId);
-    final end = m < 0 ? d : m;
+    // 確認していない枝は、決着するまでレーンを空けない
+    final end = m >= 0 ? m : (open ? rows.length - 1 : d);
     var lane = laneEnds.indexWhere((e) => e < f);
     if (lane < 0) {
       laneEnds.add(end);
@@ -156,8 +171,13 @@ History buildHistory(ManualState s) {
       lane += 1;
     }
     rows[f].forks.add(lane);
-    for (var i = f + 1; i < end; i++) {
+    for (var i = f + 1; i < (m >= 0 ? m : d); i++) {
       if (i != d) rows[i].through.add(lane);
+    }
+    if (m < 0 && open) {
+      for (var i = d + 1; i <= end; i++) {
+        rows[i].waiting.add(lane);
+      }
     }
     for (var i = f; i <= end; i++) {
       rows[i].branches[lane] = r.commit;
@@ -165,7 +185,7 @@ History buildHistory(ManualState s) {
     r
       ..lane = lane
       ..down = true
-      ..up = m >= 0;
+      ..up = m >= 0 || open;
     if (m >= 0) rows[m].merges.add(lane);
   }
   return History(rows.reversed.toList(), laneEnds.length + 1);

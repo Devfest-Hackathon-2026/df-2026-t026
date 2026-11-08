@@ -112,6 +112,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   lane: k.graphLane,
                   dot: k.graphDot,
                   stroke: k.graphStroke,
+                  dash: k.graphDash,
                   trunk: k.colors.graphTrunk,
                   branch: k.colors.graphBranch,
                   pending: k.colors.graphPending,
@@ -128,10 +129,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   border: Border.all(color: selected ? k.colors.action : k.colors.canvas, width: k.hairline * 2),
                 ),
                 child: Row(children: [
-                  // 誰が・いつと本文を1つの文にし、スマホの幅でも本文の末尾を省いて1行に収める
+                  // 誰が・いつと本文を1つの文にし、スマホの幅でも本文の末尾を省いて1行に収める。
+                  // 枝は何と何が食い違ったかを先に見せ、誰がいつ言ったかを後ろに添える
                   Expanded(
                     child: Text.rich(
-                      TextSpan(children: [_whoSpan(k, x), const TextSpan(text: '  '), TextSpan(text: _message(x), style: k.text.body)]),
+                      TextSpan(
+                        children: x.onBranch
+                            ? [TextSpan(text: _conflict(x), style: k.text.body), const TextSpan(text: '  '), _whoSpan(k, x)]
+                            : [_whoSpan(k, x), const TextSpan(text: '  '), TextSpan(text: _message(x), style: k.text.body)],
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: k.text.small,
@@ -139,6 +145,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                   SizedBox(width: k.space.sm),
                   _Changes(x, short: true),
+                  if (x.asides.isNotEmpty) ...[
+                    SizedBox(width: k.space.sm),
+                    StatusTag(_asidesLabel(x.asides), bg: k.colors.rule, fg: k.colors.ink),
+                  ],
                 ]),
               ),
             ),
@@ -220,6 +230,22 @@ class _CommitDetail extends StatelessWidget {
           Text('白紙から作りました', style: k.text.small)
         else
           for (final l in x.diff) _diffLine(k, l),
+        if (x.asides.isNotEmpty) ...[
+          SizedBox(height: k.space.xl),
+          Text('この版のあいだの記録', style: k.text.title),
+          SizedBox(height: k.space.xs),
+          Text('ノートと食い違わなかったので、枝にせずここに残しています', style: k.text.small),
+          for (final a in x.asides) ...[
+            SizedBox(height: k.space.md),
+            const Rule(),
+            SizedBox(height: k.space.md),
+            Align(alignment: Alignment.centerLeft, child: _Who(a)),
+            SizedBox(height: k.space.xs),
+            Text(_message(a), style: k.text.body),
+            SizedBox(height: k.space.xs),
+            Align(alignment: Alignment.centerLeft, child: _Changes(a)),
+          ],
+        ],
       ]),
     );
   }
@@ -306,6 +332,8 @@ class _Changes extends StatelessWidget {
     final added = x.diff.where((l) => l.change == LineChange.added).length;
     final removed = x.diff.where((l) => l.change == LineChange.removed).length;
     final unit = short ? '' : ' 行';
+    // 詳細では「ノートは変えずに確定しました」と書くので、グラフの1行だけに出す
+    if (short && x.said != null && added == 0 && removed == 0) return Text('変更なし', style: k.text.small);
     return Wrap(spacing: k.space.sm, children: [
       if (added > 0) Text('+$added$unit', style: k.text.small.copyWith(color: c.added)),
       if (removed > 0) Text('-$removed$unit', style: k.text.small.copyWith(color: c.removed)),
@@ -319,6 +347,18 @@ String _message(Commit x) => switch (x) {
       // 直接編集の記録は書いた行そのもの（「- 」付き）なので、人に見せる形にする
       Commit(said: final u?) => plain(u.text),
     };
+
+/// 枝の行の見出し。確認リストの比較と同じ「ノートの行 ／ 言われた行」の形
+String _conflict(Commit x) {
+  final p = x.patch!;
+  return '${plain(x.check?.conflictLine ?? p.line ?? '')} ／ ${p.op == 'delete' ? '（消す）' : plain(p.text)}';
+}
+
+/// 版に付ける、枝にしない記録の印。種類が1つならその名前、混ざっていれば件数だけ
+String _asidesLabel(List<Commit> asides) {
+  final kinds = {for (final a in asides) _status(a)};
+  return kinds.length == 1 ? '${kinds.first} ${asides.length}' : '記録 ${asides.length}';
+}
 
 /// 枝の記録がノートに入らなかったわけ。ノート画面の発言の状態と同じ言葉にする
 String _status(Commit x) {
@@ -338,6 +378,7 @@ class _GraphPainter extends CustomPainter {
     required this.lane,
     required this.dot,
     required this.stroke,
+    required this.dash,
     required this.trunk,
     required this.branch,
     required this.pending,
@@ -347,6 +388,7 @@ class _GraphPainter extends CustomPainter {
   final double lane;
   final double dot;
   final double stroke;
+  final double dash;
   final Color trunk;
   final Color branch;
   final Color pending;
@@ -360,11 +402,26 @@ class _GraphPainter extends CustomPainter {
       ..color = color(l)
       ..strokeWidth = stroke
       ..style = PaintingStyle.stroke;
+    // 行の上端から刻むので、行をまたいでも点線の間隔がそろう
+    void dashed(double dx, double to, Paint p) {
+      for (var y = 0.0; y < to; y += dash * 2) {
+        canvas.drawLine(Offset(dx, y), Offset(dx, (y + dash).clamp(0, to)), p);
+      }
+    }
+
     final at = Offset(x(row.lane), size.height / 2);
     for (final l in row.through) {
       canvas.drawLine(Offset(x(l), 0), Offset(x(l), size.height), pen(l));
     }
-    if (row.up) canvas.drawLine(Offset(at.dx, 0), at, pen(row.lane));
+    for (final l in row.waiting) {
+      dashed(x(l), size.height, pen(l));
+    }
+    final waitingAbove = row.commit.onBranch && (row.commit.check?.isOpen ?? false);
+    if (row.up && waitingAbove) {
+      dashed(at.dx, at.dy, pen(row.lane));
+    } else if (row.up) {
+      canvas.drawLine(Offset(at.dx, 0), at, pen(row.lane));
+    }
     if (row.down) canvas.drawLine(at, Offset(at.dx, size.height), pen(row.lane));
     for (final l in row.forks) {
       canvas.drawPath(Path()..moveTo(at.dx, at.dy)..quadraticBezierTo(x(l), at.dy, x(l), 0), pen(l));

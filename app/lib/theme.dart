@@ -183,6 +183,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double graphStroke = 2.5;
   final double graphRow = 40;
 
+  /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
+  final double graphDash = 4;
+
   @override
   AppTokens copyWith() => this;
 

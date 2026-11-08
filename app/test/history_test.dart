@@ -97,9 +97,9 @@ void main() {
       expect((rows['p1']!.lane, rows['p1']!.up, rows['p1']!.down), (1, true, true));
       expect(rows['p2']!.through, {1});
       expect(rows['p3']!.merges, {1});
-      // 佐藤さんの枝：確認した版から分かれ、まだ合流していない
+      // 佐藤さんの枝：確認した版から分かれ、まだ合流せず今まで伸びる
       expect(rows['p3']!.forks, {2});
-      expect((rows['p4']!.lane, rows['p4']!.up, rows['p4']!.down), (2, false, true));
+      expect((rows['p4']!.lane, rows['p4']!.up, rows['p4']!.down), (2, true, true));
       // 枝の線を、その記録の状態の色で描けるよう、行ごとにレーンを使う記録を持つ
       expect(rows['p2']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1'});
       expect(rows['p3']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1', 2: 'p4'});
@@ -153,6 +153,55 @@ void main() {
       expect(rows['u4']!.merges, {1});
       expect(rows['p2']!.forks, {1});
     });
+
+    test('枝は食い違いだけにし、確認していない枝は今まで点線で伸ばし、同じ内容は記録したときの版に付ける', () {
+      Map<String, dynamic> same(String id, String patchId, String uid) => {
+            ..._check(id, patchId, uid, ''),
+            'kind': 'same',
+            'conflictLine': null,
+            'sameLine': '- 塩 小さじ1',
+            'ask': null,
+          };
+      final s = ManualState.fromJson({
+        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1\n- 味噌 大さじ2', 'createdAt': '2026-11-01T00:00:00Z'},
+        'lines': [
+          {'text': '- 塩 小さじ1', 'patchId': null},
+          {'text': '- 味噌 大さじ2', 'patchId': null},
+          {'text': '- だしは煮干し', 'patchId': 'p3'},
+        ],
+        'utterances': [
+          _u('u1', '塩は小さじ2で', '田中さん', '2026-11-02T10:00:00Z'),
+          _u('u2', '塩は小さじ1ね', '佐藤さん', '2026-11-03T10:00:00Z'),
+          _u('u3', '- だしは煮干し', '自分', '2026-11-04T10:00:00Z', fromEdit: true),
+          _u('u4', '味噌は大さじ1', '鈴木さん', '2026-11-05T10:00:00Z'),
+        ],
+        'patches': [
+          _p('p1', 'u1', 'replace', '- 塩 小さじ1', '- 塩 小さじ2', 'proposed', '2026-11-02T10:00:00Z'),
+          _p('p2', 'u2', 'replace', '- 塩 小さじ1', '- 塩 小さじ1', 'discarded', '2026-11-03T10:00:00Z'),
+          _p('p3', 'u3', 'insert', null, '- だしは煮干し', 'applied', '2026-11-04T10:00:00Z'),
+          _p('p4', 'u4', 'replace', '- 味噌 大さじ2', '- 味噌 大さじ1', 'proposed', '2026-11-05T10:00:00Z'),
+        ],
+        'checks': [
+          _check('c1', 'p1', 'u1', '- 塩 小さじ1'),
+          same('c2', 'p2', 'u2'),
+          _check('c4', 'p4', 'u4', '- 味噌 大さじ2'),
+        ],
+      });
+      final h = buildHistory(s);
+      final rows = {for (final r in h.rows) r.commit.id: r};
+
+      // 同じ内容は枝にせず、記録したときの版（作った版）に付ける
+      expect(h.rows.map((r) => r.commit.id), ['p4', 'p3', 'p1', 'root']);
+      expect(rows['root']!.commit.asides.map((x) => x.id), ['p2']);
+      // 確認していない2本は別のレーンに並び、どちらも今まで伸びる
+      expect(h.lanes, 3);
+      expect((rows['p1']!.lane, rows['p1']!.up), (1, true));
+      expect(rows['p3']!.waiting, {1});
+      expect(rows['p4']!.waiting, {1});
+      expect(rows['p3']!.forks, {2});
+      expect((rows['p4']!.lane, rows['p4']!.up), (2, true));
+      expect(rows['p4']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1', 2: 'p4'});
+    });
   });
 
   group('履歴の画面', () {
@@ -176,7 +225,8 @@ void main() {
       expect(find.text('版 3'), findsOneWidget);
       // 行は「誰が・いつ」と本文を1つの文にしている
       expect(find.textContaining('ノートを作った'), findsOneWidget);
-      expect(find.textContaining('だしは昆布でとって'), findsOneWidget);
+      // 枝の行は、何と何が食い違ったか（ノートの行 ／ 言われた行）を先に見せる
+      expect(find.textContaining('だしは煮干し ／ だしは昆布'), findsOneWidget);
       expect(find.text('あとで確認'), findsOneWidget);
       expect(find.text('確認済み'), findsOneWidget);
       // 1件を同じ高さの1行に詰め、行の間で線を途切れさせずに幹と枝の形を見せる
