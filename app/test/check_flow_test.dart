@@ -133,6 +133,18 @@ void main() {
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 
+  testWidgets('食い違っている行に相手の発言を並べ、押すと確認リストが開く', (tester) async {
+    await _pumpManual(tester, _client((_) {}), const Size(1400, 1000));
+
+    expect(find.text('田中さん（11/3）：'), findsOneWidget);
+    expect(find.text('食い違い'), findsOneWidget);
+    await tester.tap(find.text('・塩 小さじ1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('確認リスト'), findsWidgets);
+    expect(find.text('あとで確認（1）'), findsOneWidget);
+  });
+
   // 狭い画面では選択肢を縦に積む。はみ出すとテストが失敗する
   testWidgets('狭い画面でも、確認リストから開いて確定できる', (tester) async {
     Map<String, dynamic>? resolveBody;

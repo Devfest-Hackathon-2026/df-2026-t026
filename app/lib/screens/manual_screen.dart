@@ -171,10 +171,17 @@ class _ManualScreenState extends State<ManualScreen> {
         )
       else if (said != null)
         Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
+      // 食い違っていることをその場で見せる：「マニュアルの行 ／ 誰（日付）：言われたこと」
       for (final o in open)
-        StatusTag('あとで確認', bg: k.colors.pendingBg, fg: k.colors.pending, onTap: () => _openCheck(o)),
+        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('／', style: k.text.body.copyWith(color: k.colors.pending)),
+          Text('${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：',
+              style: k.text.small),
+          Text(plain(s.patch(o.patchId).text), style: k.text.hand),
+          StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending),
+        ]),
     ];
-    return IntrinsicHeight(
+    final row = IntrinsicHeight(
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         SizedBox(
           width: k.gutter,
@@ -195,6 +202,12 @@ class _ManualScreenState extends State<ManualScreen> {
           ),
         ),
       ]),
+    );
+    if (open.isEmpty) return row;
+    // 食い違っている行は、どこを押しても確認リストを開く。その場では解決させない
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _openList, child: row),
     );
   }
 
