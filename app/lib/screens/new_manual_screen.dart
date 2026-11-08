@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
+import '../theme.dart';
 import 'common.dart';
 
 /// 今あるマニュアルを貼り付けて登録する。以後の変更は差分として積む
@@ -32,36 +34,45 @@ class _NewManualScreenState extends State<NewManualScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final k = context.tokens;
     return Scaffold(
-      appBar: AppBar(title: const Text('マニュアルを登録')),
-      body: Narrow(
-        child: ListView(padding: const EdgeInsets.all(16), children: [
-          TextField(
-            controller: _title,
-            decoration: const InputDecoration(labelText: '何のマニュアル？', hintText: '例: キッチンマニュアル / ホールの接客'),
-            onChanged: (_) => setState(() {}),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const PageHeader(title: 'マニュアルを登録'),
+        Expanded(
+          child: Narrow(
+            child: ListView(padding: EdgeInsets.all(k.space.xl), children: [
+              Text('何のマニュアル？', style: k.text.heading),
+              SizedBox(height: k.space.sm),
+              MoonTextInput(
+                controller: _title,
+                hintText: '例: キッチンマニュアル / ホールの接客',
+                onChanged: (_) => setState(() {}),
+              ),
+              SizedBox(height: k.space.xl),
+              Text('今のマニュアル', style: k.text.heading),
+              SizedBox(height: k.space.xs),
+              Text('そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。', style: k.text.small),
+              SizedBox(height: k.space.sm),
+              MoonTextArea(
+                controller: _body,
+                height: k.editorHeight,
+                expands: true,
+                textStyle: k.text.body,
+                onChanged: (_) => setState(() {}),
+              ),
+              SizedBox(height: k.space.xl),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: MoonFilledButton(
+                  onTap: _ready && !_busy ? _create : null,
+                  leading: _busy ? const ButtonLoader() : null,
+                  label: Text(_busy ? '登録中…' : 'この内容で登録する'),
+                ),
+              ),
+            ]),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _body,
-            minLines: 10,
-            maxLines: 24,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: '今のマニュアルをそのまま貼り付けてください。\n## 見出し\n- 項目\nの形にすると読みやすくなります。',
-            ),
-          ),
-          const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: _ready && !_busy ? _create : null,
-              child: Text(_busy ? '登録中…' : 'この内容で登録する'),
-            ),
-          ),
-        ]),
-      ),
+        ),
+      ]),
     );
   }
 }

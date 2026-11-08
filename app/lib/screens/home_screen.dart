@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api.dart';
 import '../models.dart';
+import '../theme.dart';
 import 'common.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
@@ -42,59 +45,99 @@ class _HomeScreenState extends State<HomeScreen> {
     _reload();
   }
 
+  Future<void> _create() async {
+    final id = await Navigator.push<String>(
+        context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
+    if (id != null) await _open(id);
+  }
+
+  Widget _createButton() => MoonFilledButton(
+        leading: const Icon(LucideIcons.plus),
+        label: const Text('マニュアルを登録'),
+        onTap: _create,
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('DiffNote（仮）')),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add),
-        label: const Text('マニュアルを登録'),
-        onPressed: () async {
-          final id = await Navigator.push<String>(
-              context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
-          if (id != null) await _open(id);
+      body: FutureBuilder(
+        future: _manuals,
+        builder: (context, snap) {
+          final manuals = snap.data;
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            PageHeader(title: 'DiffNote（仮）', trailing: manuals?.isNotEmpty ?? false ? _createButton() : null),
+            Expanded(child: _body(snap)),
+          ]);
         },
       ),
-      body: Narrow(
-        child: FutureBuilder(
-          future: _manuals,
-          builder: (context, snap) {
-            if (snap.error case ApiException(status: 401, :final message)) {
-              return _PasscodeForm(message: message, onSubmit: _enter);
-            }
-            if (snap.hasError) {
-              return Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Text(snap.error.toString()),
-                  TextButton(onPressed: _reload, child: const Text('もう一度読み込む')),
-                ]),
-              );
-            }
-            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-            return ListView(padding: const EdgeInsets.fromLTRB(16, 16, 16, 96), children: [
-              Text('教わったことを、言った人と日付つきでマニュアルに積み上げる',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.black54)),
-              const SizedBox(height: 12),
-              for (final m in snap.data!)
-                Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.menu_book)),
-                    title: Text(m.title),
-                    subtitle: Text.rich(TextSpan(children: [
-                      TextSpan(text: '${m.utteranceCount} 件の記録'),
-                      if (m.openCount > 0)
-                        TextSpan(
-                          text: '・確認待ち ${m.openCount} 件',
-                          style: const TextStyle(color: warnFg, fontWeight: FontWeight.bold),
-                        ),
-                    ])),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _open(m.id),
-                  ),
-                ),
-            ]);
-          },
+    );
+  }
+
+  Widget _body(AsyncSnapshot<List<ManualSummary>> snap) {
+    if (snap.error case ApiException(status: 401, :final message)) {
+      return _PasscodeForm(message: message, onSubmit: _enter);
+    }
+    if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
+    if (!snap.hasData) return const Loading();
+    final manuals = snap.data!;
+    if (manuals.isEmpty) return _empty();
+
+    final k = context.tokens;
+    return Narrow(
+      child: ListView(padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.xl), children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+          child: Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small),
         ),
+        SizedBox(height: k.space.lg),
+        const Rule(),
+        for (final m in manuals) ...[_row(m), const Rule()],
+      ]),
+    );
+  }
+
+  Widget _row(ManualSummary m) {
+    final k = context.tokens;
+    return MoonMenuItem(
+      onTap: () => _open(m.id),
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
+      label: Text(m.title, style: k.text.heading),
+      content: Padding(
+        padding: EdgeInsets.only(top: k.space.xs),
+        child: Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Text('記録 ${m.utteranceCount} 件', style: k.text.small),
+          if (m.openCount > 0)
+            MoonTag(
+              tagSize: MoonTagSize.xs,
+              backgroundColor: k.colors.pendingBg,
+              borderRadius: k.radius.control,
+              label: Text('確認待ち ${m.openCount} 件', style: k.text.label.copyWith(color: k.colors.pending)),
+            ),
+        ]),
+      ),
+      trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
+    );
+  }
+
+  /// 最初の1冊を登録するまでの案内
+  Widget _empty() {
+    final k = context.tokens;
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(k.space.xl),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(LucideIcons.notebookPen, color: k.colors.inkMuted),
+          SizedBox(height: k.space.md),
+          Text('まだマニュアルがありません', style: k.text.heading),
+          SizedBox(height: k.space.sm),
+          Text(
+            '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
+            style: k.text.small,
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: k.space.xl),
+          _createButton(),
+        ]),
       ),
     );
   }
@@ -125,24 +168,27 @@ class _PasscodeFormState extends State<_PasscodeForm> {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Center(
+    final k = context.tokens;
+    return Narrow(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.symmetric(horizontal: k.space.xl, vertical: k.space.xxl),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.message, style: text.titleMedium),
-          const SizedBox(height: 4),
-          Text('合言葉は、このアプリを紹介した人に聞いてください', style: text.bodySmall?.copyWith(color: Colors.black54)),
-          const SizedBox(height: 16),
-          TextField(
+          Text(widget.message, style: k.text.heading),
+          SizedBox(height: k.space.xs),
+          Text('合言葉は、このアプリを紹介した人に聞いてください', style: k.text.small),
+          SizedBox(height: k.space.lg),
+          MoonTextInput(
             controller: _passcode,
             autofocus: true,
             obscureText: true,
-            decoration: const InputDecoration(labelText: '合言葉', border: OutlineInputBorder()),
+            hintText: '合言葉',
             onSubmitted: (_) => _submit(),
           ),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: _submit, child: const Text('入る')),
+          SizedBox(height: k.space.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoonFilledButton(label: const Text('入る'), onTap: _submit),
+          ),
         ]),
       ),
     );
