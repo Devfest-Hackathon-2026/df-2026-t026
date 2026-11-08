@@ -116,7 +116,9 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('「${_u.text}」', style: k.text.hand),
+                        StickyNote(
+                          child: Text('「${_u.text}」', style: k.text.body),
+                        ),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),

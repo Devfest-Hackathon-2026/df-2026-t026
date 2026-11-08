@@ -37,10 +37,39 @@ class StatusTag extends StatelessWidget {
   Widget build(BuildContext context) => MoonTag(
         tagSize: MoonTagSize.xs,
         backgroundColor: bg,
-        borderRadius: context.tokens.radius.control,
+        borderRadius: context.tokens.radius.round,
         onTap: onTap,
         label: Text(label, style: context.tokens.text.label.copyWith(color: fg)),
       );
+}
+
+/// 言われたことを貼る付箋。ホワイトボードの付箋のように、傾けずに置き、下側にだけ影を付ける
+class StickyNote extends StatelessWidget {
+  const StickyNote({super.key, required this.child, this.onTap});
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    final c = k.colors;
+    final note = Container(
+      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.lg, k.space.lg, k.space.md),
+      decoration: BoxDecoration(
+        color: c.sticky,
+        borderRadius: k.radius.paper,
+        boxShadow: [
+          BoxShadow(color: c.ink.withValues(alpha: 0.16), blurRadius: k.space.sm, offset: Offset(0, k.space.xs)),
+        ],
+      ),
+      child: child,
+    );
+    if (onTap == null) return note;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(onTap: onTap, child: note),
+    );
+  }
 }
 
 class KindTag extends StatelessWidget {
@@ -68,7 +97,7 @@ class TopBar extends StatelessWidget {
     final canPop = Navigator.canPop(context);
     return Container(
       decoration: BoxDecoration(
-        color: k.colors.shell,
+        color: k.colors.canvas,
         border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
       padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
@@ -158,7 +187,7 @@ class LineText extends StatelessWidget {
   }
 }
 
-/// 名前の頭文字のアバター。色は名前から決める
+/// 名前の頭文字のアバター
 class Avatar extends StatelessWidget {
   const Avatar(this.name, {super.key});
   final String? name;
@@ -167,11 +196,10 @@ class Avatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final n = name == null || name!.isEmpty ? '?' : name!;
-    final colors = k.colors.avatars;
     return MoonAvatar(
       avatarSize: MoonAvatarSize.xs,
       borderRadius: k.radius.round,
-      backgroundColor: colors[n.codeUnits.fold(0, (a, b) => a + b) % colors.length],
+      backgroundColor: k.colors.avatar,
       content: Text(n.characters.first, style: k.text.label),
     );
   }
@@ -225,7 +253,10 @@ class ConfirmStamp extends StatelessWidget {
       stamp = Container(
         width: k.stampDiameter,
         height: k.stampDiameter,
-        decoration: BoxDecoration(shape: BoxShape.circle, border: Border.fromBorderSide(line.copyWith(width: k.hairline * 2))),
+        decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: k.colors.stamp.withValues(alpha: 0.06),
+            border: Border.fromBorderSide(line.copyWith(width: k.hairline * 2))),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text('確認', style: ink),
           Container(
@@ -265,7 +296,7 @@ class PatchDiff extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.canvas,
         border: Border.all(color: c.rule, width: k.hairline),
-        borderRadius: k.radius.control,
+        borderRadius: k.radius.surface,
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -288,7 +319,6 @@ class PatchDiff extends StatelessWidget {
 
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
-/// マニュアル側は印字、言われた側は手書きの書体にして、文書と口頭の違いを見せる
 class ConflictPair extends StatelessWidget {
   const ConflictPair({
     super.key,
@@ -339,11 +369,66 @@ class ConflictPair extends StatelessWidget {
             alignment: Alignment.center,
             child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
           ),
-          side(rightLabel, right, k.text.handLarge),
+          side(rightLabel, right, k.text.title),
         ]),
       ),
     );
   }
+}
+
+/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く
+class PaperSheet extends StatelessWidget {
+  const PaperSheet({super.key, required this.child, required this.padding});
+  final Widget child;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(color: k.colors.canvas, borderRadius: k.radius.paper),
+      child: child,
+    );
+  }
+}
+
+/// 画面の地。ホワイトボードのような方眼を敷く
+class GridBackground extends StatelessWidget {
+  const GridBackground({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return CustomPaint(
+      painter: _GridPainter(color: k.colors.grid, step: k.space.xl, width: k.hairline),
+      child: child,
+    );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  _GridPainter({required this.color, required this.step, required this.width});
+  final Color color;
+  final double step;
+  final double width;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = width;
+    for (var x = 0.0; x <= size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
+    }
+    for (var y = 0.0; y <= size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => old.color != color || old.step != step || old.width != width;
 }
 
 /// 罫線

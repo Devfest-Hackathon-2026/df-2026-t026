@@ -44,10 +44,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアル']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ]),
+      ])),
     );
   }
 
@@ -57,80 +57,60 @@ class _HomeScreenState extends State<HomeScreen> {
     final manuals = snap.data!;
 
     final k = context.tokens;
-    // 狭い画面では表の列をやめ、記録数と状態を名前の下に並べる
-    final table = MediaQuery.sizeOf(context).width >= k.wideLayout;
-    return Container(
-      color: k.colors.canvas,
-      child: Narrow(
-        maxWidth: k.pageWidth,
-        child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-          PageTitle(
-            'マニュアル',
-            meta: [Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small)],
-            trailing: manuals.isEmpty ? null : _createButton(),
-          ),
-          SizedBox(height: k.space.xl),
-          if (manuals.isEmpty) _empty() else ...[
-            if (table) _headerRow(),
-            const Rule(),
-            for (final m in manuals) ...[_row(m, table: table), const Rule()],
+    return Narrow(
+      maxWidth: k.pageWidth,
+      child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+        PageTitle(
+          'マニュアル',
+          meta: [Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small)],
+          trailing: manuals.isEmpty ? null : _createButton(),
+        ),
+        SizedBox(height: k.space.xl),
+        if (manuals.isEmpty)
+          _empty()
+        else
+          for (final m in manuals) ...[
+            _sheet(m),
+            SizedBox(height: k.space.md),
           ],
-        ]),
-      ),
-    );
-  }
-
-  Widget _headerRow() {
-    final k = context.tokens;
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
-      child: Row(children: [
-        Expanded(child: Text('名前', style: k.text.small)),
-        SizedBox(width: k.numberColumn, child: Text('記録', style: k.text.small)),
-        SizedBox(width: k.numberColumn, child: Text('状態', style: k.text.small)),
-        SizedBox(width: k.gutter),
       ]),
     );
   }
 
-  Widget _row(ManualSummary m, {required bool table}) {
+  /// マニュアル1冊を、白い面1枚として見せる
+  Widget _sheet(ManualSummary m) {
     final k = context.tokens;
-    final status = m.openCount > 0
-        ? StatusTag('あとで確認 ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
-        : Text('なし', style: k.text.small);
-    return MoonMenuItem(
-      onTap: () => _open(m.id),
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-      horizontalGap: 0,
-      label: table
-          ? Row(children: [
-              Expanded(child: Text(m.title, style: k.text.heading)),
-              SizedBox(width: k.numberColumn, child: Text('${m.utteranceCount} 件', style: k.text.body)),
-              SizedBox(width: k.numberColumn, child: Align(alignment: Alignment.centerLeft, child: status)),
-            ])
-          : Text(m.title, style: k.text.heading),
-      content: table
-          ? null
-          : Padding(
-              padding: EdgeInsets.only(top: k.space.xs),
-              child: Wrap(spacing: k.space.md, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                Text('記録 ${m.utteranceCount} 件', style: k.text.small),
-                if (m.openCount > 0) status,
+    final c = k.colors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _open(m.id),
+        child: PaperSheet(
+          padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.lg),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(m.title, style: k.text.title),
+                SizedBox(height: k.space.xs),
+                Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  Text('記録 ${m.utteranceCount} 件', style: k.text.small),
+                  if (m.openCount > 0) StatusTag('あとで確認 ${m.openCount} 件', bg: c.pendingBg, fg: c.pending),
+                ]),
               ]),
             ),
-      trailing: SizedBox(width: k.gutter, child: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted)),
+            SizedBox(width: k.space.md),
+            Icon(LucideIcons.chevronRight, color: c.inkMuted),
+          ]),
+        ),
+      ),
     );
   }
 
   /// 最初の1冊を登録するまでの案内
   Widget _empty() {
     final k = context.tokens;
-    return Container(
+    return PaperSheet(
       padding: EdgeInsets.all(k.space.xxl),
-      decoration: BoxDecoration(
-        color: k.colors.shell,
-        borderRadius: k.radius.surface,
-      ),
       child: Column(children: [
         Text('まだマニュアルがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),

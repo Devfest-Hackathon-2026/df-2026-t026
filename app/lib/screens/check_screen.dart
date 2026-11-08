@@ -76,14 +76,14 @@ class _CheckScreenState extends State<CheckScreen> {
         final u = s.utterance(chk.utteranceId);
         final who = '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）';
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
-              child: Container(
-                color: k.colors.canvas,
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                  child: Narrow(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+                child: Narrow(
+                  child: PaperSheet(
+                    padding: EdgeInsets.all(k.space.xl),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       PageTitle(
                         chk.isOpen ? 'あとで確認すること' : '確認の記録',
@@ -129,7 +129,7 @@ class _CheckScreenState extends State<CheckScreen> {
                 ),
               ),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -203,7 +203,7 @@ class _CheckScreenState extends State<CheckScreen> {
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
     final keep = _choice(_Outcome.keep, 'マニュアルのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
-        _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.hand));
+        _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('確認した相手', style: k.text.small),
       SizedBox(height: k.space.xs),
@@ -266,7 +266,7 @@ class _CheckScreenState extends State<CheckScreen> {
           padding: EdgeInsets.all(k.space.md),
           decoration: BoxDecoration(
             color: k.colors.canvas,
-            border: Border.all(color: selected ? k.colors.ink : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
+            border: Border.all(color: selected ? k.colors.action : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
             borderRadius: k.radius.surface,
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -274,7 +274,7 @@ class _CheckScreenState extends State<CheckScreen> {
               MoonRadio<_Outcome>(
                 value: value,
                 groupValue: _outcome,
-                activeColor: k.colors.ink,
+                activeColor: k.colors.action,
                 inactiveColor: k.colors.inkMuted,
                 tapAreaSizeValue: k.space.xl,
                 onChanged: (v) => setState(() => _outcome = v!),

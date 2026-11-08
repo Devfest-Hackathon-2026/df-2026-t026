@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:moon_design/moon_design.dart';
 
 import '../manual_controller.dart';
 import '../models.dart';
@@ -28,42 +27,41 @@ class CheckListScreen extends StatelessWidget {
         void open(Check chk) =>
             Navigator.push(context, MaterialPageRoute(builder: (_) => CheckScreen(c: c, checkId: chk.id)));
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
             Expanded(
-              child: Container(
-                color: k.colors.canvas,
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                  child: Narrow(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      PageTitle('確認リスト', meta: [
-                        Text('マニュアルと食い違っていた指示です。聞けるときに確認して、決まったら記録します', style: k.text.small),
-                      ]),
-                      SizedBox(height: k.space.xxl),
-                      Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
-                      SizedBox(height: k.space.sm),
-                      if (s.openChecks.isEmpty)
-                        Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
-                      else ...[
-                        const Rule(),
-                        for (final chk in s.openChecks.reversed) ...[_openRow(context, s, chk, open), const Rule()],
-                      ],
-                      SizedBox(height: k.space.xxl),
-                      Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
-                      SizedBox(height: k.space.sm),
-                      if (s.resolvedChecks.isEmpty)
-                        Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
-                      else ...[
-                        const Rule(),
-                        for (final chk in s.resolvedChecks.reversed) ...[_resolvedRow(context, s, chk, open), const Rule()],
-                      ],
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+                child: Narrow(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    PageTitle('確認リスト', meta: [
+                      Text('マニュアルと食い違っていた指示です。聞けるときに確認して、決まったら記録します', style: k.text.small),
                     ]),
-                  ),
+                    SizedBox(height: k.space.xxl),
+                    Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
+                    SizedBox(height: k.space.md),
+                    if (s.openChecks.isEmpty)
+                      Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
+                    else
+                      for (final chk in s.openChecks.reversed) ...[
+                        _openRow(context, s, chk, open),
+                        SizedBox(height: k.space.md),
+                      ],
+                    SizedBox(height: k.space.xxl),
+                    Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
+                    SizedBox(height: k.space.md),
+                    if (s.resolvedChecks.isEmpty)
+                      Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
+                    else
+                      for (final chk in s.resolvedChecks.reversed) ...[
+                        _resolvedRow(context, s, chk, open),
+                        SizedBox(height: k.space.md),
+                      ],
+                  ]),
                 ),
               ),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -71,13 +69,18 @@ class CheckListScreen extends StatelessWidget {
 
   Widget _row(BuildContext context, {required VoidCallback onTap, required Utterance u, required List<Widget> body}) {
     final k = context.tokens;
-    return MoonMenuItem(
-      onTap: onTap,
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-      label: Speaker(name: u.speaker, day: u.saidAt),
-      content: Padding(
-        padding: EdgeInsets.only(top: k.space.sm),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: PaperSheet(
+          padding: EdgeInsets.all(k.space.lg),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Speaker(name: u.speaker, day: u.saidAt),
+            SizedBox(height: k.space.sm),
+            ...body,
+          ]),
+        ),
       ),
     );
   }

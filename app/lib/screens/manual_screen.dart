@@ -43,7 +43,7 @@ class _ManualScreenState extends State<ManualScreen> {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
               trailing: s == null
@@ -59,7 +59,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
                   : LayoutBuilder(builder: (context, box) => _layout(s, box.maxWidth)),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -75,7 +75,12 @@ class _ManualScreenState extends State<ManualScreen> {
       ]);
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(
+      // 方眼がタブの文字の後ろに出ないよう、白い帯に載せる
+      Container(
+        decoration: BoxDecoration(
+          color: k.colors.canvas,
+          border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
+        ),
         padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
         child: MoonTabBar(
           tabBarSize: MoonTabBarSize.sm,
@@ -91,15 +96,15 @@ class _ManualScreenState extends State<ManualScreen> {
     ]);
   }
 
-  /// 文書面：題名・メタ情報・本文
+  /// 文書面：題名・メタ情報・本文。白い面に載せる
   Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null).length;
-    return Container(
-      color: k.colors.canvas,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
-        child: Narrow(
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl),
+      child: Narrow(
+        child: PaperSheet(
+          padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
@@ -159,7 +164,7 @@ class _ManualScreenState extends State<ManualScreen> {
           Text('／', style: k.text.body.copyWith(color: k.colors.pending)),
           Text('${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：',
               style: k.text.small),
-          Text(plain(s.patch(o.patchId).text), style: k.text.hand),
+          Text(plain(s.patch(o.patchId).text), style: k.text.body),
           StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending),
         ]),
     ];
@@ -206,7 +211,7 @@ class _ManualScreenState extends State<ManualScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Speaker(name: u.speaker, day: u.saidAt),
               SizedBox(height: k.space.md),
-              Text('「${u.text}」', style: k.text.hand),
+              Text('「${u.text}」', style: k.text.body),
               SizedBox(height: k.space.xl),
               MoonOutlinedButton(label: const Text('閉じる'), onTap: () => Navigator.pop(ctx)),
             ]),
@@ -219,45 +224,45 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
-    return Container(
-      color: k.colors.shell,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (withHeader)
-          Padding(
-            padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
-            child: Text('記録した発言（${s.utterances.length}）', style: k.text.title),
-          ),
-        Expanded(
-          child: s.utterances.isEmpty
-              ? Padding(
-                  padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-                  child: Text('入力ページで記録すると、ここに並びます', style: k.text.small),
-                )
-              : ListView(children: [
-                  for (final u in s.utterances.reversed) ...[_utteranceEntry(s, u), const Rule()],
-                ]),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (withHeader)
+        Padding(
+          padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
+          child: Text('記録した発言（${s.utterances.length}）', style: k.text.title),
         ),
-      ]),
-    );
+      Expanded(
+        child: s.utterances.isEmpty
+            ? Padding(
+                padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
+                child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
+              )
+            : ListView(
+                padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
+                children: [
+                  for (final u in s.utterances.reversed) ...[
+                    _utteranceEntry(s, u),
+                    SizedBox(height: k.space.lg),
+                  ],
+                ],
+              ),
+      ),
+    ]);
   }
 
-  /// 発言：誰が・いつ → 言われたこと（手書き）→ 状態
+  /// 発言：誰が・いつ → 言われたこと → 状態。付箋で見せる
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
-    return MoonMenuItem(
+    return StickyNote(
       onTap: () => showReview(context, c, u.id),
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-      label: Speaker(name: u.speaker, day: u.saidAt),
-      content: Padding(
-        padding: EdgeInsets.only(top: k.space.sm),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(u.text, style: k.text.hand),
-          SizedBox(height: k.space.sm),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            for (final st in _statuses(s, u)) _statusTag(st),
-          ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Speaker(name: u.speaker, day: u.saidAt),
+        SizedBox(height: k.space.sm),
+        Text(u.text, style: k.text.body),
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
+          for (final st in _statuses(s, u)) _statusTag(st),
         ]),
-      ),
+      ]),
     );
   }
 
