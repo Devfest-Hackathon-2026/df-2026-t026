@@ -18,6 +18,7 @@ dependencies:
   moon_design: ^1.1.0
   record: ^7.1.2
   shared_preferences: ^2.5.6
+  web: ^1.1.2
   web_socket_channel: ^3.0.3
 
 dev_dependencies:

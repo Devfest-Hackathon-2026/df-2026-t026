@@ -57,6 +57,8 @@
 - 振り分けでどのマニュアルにも当たらなければ何も保存せず、読み取った文面を返す。利用者が記録先を選ぶと、その文面と `manualIds` で送り直す（ファイル・録音は読み直さない）。
 - 複数のマニュアルに当たったときは、差分の確認モーダルをマニュアルごとに順に出す。入力ページの「あとで確認」は、確認リストがマニュアルごとなので、件数とともに1冊ずつ並べる。
 - 受け付ける形式は PDF・PNG・JPEG・WebP・HEIC・WAV（録音）で、合わせて 10MB まで（Gemini に1回で渡せる大きさに収めるため）。
+- 声とみなす音量は、直前10秒の音量の下から1割を周りの騒音とみなし、その3倍（約 +10dB）に合わせる（静かな所では既定の RMS 500 より下げない）。換気扇や食洗機の音が続く厨房で、ずっと「話している」と判定して押すたびに15秒待たせないため（#30）。
+- 常時待ち受け中は Screen Wake Lock で画面を点けたままにする。スマホのブラウザは画面が消えるとマイクを止めるため。タブが隠れると外れるので、見えるようになったら取り直す。それでも止まったとき（マイクの流れが終わった、または画面に戻って2秒たっても音が届かない）は知らせ、ON は覚えたまま次の操作で再開する（#30）。
 
 ## 追加したライブラリ
 
@@ -65,3 +67,4 @@
 - [@google-cloud/speech](https://www.npmjs.com/package/@google-cloud/speech)（8.2.1、Apache-2.0）：Cloud Speech-to-Text v2 を ADC（Cloud Run ではサービスアカウント）で呼ぶため。Google 公式のクライアント。
 - [ws](https://www.npmjs.com/package/ws)（8.22.1、MIT）：音声入力の WebSocket を受けるため。`@hono/node-server` 2.x の WebSocket 対応がこれを使う。
 - [web_socket_channel](https://pub.dev/packages/web_socket_channel)（3.0.3、BSD-3-Clause）：アプリから音声入力の WebSocket につなぐため。Dart チームの公式パッケージ。
+- [web](https://pub.dev/packages/web)（1.1.2、BSD-3-Clause）：待ち受け中に画面を点けたままにし（Screen Wake Lock）、タブが見えるようになったことを知るため。Dart チームの公式パッケージで、これまでも他のパッケージ経由で入っていた。

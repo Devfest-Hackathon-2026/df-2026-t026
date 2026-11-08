@@ -49,3 +49,38 @@ class EnergyVad {
     return out;
   }
 }
+
+/// 周りの騒音の大きさを追い、声とみなす音量をその上に置く。
+/// 換気扇や食洗機の音が続く厨房で、ずっと「話している」と判定しないため
+class NoiseFloor {
+  /// 騒音を測る長さ（20ms ごとに 10 秒ぶん）
+  static const _window = 500;
+
+  /// 測り直す間隔（0.5 秒）
+  static const _every = 25;
+
+  /// 騒音の何倍から声とみなすか（約 +10dB）
+  static const _ratio = 3.0;
+
+  final _recent = <double>[];
+  var _next = 0;
+  var _sinceUpdate = 0;
+  var _threshold = const EnergyVad().threshold;
+
+  /// 声とみなす RMS。静かな所では EnergyVad の既定より下げない
+  double get threshold => _threshold;
+
+  void add(double rms) {
+    if (_recent.length < _window) {
+      _recent.add(rms);
+    } else {
+      _recent[_next] = rms;
+      _next = (_next + 1) % _window;
+    }
+    if (++_sinceUpdate < _every) return;
+    _sinceUpdate = 0;
+    // 話している間も言葉の切れ目で静かになるので、下から1割の大きさを騒音とみなす
+    final sorted = [..._recent]..sort();
+    _threshold = max(const EnergyVad().threshold, sorted[sorted.length ~/ 10] * _ratio);
+  }
+}

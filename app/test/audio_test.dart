@@ -1,14 +1,34 @@
+import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:diff_note/audio/capture_recorder.dart';
 import 'package:diff_note/audio/ring_buffer.dart';
 import 'package:diff_note/audio/vad.dart';
 import 'package:diff_note/audio/wav.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:record/record.dart';
 
 /// 20ms ごとに、声（true）か無音（false）を並べた標本
 Int16List _frames(List<bool> voiced) => Int16List.fromList([
       for (final v in voiced) ...List.filled(EnergyVad.frame, v ? 3000 : 0),
     ]);
+
+/// マイクの代わり。test が流した PCM をそのまま渡す
+class _FakeMic implements AudioRecorder {
+  final pcm = StreamController<Uint8List>();
+
+  @override
+  Future<bool> hasPermission({bool request = true}) async => true;
+
+  @override
+  Future<Stream<Uint8List>> startStream(RecordConfig config) async => pcm.stream;
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 void main() {
   test('リングバッファは容量を超えたら古いものから上書きし、古い順に返す', () {
@@ -43,5 +63,39 @@ void main() {
     expect(d.getUint32(24, Endian.little), 16000);
     expect(d.getUint32(40, Endian.little), 4);
     expect(d.getInt16(46, Endian.little), -1);
+  });
+
+  test('騒音の閾値は、静かな所では既定のまま、騒音が続くとその上に上がる', () {
+    final quiet = NoiseFloor();
+    for (var i = 0; i < 100; i++) {
+      quiet.add(50);
+    }
+    expect(quiet.threshold, const EnergyVad().threshold);
+
+    final kitchen = NoiseFloor();
+    for (var i = 0; i < 500; i++) {
+      // 換気扇の音（RMS 2000）の中で、ときどき声（RMS 8000）が入る
+      kitchen.add(i % 5 == 0 ? 8000 : 2000);
+    }
+    expect(kitchen.threshold, greaterThan(2000));
+    expect(kitchen.threshold, lessThan(8000));
+  });
+
+  testWidgets('待ち受けは、確かめたときに音が届いていなければ止まったと知らせる', (tester) async {
+    var stopped = 0;
+    final mic = _FakeMic();
+    final c = (await CaptureRecorder.start(mic, onStopped: () => stopped++))!;
+
+    final alive = c.checkAlive();
+    mic.pcm.add(Uint8List(640));
+    await tester.pump(const Duration(seconds: 3));
+    await alive;
+    expect(stopped, 0);
+
+    final dead = c.checkAlive();
+    await tester.pump(const Duration(seconds: 3));
+    await dead;
+    expect(stopped, 1);
+    await c.stop();
   });
 }
