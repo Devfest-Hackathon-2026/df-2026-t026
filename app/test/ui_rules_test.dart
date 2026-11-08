@@ -8,7 +8,7 @@ final _rules = {
       r'\b(Card|ListTile|AppBar|TabBar|Tab|Chip|ActionChip|ElevatedButton|FilledButton|OutlinedButton|TextButton|IconButton|FloatingActionButton|TextField|Radio|RadioListTile|RadioGroup|AlertDialog|SnackBar|CircularProgressIndicator|LinearProgressIndicator|CircleAvatar|Divider|VerticalDivider)\s*[.(<]'),
   'showDialog・ScaffoldMessenger': RegExp(r'\b(showDialog|ScaffoldMessenger)\b'),
   'lucide 以外のアイコン': RegExp(r'\b(Icons|MoonIcons)\.'),
-  '影・グラデーション・ぼかし': RegExp(r'\b(BoxShadow|LinearGradient|RadialGradient|BackdropFilter)\b'),
+  // ポップ方針（design/pop-ui）で、影・グラデーション・ぼかしは「ポップな部品」に限って解禁した
   '色のリテラル': RegExp(r'\bColor\(0x|\bColors\.'),
   '数値の余白・角丸・文字サイズ':
       RegExp(r'EdgeInsets(Directional)?\.\w+\([^)]*[1-9]|SizedBox\((width|height): *[1-9]|Radius\.circular\(|fontSize: *\d'),
