@@ -1,5 +1,8 @@
-/// 分類名はコード・UI・評価で揃える（addition / qualification / contradiction）
+import 'dart:typed_data';
+
+/// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
 enum Kind {
+  same('同じ内容'),
   addition('追記'),
   qualification('条件付きの補足'),
   contradiction('矛盾');
@@ -22,6 +25,8 @@ class ManualSummary {
 }
 
 class ManualLine {
+  ManualLine(this.text, this.patchId);
+
   ManualLine.fromJson(Map<String, dynamic> j)
       : text = j['text'],
         patchId = j['patchId'];
@@ -35,7 +40,9 @@ class Utterance {
       : id = j['id'],
         text = j['text'],
         speaker = j['speaker'],
-        saidAt = j['saidAt'];
+        saidAt = j['saidAt'],
+        fromEdit = j['fromEdit'] ?? false,
+        createdAt = j['createdAt'];
 
   final String id;
   final String text;
@@ -43,6 +50,12 @@ class Utterance {
 
   /// YYYY-MM-DD
   final String saidAt;
+
+  /// 利用者がノートを直接編集した記録。口頭で言われたことではない
+  final bool fromEdit;
+
+  /// 記録した日時（ISO 8601）
+  final String createdAt;
 }
 
 class Patch {
@@ -53,12 +66,14 @@ class Patch {
         line = j['line'],
         text = j['text'],
         summary = j['summary'],
-        status = j['status'];
+        status = j['status'],
+        createdAt = j['createdAt'],
+        appliedAt = j['appliedAt'];
 
   final String id;
   final String utteranceId;
 
-  /// replace / insert
+  /// replace / insert / delete
   final String op;
   final String? line;
   final String text;
@@ -66,6 +81,10 @@ class Patch {
 
   /// proposed / applied / discarded
   final String status;
+
+  /// 記録した日時・ノートに反映した日時（ISO 8601）。ノートは反映した順にパッチを当てて組み立てる
+  final String createdAt;
+  final String? appliedAt;
 }
 
 class AskCandidate {
@@ -102,6 +121,7 @@ class Check {
         utteranceId = j['utteranceId'],
         kind = Kind.values.byName(j['kind']),
         conflictLine = j['conflictLine'],
+        sameLine = j['sameLine'],
         reason = j['reason'],
         candidates = [
           for (final c in (j['ask']?['candidates'] as List? ?? [])) AskCandidate.fromJson(c),
@@ -114,6 +134,9 @@ class Check {
   final String utteranceId;
   final Kind kind;
   final String? conflictLine;
+
+  /// 同じ内容が書かれているマニュアルの行。same のときだけ入る
+  final String? sameLine;
   final String reason;
   final List<AskCandidate> candidates;
   final String? question;
@@ -122,10 +145,53 @@ class Check {
   bool get isOpen => kind == Kind.contradiction && resolution == null;
 }
 
+/// 選んだ・撮った・貼り付けた・ドロップしたファイル。type はブラウザが付けた形式（分からなければ空）
+typedef PickedFile = ({String name, String type, Uint8List bytes});
+
+/// 入力ページで添えるファイル（PDF／画像）か録音
+class Attachment {
+  Attachment({required this.name, required this.mimeType, required this.bytes});
+  final String name;
+  final String mimeType;
+  final Uint8List bytes;
+}
+
+/// リワインドで切り出して書き起こした未整理メモ。端末内（shared_preferences）にだけ置く（ADR 0005）
+class Memo {
+  Memo({required this.at, required this.text});
+  Memo.fromJson(Map<String, dynamic> j)
+      : at = DateTime.parse(j['at']),
+        text = j['text'];
+
+  /// 切り出しボタンを押した時刻
+  final DateTime at;
+  final String text;
+
+  Map<String, dynamic> toJson() => {'at': at.toIso8601String(), 'text': text};
+}
+
+typedef Recorded = ({String manualId, String utteranceId, ManualState state});
+
+/// 入力ページから記録した結果。関係するマニュアルごとに1件
+class IntakeResult {
+  IntakeResult.fromJson(Map<String, dynamic> j)
+      : text = j['text'],
+        results = [
+          for (final r in j['results'])
+            (manualId: r['manualId'] as String, utteranceId: r['utteranceId'] as String, state: ManualState.fromJson(r['state'])),
+        ];
+
+  /// ファイルや録音を読み取ったあとの、記録した文面
+  final String text;
+  final List<Recorded> results;
+}
+
 class ManualState {
   ManualState.fromJson(Map<String, dynamic> j)
       : id = j['manual']['id'],
         title = j['manual']['title'],
+        base = j['manual']['base'],
+        createdAt = j['manual']['createdAt'],
         lines = [for (final l in j['lines']) ManualLine.fromJson(l)],
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
@@ -133,12 +199,21 @@ class ManualState {
 
   final String id;
   final String title;
+
+  /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
+  final String base;
+
+  /// ノートを作った日時（ISO 8601）
+  final String createdAt;
   final List<ManualLine> lines;
   final List<Utterance> utterances;
   final List<Patch> patches;
   final List<Check> checks;
 
   Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
+
+  /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
+  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
   Patch patch(String id) => patches.firstWhere((p) => p.id == id);
   Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
   List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();
@@ -149,6 +224,10 @@ class ManualState {
   /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く
   Check? confirmationFor(ManualLine line) =>
       resolvedChecks.where((c) => c.resolution!.text == line.text).lastOrNull;
+
+  /// この行と同じことを言った記録。行の裏付けとして見せる
+  List<Check> sameChecksFor(ManualLine line) =>
+      checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
 
   /// この行と食い違っていて、まだ確認していない項目
   List<Check> openChecksFor(ManualLine line) =>

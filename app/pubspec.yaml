@@ -7,14 +7,19 @@ environment:
   sdk: ^3.13.5
 
 dependencies:
+  file_picker: ^13.3.2
   flutter:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  google_fonts: ^9.0.0
   http: ^1.6.0
   intl: ^0.20.3
+  lucide_icons_flutter: ^4.0.2
+  moon_design: ^1.1.0
+  record: ^7.1.2
   shared_preferences: ^2.5.6
+  web: ^1.1.2
+  web_socket_channel: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -23,3 +28,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Web では、ここに書いたフォントだけが最初の画面の前に読み終わる（fonts/README.md）
+  fonts:
+    - family: BIZUDPGothic
+      fonts:
+        - asset: fonts/BIZUDPGothic-Regular.ttf
+        - asset: fonts/BIZUDPGothic-Bold.ttf
+          weight: 700

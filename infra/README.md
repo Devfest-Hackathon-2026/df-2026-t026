@@ -2,7 +2,7 @@
 
 GCP 上の次のものを作る。手で作るのは、GCP プロジェクトそのものと課金アカウントのひも付けだけ。
 
-- Cloud Run（API。`AI=gemini`・`STORE=firestore` で動き、合言葉 `PASSCODE` を確かめる）と、そのサービスアカウント（Firestore・Vertex AI を使える）
+- Cloud Run（API。`AI=gemini`・`STORE=firestore` で動き、合言葉 `PASSCODE` を確かめる）と、そのサービスアカウント（Firestore・Vertex AI・Speech-to-Text を使える）
 - Firestore（ネイティブモード）
 - Artifact Registry（API のイメージ置き場）
 - Firebase Hosting（Web 版。`https://<プロジェクト ID>.web.app`）
@@ -43,6 +43,16 @@ terraform output -json github_variables \
 ```
 
 5 が済むと、main に push するたびに `.github/workflows/deploy.yml` が API（Cloud Run）と Web（Firebase Hosting）をデプロイする。済むまではデプロイのジョブは飛ばされる。
+
+## メンバーがローカルで本物の Gemini と Speech-to-Text を使えるようにする
+
+`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）が付く。Firestore の権限は付けない。外すときは一覧から消して `terraform apply` する。
+
+```hcl
+team_members = ["member1@gmail.com", "member2@gmail.com"]
+```
+
+メンバーの呼び出しも、このプロジェクトの課金アカウントに請求される（予算アラートにも数えられる）。メンバー側の手順はリポジトリ直下の README の「本物の Gemini と Firestore で動かす」にある。
 
 ## 注意
 

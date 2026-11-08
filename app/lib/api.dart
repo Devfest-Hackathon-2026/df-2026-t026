@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'models.dart';
 
@@ -14,15 +16,20 @@ class ApiException implements Exception {
 }
 
 class Api {
-  Api({http.Client? client, String? baseUrl, this.passcode})
+  Api({http.Client? client, String? baseUrl, this.passcode, WebSocketChannel Function(Uri)? connect})
       : _client = client ?? http.Client(),
+        _connect = connect ?? WebSocketChannel.connect,
         baseUrl = baseUrl ?? const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:8787');
 
   final http.Client _client;
+  final WebSocketChannel Function(Uri) _connect;
   final String baseUrl;
 
   /// API の合言葉。サーバーが合言葉を決めていないとき（ローカル開発）は null のままでよい
   String? passcode;
+
+  /// 記録や確定でデータが変わるたびに増える。どの画面で変えても、サイドバーの件数を合わせるため
+  final changes = ValueNotifier(0);
 
   Future<List<ManualSummary>> listManuals() async =>
       [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
@@ -32,20 +39,62 @@ class Api {
 
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
-  /// 言われたことを記録し、差分化と分類の結果を受け取る
-  Future<(String, ManualState)> record(String manualId, String text, String today) async {
-    final j = await _send('POST', '/manuals/$manualId/utterances', {'text': text, 'today': today});
-    return (j['utteranceId'] as String, ManualState.fromJson(j['state']));
+  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
+  Future<IntakeResult> intake({
+    required String text,
+    List<Attachment> files = const [],
+    List<String>? manualIds,
+    required String today,
+  }) async =>
+      IntakeResult.fromJson(await _send('POST', '/utterances', {
+        'text': text,
+        'files': [
+          for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
+        ],
+        'manualIds': ?manualIds,
+        'today': today,
+      }));
+
+  /// リワインドで切り出した WAV を書き起こす。記録はしない
+  Future<String> listen(Uint8List wav) async =>
+      (await _send('POST', '/listen', {'data': base64Encode(wav)}))['text'] as String;
+
+  /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
+  /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない
+  WebSocketChannel dictation() {
+    final base = Uri.parse(baseUrl);
+    return _connect(base.replace(
+      scheme: base.scheme == 'https' ? 'wss' : 'ws',
+      path: '${base.path}/dictation',
+      // ブラウザの WebSocket はヘッダーを付けられないので、合言葉はクエリで渡す
+      queryParameters: passcode == null ? null : {'passcode': passcode},
+    ));
   }
 
-  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
+  /// text を変えると、その文面で差分と分類を作り直す
+  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt, String? text}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
         'speaker': ?speaker,
         'saidAt': ?saidAt,
+        'text': ?text,
       }));
 
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
+
+  /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete
+  Future<ManualState> edit(String manualId,
+          {required String op, String? line, String text = '', required String today}) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
+        'op': op,
+        'line': line,
+        'text': text,
+        'today': today,
+      }));
+
+  /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめる
+  Future<ManualState> checkEdit(String manualId, String patchId) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$patchId/check', {}));
 
   Future<ManualState> discardPatch(String manualId, String id) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
@@ -82,6 +131,7 @@ class Api {
     if (res.statusCode >= 400) {
       throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
+    if (method != 'GET') changes.value++;
     return json;
   }
 }

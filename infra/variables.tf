@@ -47,3 +47,13 @@ variable "budget_amount" {
   type        = number
   default     = 3000
 }
+
+variable "team_members" {
+  description = "ローカルから本物の Gemini（Vertex AI）を呼べるようにするメンバーの Google アカウントのメールアドレス"
+  type        = list(string)
+  default     = []
+  validation {
+    condition     = alltrue([for m in var.team_members : can(regex("^[^@:\\s]+@[^@:\\s]+$", m))])
+    error_message = "team_members にはメールアドレスだけを書いてください（user: は付けない）"
+  }
+}
