@@ -24,7 +24,7 @@ pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだ�
 | 項目 | 内容 |
 |---|---|
 | `id` | ケースの ID |
-| `expected` | 正解の分類（`addition` / `qualification` / `contradiction`） |
+| `expected` | 正解の分類（`same` / `addition` / `qualification` / `contradiction`） |
 | `note` | ケースの説明 |
 | `today` | 発言を記録した日（YYYY-MM-DD） |
 | `manual` | 現行マニュアルの全文 |
@@ -32,11 +32,12 @@ pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだ�
 
 **いまのケースは仮のもの。** キッチンで働くメンバーへのインタビューで集めた実例に置き換える（目標20〜30件）。
 
-いまの16件は、後輩のモック（`diff-note-mock`）の評価セット24件を次のように読み替えたもの。モックは「指示A と指示B を比べる」形だったので、指示A をマニュアルの1行として、関係のない節（出勤・身だしなみ）と一緒に埋め込み、指示B を「〜さんに『…』と言われた」という入力文にした。
+いまの18件は、後輩のモック（`diff-note-mock`）の評価セット24件を次のように読み替えたもの。モックは「指示A と指示B を比べる」形だったので、指示A をマニュアルの1行として、関係のない節（出勤・身だしなみ）と一緒に埋め込み、指示B を「〜さんに『…』と言われた」という入力文にした。
 
 | モックの分類 | この評価での分類 | 件数 |
 |---|---|---|
 | contradiction（矛盾） | `contradiction` | 6 |
 | conditional（条件違い） | `qualification` | 6 |
 | supplement（補足） | `addition` | 4 |
-| update（更新）・same（同じ） | 入れていない（3分類への読み替えが分かれるため） | 8 |
+| same（同じ） | `same` | 2 |
+| update（更新） | 入れていない（読み替えが分かれるため。[#10](https://github.com/df-dev-kuma/diff-note/issues/10)） | 6 |

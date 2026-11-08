@@ -53,14 +53,14 @@ const input = {
 const ask = { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらに合わせればよいですか？' };
 
 test('分類：矛盾なら衝突相手の行を文字列で返す', async () => {
-  const { generate } = stub({ kind: 'contradiction', conflictLineNo: 2, reason: '量が違う', ask });
+  const { generate } = stub({ kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask });
   const r = await checkWithGemini(input, generate);
   assert.equal(r.conflictLine, '- 塩 小さじ1');
   assert.deepEqual(r.ask, ask);
 });
 
 test('分類：矛盾でなければ衝突相手と確認先は返さない', async () => {
-  const { generate } = stub({ kind: 'qualification', conflictLineNo: 2, reason: '条件付き', ask });
+  const { generate } = stub({ kind: 'qualification', conflictLineNo: 2, sameLineNo: null, reason: '条件付き', ask });
   const r = await checkWithGemini(input, generate);
   assert.equal(r.conflictLine, null);
   assert.equal(r.ask, null);
@@ -68,18 +68,32 @@ test('分類：矛盾でなければ衝突相手と確認先は返さない', as
 
 test('分類：矛盾なのに確認先や衝突相手がなければ受け付けない', async () => {
   for (const bad of [
-    { kind: 'contradiction', conflictLineNo: 2, reason: 'x', ask: null },
-    { kind: 'contradiction', conflictLineNo: null, reason: 'x', ask },
-    { kind: 'contradiction', conflictLineNo: 4, reason: 'x', ask },
+    { kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: 'x', ask: null },
+    { kind: 'contradiction', conflictLineNo: null, sameLineNo: null, reason: 'x', ask },
+    { kind: 'contradiction', conflictLineNo: 4, sameLineNo: null, reason: 'x', ask },
   ]) {
     await assert.rejects(checkWithGemini(input, stub(bad).generate));
+  }
+});
+
+test('分類：同じ内容なら、その行を文字列で返す', async () => {
+  const { generate } = stub({ kind: 'same', conflictLineNo: null, sameLineNo: 2, reason: '言い方違い', ask: null });
+  const r = await checkWithGemini(input, generate);
+  assert.equal(r.sameLine, '- 塩 小さじ1');
+  assert.equal(r.conflictLine, null);
+  assert.equal(r.ask, null);
+});
+
+test('分類：同じ内容なのに、項目の行番号がなければ受け付けない', async () => {
+  for (const sameLineNo of [null, 1, 3]) {
+    await assert.rejects(checkWithGemini(input, stub({ kind: 'same', conflictLineNo: null, sameLineNo, reason: 'x', ask: null }).generate));
   }
 });
 
 test('Gemini に渡すスキーマに、使えないキーワードを含めない', async () => {
   const p = stub({ speaker: null, saidAt: null, patches: [] });
   await patchifyWithGemini({ lines, text: 'x', today: '2026-11-03', speakers: [] }, p.generate);
-  const c = stub({ kind: 'addition', conflictLineNo: null, reason: 'x', ask: null });
+  const c = stub({ kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null });
   await checkWithGemini(input, c.generate);
   for (const req of [p.calls[0], c.calls[0]]) {
     const json = JSON.stringify(toGeminiSchema(req.schema));

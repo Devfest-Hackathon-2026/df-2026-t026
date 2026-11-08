@@ -22,7 +22,8 @@ const cases = JSON.parse(readFileSync(new URL('./cases.json', import.meta.url), 
 const fake = process.argv.includes('--fake');
 const patchify: Patchify = fake ? fakePatchify : (i) => patchifyWithGemini(i);
 const check: CheckPatch = fake ? fakeCheck : (i) => checkWithGemini(i);
-const kinds: Kind[] = ['addition', 'qualification', 'contradiction'];
+// 軽い順。1件の発言から複数のパッチが出たら重い方を採る
+const kinds: Kind[] = ['same', 'addition', 'qualification', 'contradiction'];
 
 /** 1件の発言から複数のパッチが出たら、いちばん重い分類をその発言の判定にする（矛盾が1つでもあれば聞きに行くため） */
 async function judge(c: Case): Promise<{ kind: Kind; reason: string }> {
@@ -73,7 +74,7 @@ console.log(`
 |---|---|
 | 矛盾の取りこぼし率 | ${pct(missed, shouldAsk.length)}（${missed}/${shouldAsk.length}） |
 | 誤って聞きに来た率 | ${pct(falseAsk, shouldNotAsk.length)}（${falseAsk}/${shouldNotAsk.length}） |
-| 3分類の正答率 | ${pct(judged.filter((r) => r.kind === r.c.expected).length, judged.length)} |
+| 分類の正答率 | ${pct(judged.filter((r) => r.kind === r.c.expected).length, judged.length)} |
 | エラー | ${rows.length - judged.length} 件 |`);
 
 const ms = judged.map((r) => r.ms).sort((a, b) => a - b);

@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
-/// 分類名はコード・UI・評価で揃える（addition / qualification / contradiction）
+/// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
 enum Kind {
+  same('同じ内容'),
   addition('追記'),
   qualification('条件付きの補足'),
   contradiction('矛盾');
@@ -108,6 +109,7 @@ class Check {
         utteranceId = j['utteranceId'],
         kind = Kind.values.byName(j['kind']),
         conflictLine = j['conflictLine'],
+        sameLine = j['sameLine'],
         reason = j['reason'],
         candidates = [
           for (final c in (j['ask']?['candidates'] as List? ?? [])) AskCandidate.fromJson(c),
@@ -120,6 +122,9 @@ class Check {
   final String utteranceId;
   final Kind kind;
   final String? conflictLine;
+
+  /// 同じ内容が書かれているマニュアルの行。same のときだけ入る
+  final String? sameLine;
   final String reason;
   final List<AskCandidate> candidates;
   final String? question;
@@ -179,6 +184,10 @@ class ManualState {
   /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く
   Check? confirmationFor(ManualLine line) =>
       resolvedChecks.where((c) => c.resolution!.text == line.text).lastOrNull;
+
+  /// この行と同じことを言った記録。行の裏付けとして見せる
+  List<Check> sameChecksFor(ManualLine line) =>
+      checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
 
   /// この行と食い違っていて、まだ確認していない項目
   List<Check> openChecksFor(ManualLine line) =>

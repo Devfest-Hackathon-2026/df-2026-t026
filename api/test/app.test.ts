@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
+import type { CheckInput } from '../src/conflict/check.ts';
 import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
@@ -88,6 +89,22 @@ test('条件付きの補足は元の記述と併記される', async () => {
   const r2 = await record('田中さんに、忙しい日は大盛りは200gまでと言われた');
   assert.equal(r2.check.kind, 'qualification');
   assert.equal(r2.patch.text, '- 大盛りは250gまで（忙しい日は200gまで）');
+});
+
+test('マニュアルと同じ内容は same になり、次の判定でその行の裏付けとして渡る', async () => {
+  const r = await record('佐藤さんから塩は小さじ1と言われた');
+  assert.equal(r.check.kind, 'same');
+  assert.equal(r.check.sameLine, '- 塩 小さじ1');
+  assert.equal(r.check.ask, null);
+
+  const inputs: CheckInput[] = [];
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  app = createApp({ store, ...ai, check: (i) => (inputs.push(i), fakeCheck(i)) });
+  await record('佐藤さんから塩は小さじ1と言われた');
+  await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const salt = inputs[1].lines.find((l) => l.text === '- 塩 小さじ1');
+  assert.equal(salt?.note, '佐藤さん（2026-11-03）も同じ');
 });
 
 test('発言者が分からないうちは反映できない', async () => {

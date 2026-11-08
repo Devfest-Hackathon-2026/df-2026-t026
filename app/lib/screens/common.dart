@@ -17,6 +17,8 @@ String plain(String line) => line.replaceFirst(RegExp(r'^(## |- )'), '');
 (Color, Color) kindColors(BuildContext context, Kind k) {
   final c = context.tokens.colors;
   return switch (k) {
+    // 本文を変えないので、差分や状態の色を付けない
+    Kind.same => (c.rule, c.inkMuted),
     Kind.addition => (c.addedBg, c.added),
     Kind.qualification => (c.qualifiedBg, c.qualified),
     Kind.contradiction => (c.pendingBg, c.pending),
