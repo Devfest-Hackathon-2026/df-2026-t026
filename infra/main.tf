@@ -175,6 +175,20 @@ resource "google_service_account_iam_member" "deployer_act_as_api" {
   member             = "serviceAccount:${google_service_account.deployer.email}"
 }
 
+# ---------- ローカルで本物の Gemini を試すメンバー ----------
+
+# 各自の Google アカウント（ADC）で Vertex AI を呼ぶための権限。serviceUsageConsumer は ADC の
+# クォータ用プロジェクトにこのプロジェクトを指定するために要る。Firestore の権限は付けない（本番のデータを守る）
+resource "google_project_iam_member" "team" {
+  for_each = {
+    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer"]) :
+    "${pair[0]} ${pair[1]}" => { email = pair[0], role = pair[1] }
+  }
+  project = var.project_id
+  role    = each.value.role
+  member  = "user:${each.value.email}"
+}
+
 # ---------- 予算アラート ----------
 
 data "google_project" "this" {}

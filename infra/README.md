@@ -44,6 +44,16 @@ terraform output -json github_variables \
 
 5 が済むと、main に push するたびに `.github/workflows/deploy.yml` が API（Cloud Run）と Web（Firebase Hosting）をデプロイする。済むまではデプロイのジョブは飛ばされる。
 
+## メンバーがローカルで本物の Gemini を使えるようにする
+
+`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）が付く。Firestore の権限は付けない。外すときは一覧から消して `terraform apply` する。
+
+```hcl
+team_members = ["member1@gmail.com", "member2@gmail.com"]
+```
+
+メンバーの呼び出しも、このプロジェクトの課金アカウントに請求される（予算アラートにも数えられる）。メンバー側の手順はリポジトリ直下の README の「本物の Gemini と Firestore で動かす」にある。
+
 ## 注意
 
 - 3 を飛ばして `terraform apply` すると、Firebase の追加が 403（The caller does not have permission）で止まる。3 をしてから取り込めばよい
