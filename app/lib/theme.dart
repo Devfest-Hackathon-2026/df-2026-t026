@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:moon_design/moon_design.dart';
 
 // 色・余白・角丸・書体のリテラルはこのファイルにだけ書く（.claude/rules/flutter-ui.md）
@@ -199,14 +198,13 @@ const _colors = AppColors(
 
 ThemeData appTheme() {
   final c = _colors;
-  final printed = GoogleFonts.bizUDPGothic(color: c.ink);
+  // 書体は pubspec.yaml で同梱したものだけを使う
+  final printed = TextStyle(fontFamily: 'BIZUDPGothic', color: c.ink);
   final printBold = printed.copyWith(fontWeight: FontWeight.w700);
-  // 丸ゴシックは画面の題名だけ。どこにでも使うと全体がのっぺり柔らかくなる
-  final round = GoogleFonts.mPlusRounded1c(color: c.ink, fontWeight: FontWeight.w800);
-  final hand = GoogleFonts.kleeOne(color: c.ink, fontWeight: FontWeight.w600);
+  final hand = TextStyle(fontFamily: 'KleeOne', color: c.ink, fontWeight: FontWeight.w600);
 
   final text = AppText(
-    display: round.copyWith(fontSize: 30, height: 1.3),
+    display: printBold.copyWith(fontSize: 28, height: 1.35),
     title: printBold.copyWith(fontSize: 20, height: 1.4),
     heading: printBold.copyWith(fontSize: 16, height: 1.5),
     body: printed.copyWith(fontSize: 15, height: 1.7),
