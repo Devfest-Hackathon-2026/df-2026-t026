@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import type { CheckInput } from '../src/conflict/check.ts';
-import { fakeCheck, fakeDictate, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import type { AssessInput } from '../src/assess.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -15,7 +15,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate, route: fakeRoute };
+const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate };
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
@@ -172,13 +172,13 @@ test('マニュアルと同じ内容は same になり、次の判定でその�
   assert.equal(r.check.sameLine, '- 塩 小さじ1');
   assert.equal(r.check.ask, null);
 
-  const inputs: CheckInput[] = [];
+  const inputs: AssessInput[] = [];
   const store = new MemoryStore();
   await seed(store, 'demo');
-  app = createApp({ store, ...ai, check: (i) => (inputs.push(i), fakeCheck(i)) });
+  app = createApp({ store, ...ai, assess: (i) => (inputs.push(i), fakeAssess(i)) });
   await record('佐藤さんから塩は小さじ1と言われた');
   await record('田中さんから塩は小さじ1/2でいいと言われた');
-  const salt = inputs[1].lines.find((l) => l.text === '- 塩 小さじ1');
+  const salt = inputs[1].manuals[0].lines.find((l) => l.text === '- 塩 小さじ1');
   assert.equal(salt?.note, '佐藤さん（2026-11-03）も同じ');
 });
 
@@ -190,6 +190,34 @@ test('発言者が分からないうちは反映できない', async () => {
   await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, { speaker: '鈴木さん' });
   const ok = await call('POST', `/manuals/demo-kitchen/patches/${r.patch.id}/apply`, {});
   assert.equal(ok.status, 200);
+});
+
+test('書き起こしを直すと、その文面で差分と分類を作り直し、入れた発言者は残す', async () => {
+  // 「小さじ1/2」を「小さじ1」と聞き間違えた
+  const r = await record('塩は小さじ1でいい');
+  assert.equal(r.check.kind, 'same');
+  const { status, json } = await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, {
+    text: '塩は小さじ1/2でいい',
+    speaker: '田中さん',
+  });
+  assert.equal(status, 200);
+  const u = json.utterances.find((x: any) => x.id === r.utterance.id);
+  assert.equal(u.text, '塩は小さじ1/2でいい');
+  assert.equal(u.speaker, '田中さん');
+  const patches = json.patches.filter((p: any) => p.utteranceId === u.id);
+  const checks = json.checks.filter((x: any) => x.utteranceId === u.id);
+  assert.equal(patches.length, 1);
+  assert.notEqual(patches[0].id, r.patch.id);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].kind, 'contradiction');
+  assert.equal(checks[0].patchId, patches[0].id);
+});
+
+test('反映した差分のある記録は、書き起こしを直せない', async () => {
+  const r = await record('佐藤さんから、ご飯はおかわり1回まで無料と教わった');
+  await call('POST', `/manuals/demo-kitchen/patches/${r.patch.id}/apply`, {});
+  const { status } = await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, { text: 'ご飯はおかわり2回まで無料' });
+  assert.equal(status, 409);
 });
 
 test('CORS は指定したオリジンだけを許可する', async () => {
@@ -307,4 +335,29 @@ test('入力ページから：中身が無い、受け付けない形式のフ�
   assert.equal((await call('POST', '/utterances', { text: ' ' })).status, 400);
   const data = Buffer.from('x').toString('base64');
   assert.equal((await call('POST', '/utterances', { files: [{ mimeType: 'video/mp4', data }] })).status, 400);
+});
+
+test('リワインド：切り出した録音を書き起こすだけで、記録はしない', async () => {
+  const heard: string[][] = [];
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  const rewind = createApp({ store, ...ai, listen: async (_, phrases) => (heard.push(phrases), '塩は小さじ1/2') });
+  const res = await rewind.request('/listen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: Buffer.from('RIFF').toString('base64') }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { text: '塩は小さじ1/2' });
+  assert.ok(heard[0].includes('塩'));
+  assert.equal((await store.list('demo', 'demo-kitchen', 'utterances')).length, 0);
+});
+
+test('リワインド：聞き取れなければ 422、録音が無ければ 400 を返す', async () => {
+  const store = new MemoryStore();
+  const silent = createApp({ store, ...ai, listen: async () => '' });
+  const post = (body: unknown) =>
+    silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
+  assert.equal((await post({ data: '' })).status, 400);
 });

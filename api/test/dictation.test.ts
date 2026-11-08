@@ -7,7 +7,7 @@ import { serve } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 
 import { createApp, type Deps } from '../src/app.ts';
-import { fakeCheck, fakeDictate, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -17,12 +17,11 @@ async function start(t: { after(fn: () => void): void }, deps: Partial<Deps> = {
   await seed(store, 'demo');
   const app = createApp({
     store,
-    patchify: fakePatchify,
-    check: fakeCheck,
+    assess: fakeAssess,
+    check: fakeCheckPatch,
     transcribe: fakeTranscribe,
     listen: fakeListen,
     dictate: fakeDictate,
-    route: fakeRoute,
     ...deps,
   });
   const wss = new WebSocketServer({ noServer: true });
