@@ -21,6 +21,13 @@ class AppColors {
     required this.qualified,
     required this.qualifiedBg,
     required this.stamp,
+    required this.accent,
+    required this.accentSoft,
+    required this.glass,
+    required this.tape,
+    required this.shellGrad,
+    required this.tiles,
+    required this.stickies,
     required this.avatars,
   });
 
@@ -51,6 +58,25 @@ class AppColors {
   /// 確認印（朱肉）
   final Color stamp;
 
+  /// ポップの主役色。主ボタンと選択中の印にだけ使う
+  final Color accent;
+  final Color accentSoft;
+
+  /// リキッドガラス風の面（半透明の白）
+  final Color glass;
+
+  /// 付箋や紙を留めるマスキングテープ
+  final Color tape;
+
+  /// 外枠の地に敷く、パステルのグラデーション（左上から右下）
+  final List<Color> shellGrad;
+
+  /// 一覧のタイルを順に塗るパステル
+  final List<Color> tiles;
+
+  /// 言われたことの付箋を順に塗る色
+  final List<Color> stickies;
+
   /// 発言者アバターの地。状態の色（緑・黄・赤・青）と紛れない色だけにする
   final List<Color> avatars;
 }
@@ -62,8 +88,15 @@ class AppSpace {
 
 class AppRadius {
   const AppRadius();
-  final BorderRadius control = const BorderRadius.all(Radius.circular(6));
-  final BorderRadius surface = const BorderRadius.all(Radius.circular(10));
+
+  /// 操作するもの（ボタン・タグ・入力欄）はピル型
+  final BorderRadius control = const BorderRadius.all(Radius.circular(999));
+
+  /// 面（カード・モーダル・文書）
+  final BorderRadius surface = const BorderRadius.all(Radius.circular(20));
+
+  /// 一覧のタイルなど、大きめの面
+  final BorderRadius tile = const BorderRadius.all(Radius.circular(24));
   final BorderRadius round = const BorderRadius.all(Radius.circular(999));
 }
 
@@ -107,7 +140,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double hairline = 1;
 
   /// 変更行の左余白の色線の太さ
-  final double changeBar = 3;
+  final double changeBar = 4;
 
   /// 本文の幅の上限。1行が長くなりすぎないようにする
   final double readableWidth = 720;
@@ -134,7 +167,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   /// 確認印の傾き（ラジアン）。手で押した印に見せる
   final double stampTilt = -0.08;
-  final double stampDiameter = 80;
+  final double stampDiameter = 84;
+
+  /// 付箋の傾き（ラジアン）。貼った感を出すため、少しだけ傾ける
+  final double stickyTilt = 0.012;
+
+  /// ガラス面のぼかし量
+  final double glassBlur = 14;
 
   @override
   AppTokens copyWith() => this;
@@ -148,50 +187,77 @@ extension AppTokensContext on BuildContext {
 }
 
 const _colors = AppColors(
-  shell: Color(0xFFF7F6F3),
+  shell: Color(0xFFFFF6EC),
   canvas: Color(0xFFFFFFFF),
-  ink: Color(0xFF2F2D29),
-  inkMuted: Color(0xFF6E6B65),
-  rule: Color(0xFFE8E6E1),
-  hover: Color(0x0D2F2D29),
-  added: Color(0xFF3B7457),
-  addedBg: Color(0xFFEAF3EC),
-  removed: Color(0xFFB2443B),
-  removedBg: Color(0xFFFCEBEA),
-  pending: Color(0xFF8A6116),
-  pendingBg: Color(0xFFFBF3DB),
-  qualified: Color(0xFF2C6D94),
-  qualifiedBg: Color(0xFFE7F2F8),
-  stamp: Color(0xFFC8452F),
+  ink: Color(0xFF33302B),
+  inkMuted: Color(0xFF837D73),
+  rule: Color(0xFFEFE9E0),
+  hover: Color(0x0D33302B),
+  added: Color(0xFF1E9E62),
+  addedBg: Color(0xFFDFF7E8),
+  removed: Color(0xFFE5484D),
+  removedBg: Color(0xFFFFE3E1),
+  pending: Color(0xFFC77400),
+  pendingBg: Color(0xFFFFEFC4),
+  qualified: Color(0xFF1E88C7),
+  qualifiedBg: Color(0xFFDFF2FF),
+  stamp: Color(0xFFE03E2D),
+  accent: Color(0xFFFF6B4A),
+  accentSoft: Color(0xFFFFE3D9),
+  glass: Color(0x9EFFFFFF),
+  tape: Color(0xC2FFD166),
+  shellGrad: [
+    Color(0xFFFFF1DE),
+    Color(0xFFE9F8EE),
+    Color(0xFFE3F0FF),
+  ],
+  tiles: [
+    Color(0xFFFFE8D6),
+    Color(0xFFDFF5E1),
+    Color(0xFFFFF3B8),
+    Color(0xFFDCEEFF),
+    Color(0xFFFFDFEC),
+    Color(0xFFE9E4FF),
+  ],
+  stickies: [
+    Color(0xFFFFF1A8),
+    Color(0xFFFFD6E7),
+    Color(0xFFCDEBFF),
+    Color(0xFFD8F5C3),
+    Color(0xFFFFE1B8),
+  ],
   avatars: [
-    Color(0xFFEDEBE7),
-    Color(0xFFF1E6DF),
-    Color(0xFFFBE8D8),
-    Color(0xFFEEE7F6),
-    Color(0xFFF7E5EE),
+    Color(0xFFFFD9C0),
+    Color(0xFFFFC7D9),
+    Color(0xFFBDE0FE),
+    Color(0xFFD9F99D),
+    Color(0xFFFDE68A),
+    Color(0xFFDDD6FE),
   ],
 );
 
 ThemeData appTheme() {
   final c = _colors;
   final printed = GoogleFonts.bizUDPGothic(color: c.ink);
-  final printBold = GoogleFonts.bizUDPGothic(color: c.ink, fontWeight: FontWeight.w700);
+  // 見出しは丸ゴシックでポップに。本文は読みやすい印字のまま
+  final round = GoogleFonts.mPlusRounded1c(color: c.ink, fontWeight: FontWeight.w700);
+  final roundHeavy = GoogleFonts.mPlusRounded1c(color: c.ink, fontWeight: FontWeight.w800);
   final hand = GoogleFonts.kleeOne(color: c.ink, fontWeight: FontWeight.w600);
 
   final text = AppText(
-    display: printBold.copyWith(fontSize: 28, height: 1.35),
-    title: printBold.copyWith(fontSize: 20, height: 1.4),
-    heading: printBold.copyWith(fontSize: 16, height: 1.5),
+    display: roundHeavy.copyWith(fontSize: 32, height: 1.3),
+    title: roundHeavy.copyWith(fontSize: 22, height: 1.35),
+    heading: round.copyWith(fontSize: 17, height: 1.45),
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
-    label: printBold.copyWith(fontSize: 12, height: 1.2),
+    label: round.copyWith(fontSize: 12, height: 1.2),
     hand: hand.copyWith(fontSize: 16, height: 1.6),
     handLarge: hand.copyWith(fontSize: 20, height: 1.5),
   );
 
   final moonColors = MoonColors.light.copyWith(
-    piccolo: c.ink,
-    hit: c.added,
+    piccolo: c.accent,
+    hit: c.ink,
     beerus: c.rule,
     goku: c.canvas,
     gohan: c.shell,
@@ -230,13 +296,13 @@ ThemeData appTheme() {
     shadows: const MoonShadows(sm: [], md: [], lg: [], xl: []),
     typography: MoonTypography.typography.copyWith(
       body: MoonTypography.typography.body.apply(fontFamily: printed.fontFamily, color: c.ink),
-      heading: MoonTypography.typography.heading.apply(fontFamily: printBold.fontFamily, color: c.ink),
+      heading: MoonTypography.typography.heading.apply(fontFamily: round.fontFamily, color: c.ink),
     ),
   );
 
   return ThemeData(
     colorScheme: ColorScheme.light(
-      primary: c.ink,
+      primary: c.accent,
       onPrimary: c.canvas,
       surface: c.canvas,
       onSurface: c.ink,
