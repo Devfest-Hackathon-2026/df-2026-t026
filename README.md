@@ -10,6 +10,12 @@
 | `eval/` | 衝突検知の評価セットとスクリプト |
 | `docs/` | 仕様・ADR |
 
+## ブランチと公開
+
+- 作業ブランチは `dev` から切り、`dev` に PR を出す（GitHub の既定ブランチは `dev`）
+- `dev` は手元で動かして確かめる場所。デプロイはしない
+- `dev` → `main` の PR をマージすると、GitHub Actions が本番（Cloud Run・Firebase Hosting）にデプロイする
+
 ## ローカルで動かす
 
 必要なもの：Node.js 24 以上、pnpm、[FVM](https://fvm.app/)（Flutter のバージョンは `app/.fvmrc` で固定）、Chrome。
@@ -52,8 +58,11 @@ API は環境変数で切り替える。認証は ADC（`gcloud auth application
 | `PORT` | ポート | `8787` |
 
 ```sh
-AI=gemini STORE=firestore GOOGLE_CLOUD_PROJECT=<プロジェクト ID> pnpm dev
+# 本物の Gemini で試す（データはメモリ。GCP の権限が要る）
+AI=gemini GOOGLE_CLOUD_PROJECT=diff-note-514023 pnpm dev
 ```
+
+`STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう。保存まで確かめたいときは、下のエミュレータを使う。
 
 ## テスト
 
