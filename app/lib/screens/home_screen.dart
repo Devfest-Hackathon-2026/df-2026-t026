@@ -6,9 +6,9 @@ import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
-import 'sidebar.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'sidebar.dart';
 
 /// マニュアルの一覧。入力ページの上部バー「マニュアルを確認」から開く
 class HomeScreen extends StatefulWidget {
