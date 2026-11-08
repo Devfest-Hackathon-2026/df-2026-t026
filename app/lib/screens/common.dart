@@ -103,26 +103,29 @@ class TopBar extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
       child: SafeArea(
         bottom: false,
-        child: Row(children: [
-          if (canPop) ...[
-            MoonButton.icon(
-              semanticLabel: '戻る',
-              icon: Icon(LucideIcons.arrowLeft, color: k.colors.ink),
-              onTap: () => Navigator.maybePop(context),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: k.barHeight),
+          child: Row(children: [
+            if (canPop) ...[
+              MoonButton.icon(
+                semanticLabel: '戻る',
+                icon: Icon(LucideIcons.arrowLeft, color: k.colors.ink),
+                onTap: () => Navigator.maybePop(context),
+              ),
+              SizedBox(width: k.space.xs),
+            ] else
+              SizedBox(width: k.space.sm),
+            Expanded(
+              child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+                for (var i = 0; i < crumbs.length; i++) ...[
+                  if (i > 0) Text(' / ', style: k.text.small),
+                  _crumb(context, i),
+                ],
+              ]),
             ),
-            SizedBox(width: k.space.xs),
-          ] else
-            SizedBox(width: k.space.sm),
-          Expanded(
-            child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-              for (var i = 0; i < crumbs.length; i++) ...[
-                if (i > 0) Text(' / ', style: k.text.small),
-                _crumb(context, i),
-              ],
-            ]),
-          ),
-          ?trailing,
-        ]),
+            ?trailing,
+          ]),
+        ),
       ),
     );
   }
