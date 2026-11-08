@@ -26,3 +26,24 @@ variable "gemini_location" {
   type        = string
   default     = "global"
 }
+
+variable "passcode" {
+  description = "API の合言葉（アプリで入力する）。HTTP ヘッダーで送るので英数字・ハイフン・下線だけにする"
+  type        = string
+  sensitive   = true
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{10,}$", var.passcode))
+    error_message = "合言葉は英数字・ハイフン・下線で10文字以上にしてください"
+  }
+}
+
+variable "billing_account" {
+  description = "予算アラートを付ける課金アカウントの ID（gcloud billing accounts list で見られる）"
+  type        = string
+}
+
+variable "budget_amount" {
+  description = "1か月の予算。単位は課金アカウントの通貨（いまは円）"
+  type        = number
+  default     = 3000
+}
