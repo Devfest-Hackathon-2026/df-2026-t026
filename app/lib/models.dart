@@ -133,6 +133,9 @@ class Check {
   bool get isOpen => kind == Kind.contradiction && resolution == null;
 }
 
+/// 選んだ・撮った・貼り付けた・ドロップしたファイル。type はブラウザが付けた形式（分からなければ空）
+typedef PickedFile = ({String name, String type, Uint8List bytes});
+
 /// 入力ページで添えるファイル（PDF／画像）か録音
 class Attachment {
   Attachment({required this.name, required this.mimeType, required this.bytes});
