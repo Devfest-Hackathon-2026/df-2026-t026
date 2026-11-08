@@ -579,7 +579,7 @@ class _InputScreenState extends State<InputScreen> {
     final k = context.tokens;
     final recent = [
       for (final s in manuals)
-        for (final u in s.utterances) (manual: s, u: u),
+        for (final u in s.said) (manual: s, u: u),
     ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt));
     return [
       Text('最近の記録', style: k.text.title),

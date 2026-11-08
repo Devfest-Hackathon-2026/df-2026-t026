@@ -145,7 +145,8 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
         const s = await load(userId, m.id);
         return {
           ...m,
-          utteranceCount: s.utterances.length,
+          // 直接編集は口頭の記録ではないので数えない
+          utteranceCount: s.utterances.filter((u) => !u.fromEdit).length,
           openCount: s.checks.filter((x) => x.kind === 'contradiction' && !x.resolution).length,
         };
       }),

@@ -76,6 +76,20 @@ class Api {
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
 
+  /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete
+  Future<ManualState> edit(String manualId,
+          {required String op, String? line, String text = '', required String today}) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
+        'op': op,
+        'line': line,
+        'text': text,
+        'today': today,
+      }));
+
+  /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめる
+  Future<ManualState> checkEdit(String manualId, String patchId) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$patchId/check', {}));
+
   Future<ManualState> discardPatch(String manualId, String id) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
 
