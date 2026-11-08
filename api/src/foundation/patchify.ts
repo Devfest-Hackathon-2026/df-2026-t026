@@ -23,7 +23,8 @@ export interface PatchifyResult {
 /** 口頭で言われたことを、現行マニュアルへのパッチ候補に変換する */
 export type Patchify = (input: PatchifyInput) => Promise<PatchifyResult>;
 
-const system = `あなたは、飲食店などで働く新人が「口頭で言われたこと」を、職場のマニュアルへの変更案（パッチ）に変換するアシスタントです。
+/** 差分化の指示。分類とまとめて1回で呼ぶとき（assess.ts）も同じ文面を使う */
+export const patchifySystem = `あなたは、飲食店などで働く新人が「口頭で言われたこと」を、職場のマニュアルへの変更案（パッチ）に変換するアシスタントです。
 マニュアルは行番号付きで渡します。「## 」で始まる行は見出し、「- 」で始まる行は項目です。
 
 speaker: メモに書かれた、言った人の呼び方（例: 田中さん、店長）。書かれていなければ null。推測で埋めない。これまでの発言者に同じ人がいれば、その表記に揃える。
@@ -76,7 +77,7 @@ ${today}
 
 # 新人のメモ
 ${text}`;
-  const out = await generate({ system, prompt, schema: schema(lines) });
+  const out = await generate({ system: patchifySystem, prompt, schema: schema(lines) });
   return {
     speaker: out.speaker,
     saidAt: out.saidAt,

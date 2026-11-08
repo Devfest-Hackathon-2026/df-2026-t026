@@ -176,3 +176,33 @@ test('呼び出し：応答が上限時間を過ぎたら打ち切り、やり�
   assert.equal(r.text, 'ok');
   assert.equal(calls, 2);
 });
+
+test('まとめて判定（assess）：パッチと分類を1回で受け取り、行番号を行の文字列に直す', async () => {
+  const { assessWithGemini } = await import('../src/assess.ts');
+  const ask = { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらに合わせればよいですか？' };
+  const { generate, calls } = stub({
+    speaker: '田中さん',
+    saidAt: '2026-11-03',
+    patches: [
+      { op: 'replace', lineNo: 2, text: '- 塩 小さじ1/2', summary: '塩', kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask },
+      { op: 'insert', lineNo: 5, text: '- おかわりは1回まで', summary: 'おかわり', kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: '追記', ask: null },
+    ],
+  });
+  const r = await assessWithGemini(
+    { lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: 'x', today: '2026-11-03', speakers: [] },
+    generate,
+  );
+  assert.equal(calls.length, 1);
+  assert.deepEqual(
+    r.items.map((x) => [x.patch.line, x.check.kind, x.check.conflictLine]),
+    [['- 塩 小さじ1', 'contradiction', '- 塩 小さじ1'], ['- 大盛りは250gまで', 'addition', null]],
+  );
+  const bad = stub({
+    speaker: null,
+    saidAt: null,
+    patches: [{ op: 'replace', lineNo: 2, text: 'x', summary: 'x', kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: 'x', ask: null }],
+  });
+  await assert.rejects(
+    assessWithGemini({ lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: 'x', today: '2026-11-03', speakers: [] }, bad.generate),
+  );
+});
