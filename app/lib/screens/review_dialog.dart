@@ -98,7 +98,12 @@ class _ReviewDialogState extends State<ReviewDialog> {
                   Padding(
                     padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.sm, 0),
                     child: Row(children: [
-                      Expanded(child: Text('差分の確認', style: k.text.title)),
+                      Expanded(
+                          child: Row(children: [
+                        Text('👀', style: k.text.title),
+                        SizedBox(width: k.space.sm),
+                        Text('差分の確認', style: k.text.title),
+                      ])),
                       MoonButton.icon(
                         semanticLabel: '閉じる',
                         icon: Icon(LucideIcons.x, color: k.colors.ink),
@@ -110,7 +115,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('「${_u.text}」', style: k.text.hand),
+                        StickyNote(
+                          seed: (_u.speaker ?? _u.id).codeUnits.fold(0, (a, b) => a + b),
+                          child: Text('「${_u.text}」', style: k.text.hand),
+                        ),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
