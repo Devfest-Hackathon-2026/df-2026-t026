@@ -2,9 +2,10 @@ import { serve } from '@hono/node-server';
 
 import { createApp } from './app.ts';
 import { checkWithGemini } from './conflict/check.ts';
-import { fakeCheck, fakePatchify } from './fake-ai.ts';
+import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
 import { patchifyWithGemini } from './foundation/patchify.ts';
+import { routeWithGemini, transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 
@@ -17,6 +18,8 @@ const app = createApp({
   store,
   patchify: useGemini ? (i) => patchifyWithGemini(i) : fakePatchify,
   check: useGemini ? (i) => checkWithGemini(i) : fakeCheck,
+  transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
+  route: useGemini ? (i) => routeWithGemini(i) : fakeRoute,
   allowOrigin: process.env.ALLOW_ORIGIN,
   passcode: process.env.PASSCODE,
 });

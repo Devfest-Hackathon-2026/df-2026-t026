@@ -3,7 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
-import 'screens/home_screen.dart';
+import 'screens/input_screen.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -25,7 +25,7 @@ class App extends StatelessWidget {
       supportedLocales: const [Locale('ja')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: appTheme(),
-      home: HomeScreen(api: api),
+      home: InputScreen(api: api),
     );
   }
 }

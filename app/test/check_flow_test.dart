@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
@@ -17,8 +16,15 @@ Map<String, dynamic> _state({required bool resolved}) => {
         {'text': resolved ? '- 塩 小さじ1/2' : '- 塩 小さじ1', 'patchId': resolved ? 'p2' : null},
       ],
       'utterances': [
-        {'id': 'u1', 'text': '田中さんから塩は小さじ1/2でいいと言われた', 'speaker': '田中さん', 'saidAt': '2026-11-03'},
-        if (resolved) {'id': 'u2', 'text': '1/2で統一', 'speaker': '店長', 'saidAt': '2026-11-07'},
+        {
+          'id': 'u1',
+          'text': '田中さんから塩は小さじ1/2でいいと言われた',
+          'speaker': '田中さん',
+          'saidAt': '2026-11-03',
+          'createdAt': '2026-11-03T10:00:00Z',
+        },
+        if (resolved)
+          {'id': 'u2', 'text': '1/2で統一', 'speaker': '店長', 'saidAt': '2026-11-07', 'createdAt': '2026-11-07T10:00:00Z'},
       ],
       'patches': [
         {
@@ -169,32 +175,5 @@ void main() {
     expect(resolveBody, containsPair('text', '- 塩 小さじ1/2'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
-  });
-
-  testWidgets('食い違いを記録しても確認へ急がせず、閉じるときに発言者の修正を保存する', (tester) async {
-    Map<String, dynamic>? editBody;
-    final client = MockClient((req) async {
-      final state = _state(resolved: false);
-      if (req.method == 'POST' && req.url.path.endsWith('/utterances')) {
-        return http.Response.bytes(utf8.encode(jsonEncode({'utteranceId': 'u1', 'state': state})), 200);
-      }
-      if (req.method == 'PATCH') editBody = jsonDecode(req.body);
-      return http.Response.bytes(utf8.encode(jsonEncode(state)), 200);
-    });
-    await _pumpManual(tester, client, const Size(1400, 1000));
-
-    await tester.enterText(find.widgetWithText(MoonTextInput, '例: 田中さんから、塩は小さじ1/2でいいと言われた'), '塩は1/2');
-    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('確認リストに入れました。聞けるときに確認して、決まったら記録します'), findsOneWidget);
-    expect(find.widgetWithText(MoonFilledButton, '誰に確認するか見る'), findsNothing);
-
-    await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
-    await tester.tap(find.byIcon(LucideIcons.x));
-    await tester.pumpAndSettle();
-
-    expect(editBody, containsPair('speaker', '田中さん（ホール）'));
-    expect(find.text('差分の確認'), findsNothing);
   });
 }

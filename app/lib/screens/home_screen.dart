@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api.dart';
 import '../models.dart';
@@ -10,9 +9,7 @@ import 'common.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 
-/// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
-const passcodeKey = 'passcode';
-
+/// マニュアルの一覧。入力ページの上部バー「マニュアルを確認」から開く
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.api});
   final Api api;
@@ -27,18 +24,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _reload() => setState(() {
         _manuals = widget.api.listManuals();
       });
-
-  Future<void> _enter(String passcode) async {
-    widget.api.passcode = passcode;
-    _reload();
-    try {
-      await _manuals;
-    } catch (_) {
-      return; // 違っていれば FutureBuilder がもう一度合言葉を聞く
-    }
-    // 次に開いたときにまた聞かなくて済むよう、ブラウザに覚えておく
-    await (await SharedPreferences.getInstance()).setString(passcodeKey, passcode);
-  }
 
   Future<void> _open(String id) async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => ManualScreen(api: widget.api, manualId: id)));
@@ -60,16 +45,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）']),
+        const TopBar(crumbs: ['DiffNote（仮）', 'マニュアル']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
       ]),
     );
   }
 
   Widget _body(AsyncSnapshot<List<ManualSummary>> snap) {
-    if (snap.error case ApiException(status: 401, :final message)) {
-      return _PasscodeForm(message: message, onSubmit: _enter);
-    }
     if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
     if (!snap.hasData) return const Loading();
     final manuals = snap.data!;
@@ -156,58 +138,6 @@ class _HomeScreenState extends State<HomeScreen> {
         SizedBox(height: k.space.xl),
         _createButton(),
       ]),
-    );
-  }
-}
-
-class _PasscodeForm extends StatefulWidget {
-  const _PasscodeForm({required this.message, required this.onSubmit});
-  final String message;
-  final ValueChanged<String> onSubmit;
-
-  @override
-  State<_PasscodeForm> createState() => _PasscodeFormState();
-}
-
-class _PasscodeFormState extends State<_PasscodeForm> {
-  final _passcode = TextEditingController();
-
-  @override
-  void dispose() {
-    _passcode.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final v = _passcode.text.trim();
-    if (v.isNotEmpty) widget.onSubmit(v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final k = context.tokens;
-    return Narrow(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: k.space.xl, vertical: k.space.xxl),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.message, style: k.text.heading),
-          SizedBox(height: k.space.xs),
-          Text('合言葉は、このアプリを紹介した人に聞いてください', style: k.text.small),
-          SizedBox(height: k.space.lg),
-          MoonTextInput(
-            controller: _passcode,
-            autofocus: true,
-            obscureText: true,
-            hintText: '合言葉',
-            onSubmitted: (_) => _submit(),
-          ),
-          SizedBox(height: k.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoonFilledButton(label: const Text('入る'), onTap: _submit),
-          ),
-        ]),
-      ),
     );
   }
 }

@@ -6,6 +6,14 @@ export interface JsonRequest<T> {
   prompt: string;
   /** 応答の形。JSON スキーマに変換して Gemini に渡し、受け取った後も同じスキーマで検証する */
   schema: z.ZodType<T>;
+  /** プロンプトに添えるファイル・音声 */
+  files?: InlineFile[];
+}
+
+/** base64 で受け渡すファイル・音声 */
+export interface InlineFile {
+  mimeType: string;
+  data: string;
 }
 
 export type GenerateJson = <T>(req: JsonRequest<T>) => Promise<T>;
@@ -29,13 +37,15 @@ export function toGeminiSchema(schema: z.ZodType): Record<string, unknown> {
 }
 
 /** スキーマ付きで Gemini を呼び、検証済みの結果を返す。形が合わなければ1回だけ呼び直す */
-export const generateJson: GenerateJson = async ({ system, prompt, schema }) => {
+export const generateJson: GenerateJson = async ({ system, prompt, schema, files }) => {
   const jsonSchema = toGeminiSchema(schema);
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await gemini().models.generateContent({
       model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
-      contents: prompt,
+      contents: files?.length
+        ? [{ role: 'user', parts: [{ text: prompt }, ...files.map((f) => ({ inlineData: f }))] }]
+        : prompt,
       config: {
         systemInstruction: system,
         responseMimeType: 'application/json',
