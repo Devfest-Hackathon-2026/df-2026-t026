@@ -6,6 +6,7 @@
 - LLM は Gemini を Vertex AI 経由で呼ぶ。AI Studio の API キーは使わない
 - `infra/` Terraform、CI/CD は GitHub Actions。GCP リソースを手で作らない
 - モノレポ。`eval/` に衝突検知の評価セット、`docs/` に企画資料
+- `app/` の画面は moon_design と lucide で作り、`.claude/rules/flutter-ui.md` に従う（ADR 0004）
 
 ## 作業の仕方
 - 最初に `git status --short` と対象の実装・テストを確認し既存のユーザー変更を保ってください。

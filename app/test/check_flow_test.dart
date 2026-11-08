@@ -2,10 +2,12 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:moon_design/moon_design.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
       'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -79,6 +81,7 @@ void main() {
       return http.Response.bytes(utf8.encode(jsonEncode(_state(resolved: resolved))), 200);
     });
     await tester.pumpWidget(MaterialApp(
+      theme: appTheme(),
       home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
     ));
     await tester.pumpAndSettle();
@@ -91,11 +94,12 @@ void main() {
     expect(find.text('お店のやり方を決める立場なので'), findsOneWidget);
     expect(find.textContaining('どちらに合わせればよいですか'), findsOneWidget);
 
-    final note = find.widgetWithText(TextField, 'メモ（何と言われたか）');
+    final note = find.widgetWithText(MoonTextInput, '例: 1/2で統一');
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');
-    await tester.ensureVisible(find.text('確定する'));
-    await tester.tap(find.text('確定する'));
+    final confirm = find.widgetWithText(MoonFilledButton, '確定する');
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
     await tester.pumpAndSettle();
 
     expect(resolveBody, containsPair('decidedBy', '店長'));
@@ -103,5 +107,6 @@ void main() {
     expect(resolveBody, containsPair('note', '1/2で統一'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     expect(find.text('確定した内容：塩 小さじ1/2'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 }
