@@ -33,4 +33,8 @@ export class FirestoreStore implements Store {
   async put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T) {
     await this.manuals(userId).doc(manualId).collection(collection).doc(doc.id).set(doc);
   }
+
+  async remove(userId: string, manualId: string, collection: string, id: string) {
+    await this.manuals(userId).doc(manualId).collection(collection).doc(id).delete();
+  }
 }

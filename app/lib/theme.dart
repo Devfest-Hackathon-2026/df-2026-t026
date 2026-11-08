@@ -159,6 +159,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 入力ページの最近の記録に並べる付箋の幅
   final double stickyWidth = 220;
 
+  /// 入力ページで添えた画像のサムネイルの大きさ
+  final double thumbnail = 64;
+
   /// 確認印の傾き（ラジアン）。手で押した印に見せる
   final double stampTilt = -0.08;
   final double stampDiameter = 84;

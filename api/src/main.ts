@@ -2,11 +2,11 @@ import { serve } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 
 import { createApp } from './app.ts';
+import { assessWithGemini } from './assess.ts';
 import { checkWithGemini } from './conflict/check.ts';
-import { fakeCheck, fakeDictate, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from './fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
-import { patchifyWithGemini } from './foundation/patchify.ts';
-import { routeWithGemini, transcribeWithGemini } from './intake.ts';
+import { transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
@@ -18,12 +18,11 @@ await seed(store, 'demo');
 
 const app = createApp({
   store,
-  patchify: useGemini ? (i) => patchifyWithGemini(i) : fakePatchify,
-  check: useGemini ? (i) => checkWithGemini(i) : fakeCheck,
+  assess: useGemini ? (i) => assessWithGemini(i) : fakeAssess,
+  check: useGemini ? (i) => checkWithGemini(i) : fakeCheckPatch,
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   listen: useGemini ? listenWithSpeech : fakeListen,
   dictate: useGemini ? dictateWithSpeech : fakeDictate,
-  route: useGemini ? (i) => routeWithGemini(i) : fakeRoute,
   allowOrigin: process.env.ALLOW_ORIGIN,
   passcode: process.env.PASSCODE,
 });
