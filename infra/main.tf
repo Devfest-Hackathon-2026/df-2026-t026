@@ -182,7 +182,7 @@ resource "google_service_account_iam_member" "deployer_act_as_api" {
 # クォータ用プロジェクトにこのプロジェクトを指定するために要る。Firestore の権限は付けない（本番のデータを守る）
 resource "google_project_iam_member" "team" {
   for_each = {
-    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/speech.client", "roles/serviceusage.serviceUsageConsumer"]) :
+    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer", "roles/speech.client"]) :
     "${pair[0]} ${pair[1]}" => { email = pair[0], role = pair[1] }
   }
   project = var.project_id

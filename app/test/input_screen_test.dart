@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
@@ -175,9 +176,12 @@ void main() {
 
     expect(find.text('言われたことを記録'), findsOneWidget);
     expect(find.text('あとで確認 1 件'), findsOneWidget);
-    final newer = tester.getTopLeft(find.text('お冷やはすぐ出す')).dy;
-    final older = tester.getTopLeft(find.text('塩は小さじ1/2')).dy;
-    expect(newer, lessThan(older));
+    // 最近の記録は付箋を横にも並べるので、画面上の高さではなく並び順で比べる
+    final texts = tester
+        .widgetList<Text>(find.descendant(of: find.byType(StickyNote), matching: find.byType(Text)))
+        .map((t) => t.data)
+        .toList();
+    expect(texts.indexOf('お冷やはすぐ出す'), lessThan(texts.indexOf('塩は小さじ1/2')));
   });
 
   testWidgets('マニュアルを選ばずに記録し、関係するマニュアルごとに差分の確認を順に出す', (tester) async {

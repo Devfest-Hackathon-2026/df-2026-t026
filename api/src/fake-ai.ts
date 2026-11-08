@@ -39,12 +39,16 @@ export const fakePatchify: Patchify = async ({ lines, text, today }) => {
   return { speaker, saidAt, patches: [patch] };
 };
 
-export const fakeCheck: CheckPatch = async ({ patch, utterance }) => {
+export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
+  const same = lines.find((l) => l.text === patch.text);
+  if (same) {
+    return { kind: 'same', conflictLine: null, sameLine: same.text, reason: `マニュアルの「${strip(same.text)}」と同じ内容です`, ask: null };
+  }
   if (patch.op === 'insert') {
-    return { kind: 'addition', conflictLine: null, reason: '既存の記述に触れない追記です', ask: null };
+    return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
   }
   if (patch.text.startsWith(`${patch.line}（`)) {
-    return { kind: 'qualification', conflictLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
+    return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
   }
   const candidates = [{ who: '店長', why: 'お店のやり方を決める立場なので' }];
   if (utterance.speaker && utterance.speaker !== '店長') {
@@ -53,6 +57,7 @@ export const fakeCheck: CheckPatch = async ({ patch, utterance }) => {
   return {
     kind: 'contradiction',
     conflictLine: patch.line,
+    sameLine: null,
     reason: `マニュアルの「${strip(patch.line!)}」と両立しません`,
     ask: {
       candidates,

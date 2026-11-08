@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:moon_design/moon_design.dart';
 
 // 色・余白・角丸・書体のリテラルはこのファイルにだけ書く（.claude/rules/flutter-ui.md）
@@ -21,13 +20,16 @@ class AppColors {
     required this.qualified,
     required this.qualifiedBg,
     required this.stamp,
-    required this.avatars,
+    required this.action,
+    required this.grid,
+    required this.sticky,
+    required this.avatar,
   });
 
-  /// 外枠（画面の地・右パネル）
+  /// 画面の地。ホワイトボードのような明るい灰色。クリームやベージュにすると AI が作った画面の既定の色に見える
   final Color shell;
 
-  /// 文書面・入力欄・モーダル
+  /// 白い面（フレーム）・入力欄・モーダル
   final Color canvas;
   final Color ink;
   final Color inkMuted;
@@ -48,11 +50,20 @@ class AppColors {
   final Color qualified;
   final Color qualifiedBg;
 
-  /// 確認印（朱肉）
+  /// 確認印（朱肉）。画面で朱を使うのは確認印だけにして、印を目立たせる
   final Color stamp;
 
-  /// 発言者アバターの地。状態の色（緑・黄・赤・青）と紛れない色だけにする
-  final List<Color> avatars;
+  /// 主ボタンと選択中の印。状態の色（特に条件付きの青緑）と紛れない青にする
+  final Color action;
+
+  /// 地の方眼の線
+  final Color grid;
+
+  /// 言われたことの付箋。本物の付箋と同じ黄色1色にする。誰が言ったかはアバターと名前で示す
+  final Color sticky;
+
+  /// 発言者アバターの地。色で人を区別せず、頭文字で示す
+  final Color avatar;
 }
 
 class AppSpace {
@@ -62,8 +73,17 @@ class AppSpace {
 
 class AppRadius {
   const AppRadius();
+
+  /// 操作するもの（ボタン・入力欄）
   final BorderRadius control = const BorderRadius.all(Radius.circular(6));
+
+  /// 面（モーダル・比較の枠）
   final BorderRadius surface = const BorderRadius.all(Radius.circular(10));
+
+  /// 紙と付箋。本物の紙に見せるため、ほとんど丸めない
+  final BorderRadius paper = const BorderRadius.all(Radius.circular(2));
+
+  /// アバターと状態のタグ
   final BorderRadius round = const BorderRadius.all(Radius.circular(999));
 }
 
@@ -75,8 +95,6 @@ class AppText {
     required this.body,
     required this.small,
     required this.label,
-    required this.hand,
-    required this.handLarge,
   });
 
   /// 内容の頭に置く題名
@@ -89,9 +107,6 @@ class AppText {
   /// タグ・確認印・アバターなど、小さく太い文字
   final TextStyle label;
 
-  /// 口頭で言われたこと（手書き）
-  final TextStyle hand;
-  final TextStyle handLarge;
 }
 
 @immutable
@@ -107,7 +122,7 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double hairline = 1;
 
   /// 変更行の左余白の色線の太さ
-  final double changeBar = 3;
+  final double changeBar = 4;
 
   /// 本文の幅の上限。1行が長くなりすぎないようにする
   final double readableWidth = 720;
@@ -135,9 +150,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 入力ページで言われたことを書く欄の高さ
   final double composerHeight = 160;
 
+  /// 入力ページの最近の記録に並べる付箋の幅
+  final double stickyWidth = 220;
+
   /// 確認印の傾き（ラジアン）。手で押した印に見せる
   final double stampTilt = -0.08;
-  final double stampDiameter = 80;
+  final double stampDiameter = 84;
 
   @override
   AppTokens copyWith() => this;
@@ -151,35 +169,33 @@ extension AppTokensContext on BuildContext {
 }
 
 const _colors = AppColors(
-  shell: Color(0xFFF7F6F3),
+  shell: Color(0xFFF2F2F4),
   canvas: Color(0xFFFFFFFF),
-  ink: Color(0xFF2F2D29),
-  inkMuted: Color(0xFF6E6B65),
-  rule: Color(0xFFE8E6E1),
-  hover: Color(0x0D2F2D29),
-  added: Color(0xFF3B7457),
-  addedBg: Color(0xFFEAF3EC),
-  removed: Color(0xFFB2443B),
-  removedBg: Color(0xFFFCEBEA),
-  pending: Color(0xFF8A6116),
-  pendingBg: Color(0xFFFBF3DB),
-  qualified: Color(0xFF2C6D94),
-  qualifiedBg: Color(0xFFE7F2F8),
-  stamp: Color(0xFFC8452F),
-  avatars: [
-    Color(0xFFEDEBE7),
-    Color(0xFFF1E6DF),
-    Color(0xFFFBE8D8),
-    Color(0xFFEEE7F6),
-    Color(0xFFF7E5EE),
-  ],
+  ink: Color(0xFF17173D),
+  inkMuted: Color(0xFF5D5D78),
+  rule: Color(0xFFE0E0E8),
+  hover: Color(0x0D17173D),
+  // 差分の色は、差分表示でなじみのある、はっきりした緑・赤・黄・青にする
+  added: Color(0xFF1A7F37),
+  addedBg: Color(0xFFDAFBE1),
+  removed: Color(0xFFCF222E),
+  removedBg: Color(0xFFFFEBE9),
+  pending: Color(0xFF9A6700),
+  pendingBg: Color(0xFFFFF8C5),
+  qualified: Color(0xFF0E7A86),
+  qualifiedBg: Color(0xFFDDF3F5),
+  stamp: Color(0xFFDE3A2E),
+  action: Color(0xFF2459F5),
+  grid: Color(0xFFE4E4EA),
+  sticky: Color(0xFFFFF6A6),
+  avatar: Color(0xFFE0E0E8),
 );
 
 ThemeData appTheme() {
   final c = _colors;
-  final printed = GoogleFonts.bizUDPGothic(color: c.ink);
-  final printBold = GoogleFonts.bizUDPGothic(color: c.ink, fontWeight: FontWeight.w700);
-  final hand = GoogleFonts.kleeOne(color: c.ink, fontWeight: FontWeight.w600);
+  // 書体は pubspec.yaml で同梱したものだけを使う
+  final printed = TextStyle(fontFamily: 'BIZUDPGothic', color: c.ink);
+  final printBold = printed.copyWith(fontWeight: FontWeight.w700);
 
   final text = AppText(
     display: printBold.copyWith(fontSize: 28, height: 1.35),
@@ -188,13 +204,11 @@ ThemeData appTheme() {
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
     label: printBold.copyWith(fontSize: 12, height: 1.2),
-    hand: hand.copyWith(fontSize: 16, height: 1.6),
-    handLarge: hand.copyWith(fontSize: 20, height: 1.5),
   );
 
   final moonColors = MoonColors.light.copyWith(
-    piccolo: c.ink,
-    hit: c.added,
+    piccolo: c.action,
+    hit: c.ink,
     beerus: c.rule,
     goku: c.canvas,
     gohan: c.shell,
@@ -233,13 +247,13 @@ ThemeData appTheme() {
     shadows: const MoonShadows(sm: [], md: [], lg: [], xl: []),
     typography: MoonTypography.typography.copyWith(
       body: MoonTypography.typography.body.apply(fontFamily: printed.fontFamily, color: c.ink),
-      heading: MoonTypography.typography.heading.apply(fontFamily: printBold.fontFamily, color: c.ink),
+      heading: MoonTypography.typography.heading.apply(fontFamily: printed.fontFamily, color: c.ink),
     ),
   );
 
   return ThemeData(
     colorScheme: ColorScheme.light(
-      primary: c.ink,
+      primary: c.action,
       onPrimary: c.canvas,
       surface: c.canvas,
       onSurface: c.ink,

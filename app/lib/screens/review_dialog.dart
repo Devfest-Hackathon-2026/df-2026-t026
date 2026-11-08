@@ -116,7 +116,9 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('「${_u.text}」', style: k.text.hand),
+                        StickyNote(
+                          child: Text('「${_u.text}」', style: k.text.body),
+                        ),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
@@ -165,7 +167,12 @@ class _ReviewDialogState extends State<ReviewDialog> {
         Text(chk.reason, style: k.text.small),
       ],
       SizedBox(height: k.space.md),
-      if (chk?.kind == Kind.contradiction) ..._contradiction(s, p, chk!) else ..._approvable(p),
+      if (chk?.kind == Kind.contradiction)
+        ..._contradiction(s, p, chk!)
+      else if (chk?.kind == Kind.same)
+        ..._same(p, chk!)
+      else
+        ..._approvable(p),
     ]);
   }
 
@@ -202,6 +209,30 @@ class _ReviewDialogState extends State<ReviewDialog> {
           ),
         ),
       ],
+    ];
+  }
+
+  // 本文は変えないのが既定。判定が外れていたときのために反映もできるようにしておく
+  List<Widget> _same(Patch p, Check chk) {
+    final k = context.tokens;
+    return [
+      Text('マニュアルの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
+      SizedBox(height: k.space.sm),
+      if (p.status != 'proposed')
+        Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
+      else
+        Row(children: [
+          MoonTextButton(
+            onTap: _busy || !_hasSpeaker ? null : () => _run(() => widget.c.applyPatch(p.id)),
+            label: const Text('それでも反映する'),
+          ),
+          const Spacer(),
+          MoonFilledButton(
+            onTap: _busy ? null : () => _run(() => widget.c.discardPatch(p.id)),
+            leading: _busy ? const ButtonLoader() : null,
+            label: const Text('記録だけ残す'),
+          ),
+        ]),
     ];
   }
 

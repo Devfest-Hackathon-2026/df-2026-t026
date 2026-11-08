@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, type HttpOptions } from '@google/genai';
 import { z } from 'zod';
 
 export interface JsonRequest<T> {
@@ -18,6 +18,16 @@ export interface InlineFile {
 
 export type GenerateJson = <T>(req: JsonRequest<T>) => Promise<T>;
 
+/**
+ * 混雑（503）やレート制限（429）は一時的なことが多いので、SDK に待ってやり直させる。
+ * 1回の上限時間は、混雑時に 30〜60 秒かかった実測と、差分化と分類の2回の呼び出しが
+ * Cloud Run のリクエスト上限（既定 300 秒）に収まることの両方から決めた。
+ */
+export const httpOptions: HttpOptions = {
+  timeout: 40_000,
+  retryOptions: { attempts: 3, initialDelay: 1, maxDelay: 8, httpStatusCodes: [408, 429, 500, 502, 503, 504] },
+};
+
 let client: GoogleGenAI | null = null;
 
 /** Vertex AI 経由で呼ぶ。認証は ADC（Cloud Run ではサービスアカウント） */
@@ -26,6 +36,7 @@ function gemini(): GoogleGenAI {
     vertexai: true,
     project: process.env.GOOGLE_CLOUD_PROJECT,
     location: process.env.GOOGLE_CLOUD_LOCATION ?? 'global',
+    httpOptions,
   });
   return client;
 }
