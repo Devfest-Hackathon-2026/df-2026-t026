@@ -236,10 +236,15 @@ void main() {
     await _record(tester, '傘は入口に置く');
 
     expect(find.text('どのマニュアルに記録しますか？'), findsOneWidget);
+    // 選ぶまでは記録できない。1回の指示が複数にまたがることもあるので、いくつでも選べる
+    expect(tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, '記録する')).onTap, isNull);
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('キッチン')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録する'));
     await tester.pumpAndSettle();
 
-    expect(sent.last['manualIds'], ['m2']);
+    expect(sent.last['manualIds'], ['m1', 'm2']);
     expect(sent.last['text'], '傘は入口に置く');
     expect(sent.last['files'], isEmpty);
     expect(find.text('差分の確認'), findsOneWidget);

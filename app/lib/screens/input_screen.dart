@@ -270,11 +270,11 @@ class _InputScreenState extends State<InputScreen> {
       var r = await widget.api.intake(text: text, files: files, today: today());
       if (r.results.isEmpty) {
         setState(() => _busy = false);
-        final id = await _pickManual(manuals, r.text);
-        if (id == null) return;
+        final ids = await _pickManuals(manuals, r.text);
+        if (ids == null) return;
         setState(() => _busy = true);
         // ファイルや録音はもう読み取ったので、読み取った文面だけを送り直す
-        r = await widget.api.intake(text: r.text, manualIds: [id], today: today());
+        r = await widget.api.intake(text: r.text, manualIds: ids, today: today());
       }
       setState(() {
         onSaved?.call();
@@ -294,43 +294,57 @@ class _InputScreenState extends State<InputScreen> {
     }
   }
 
-  /// 関係するマニュアルが見つからなかったときに、記録先を選んでもらう
-  Future<String?> _pickManual(List<ManualState> manuals, String text) {
+  /// 関係するマニュアルが見つからなかったときに、記録先を選んでもらう。1回の指示が複数にまたがることもあるので、いくつでも選べる
+  Future<List<String>?> _pickManuals(List<ManualState> manuals, String text) {
     final k = context.tokens;
-    return showMoonModal<String>(
+    final picked = <String>{};
+    return showMoonModal<List<String>>(
       context: context,
-      builder: (ctx) => MoonModal(
-        backgroundColor: k.colors.canvas,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: k.modalWidth),
-          child: Padding(
-            padding: EdgeInsets.all(k.space.xl),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('どのマニュアルに記録しますか？', style: k.text.title),
-              SizedBox(height: k.space.xs),
-              Text('関係するマニュアルが見つかりませんでした。記録するマニュアルを選んでください', style: k.text.small),
-              SizedBox(height: k.space.md),
-              Text('「$text」', style: k.text.body),
-              SizedBox(height: k.space.lg),
-              const Rule(),
-              for (final m in manuals) ...[
-                MoonMenuItem(
-                  onTap: () => Navigator.pop(ctx, m.id),
-                  menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-                  label: Text(m.title, style: k.text.heading),
-                  trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
-                ),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setPicked) {
+        void toggle(String id) => setPicked(() => picked.contains(id) ? picked.remove(id) : picked.add(id));
+        return MoonModal(
+          backgroundColor: k.colors.canvas,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: k.modalWidth),
+            child: Padding(
+              padding: EdgeInsets.all(k.space.xl),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('どのマニュアルに記録しますか？', style: k.text.title),
+                SizedBox(height: k.space.xs),
+                Text('関係するマニュアルが見つかりませんでした。記録するマニュアルを選んでください', style: k.text.small),
+                SizedBox(height: k.space.md),
+                Text('「$text」', style: k.text.body),
+                SizedBox(height: k.space.lg),
                 const Rule(),
-              ],
-              SizedBox(height: k.space.lg),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: MoonOutlinedButton(label: const Text('記録しない'), onTap: () => Navigator.pop(ctx)),
-              ),
-            ]),
+                for (final m in manuals) ...[
+                  MoonMenuItem(
+                    onTap: () => toggle(m.id),
+                    menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
+                    leading: MoonCheckbox(
+                      value: picked.contains(m.id),
+                      semanticLabel: m.title,
+                      onChanged: (_) => toggle(m.id),
+                    ),
+                    label: Text(m.title, style: k.text.heading),
+                  ),
+                  const Rule(),
+                ],
+                SizedBox(height: k.space.lg),
+                Row(children: [
+                  MoonOutlinedButton(label: const Text('記録しない'), onTap: () => Navigator.pop(ctx)),
+                  const Spacer(),
+                  MoonFilledButton(
+                    label: const Text('記録する'),
+                    onTap: picked.isEmpty
+                        ? null
+                        : () => Navigator.pop(ctx, [for (final m in manuals) if (picked.contains(m.id)) m.id]),
+                  ),
+                ]),
+              ]),
+            ),
           ),
-        ),
-      ),
+        );
+      }),
     );
   }
 
