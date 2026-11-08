@@ -18,8 +18,10 @@ const app = createApp({
   patchify: useGemini ? (i) => patchifyWithGemini(i) : fakePatchify,
   check: useGemini ? (i) => checkWithGemini(i) : fakeCheck,
   allowOrigin: process.env.ALLOW_ORIGIN,
+  passcode: process.env.PASSCODE,
 });
 const port = Number(process.env.PORT ?? 8787);
-serve({ fetch: app.fetch, port }, () => {
+// 既定では自分のマシンからだけ受ける（同じネットワークの人に Gemini を呼ばせない）。Cloud Run では Dockerfile で 0.0.0.0 にする
+serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? '127.0.0.1' }, () => {
   console.log(`api: http://localhost:${port}（AI=${useGemini ? 'gemini' : 'fake'}, STORE=${process.env.STORE ?? 'memory'}）`);
 });

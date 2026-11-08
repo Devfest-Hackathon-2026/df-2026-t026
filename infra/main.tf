@@ -2,6 +2,7 @@ resource "google_project_service" "this" {
   for_each = toset([
     "aiplatform.googleapis.com",
     "artifactregistry.googleapis.com",
+    "billingbudgets.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "firebase.googleapis.com",
     "firebasehosting.googleapis.com",
@@ -83,6 +84,10 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "ALLOW_ORIGIN"
         value = "https://${google_firebase_hosting_site.web.site_id}.web.app,https://${google_firebase_hosting_site.web.site_id}.firebaseapp.com"
       }
+      env {
+        name  = "PASSCODE"
+        value = var.passcode
+      }
     }
   }
 
@@ -92,7 +97,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [google_project_service.this]
 }
 
-# デモ版は認証なし（単一ユーザー固定）なので、誰でも呼べるようにする
+# ブラウザから直接呼ぶので公開する。デモ版は認証の代わりに API が合言葉（PASSCODE）を確かめる
 resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.api.name
   location = google_cloud_run_v2_service.api.location
@@ -168,4 +173,35 @@ resource "google_service_account_iam_member" "deployer_act_as_api" {
   service_account_id = google_service_account.api.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+# ---------- 予算アラート ----------
+
+data "google_project" "this" {}
+
+# 使いすぎに気づくためのメール通知（課金アカウントの管理者に届く）。超えても止まりはしない
+resource "google_billing_budget" "this" {
+  # 利用者の認証情報で呼ぶとクォータ用のプロジェクトの指定が要るので、user_project_override のある google-beta で作る
+  provider        = google-beta
+  billing_account = var.billing_account
+  display_name    = "DiffNote（${var.project_id}）"
+
+  budget_filter {
+    projects = ["projects/${data.google_project.this.number}"]
+  }
+  amount {
+    specified_amount {
+      units = tostring(var.budget_amount)
+    }
+  }
+  threshold_rules {
+    threshold_percent = 0.5
+  }
+  threshold_rules {
+    threshold_percent = 0.9
+  }
+  threshold_rules {
+    threshold_percent = 1.0
+  }
+  depends_on = [google_project_service.this]
 }

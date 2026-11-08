@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -16,6 +16,8 @@ export interface Deps {
   check: CheckPatch;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
+  /** API を使うための合言葉（X-Passcode ヘッダーで受ける）。未指定なら確かめない（ローカル開発用） */
+  passcode?: string;
 }
 
 type Env = { Variables: { userId: string } };
@@ -36,11 +38,19 @@ const Resolve = z.object({
 const now = () => new Date().toISOString();
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-export function createApp({ store, patchify, check, allowOrigin }: Deps) {
+const digest = (s: string) => createHash('sha256').update(s).digest();
+
+export function createApp({ store, patchify, check, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
-  // 認証を入れるまでは単一ユーザー。入れるときはここでトークンから userId を決める
+  // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
   app.use(async (c, next) => {
+    if (passcode && c.req.path !== '/health') {
+      const given = c.req.header('X-Passcode');
+      if (!given) throw new HTTPException(401, { message: '合言葉を入れてください' });
+      // 長さの違いや一致までの時間から合言葉を推し量られないよう、ハッシュをそろえて比べる
+      if (!timingSafeEqual(digest(given), digest(passcode))) throw new HTTPException(401, { message: '合言葉が違います' });
+    }
     c.set('userId', 'demo');
     await next();
   });
