@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import { fakeCheck, fakePatchify } from '../src/fake-ai.ts';
+import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -11,8 +11,10 @@ let app: ReturnType<typeof createApp>;
 beforeEach(async () => {
   const store = new MemoryStore();
   await seed(store, 'demo');
-  app = createApp({ store, patchify: fakePatchify, check: fakeCheck });
+  app = createApp({ store, ...ai });
 });
+
+const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, route: fakeRoute };
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
@@ -100,7 +102,7 @@ test('発言者が分からないうちは反映できない', async () => {
 
 test('CORS は指定したオリジンだけを許可する', async () => {
   const store = new MemoryStore();
-  const restricted = createApp({ store, patchify: fakePatchify, check: fakeCheck, allowOrigin: 'https://a.web.app,https://a.firebaseapp.com' });
+  const restricted = createApp({ store, ...ai, allowOrigin: 'https://a.web.app,https://a.firebaseapp.com' });
   const origin = async (o: string) =>
     (await restricted.request('/health', { headers: { Origin: o } })).headers.get('Access-Control-Allow-Origin');
   assert.equal(await origin('https://a.firebaseapp.com'), 'https://a.firebaseapp.com');
@@ -111,7 +113,7 @@ test('合言葉を決めたら、合っているときだけ通す', async () =>
   const store = new MemoryStore();
   await seed(store, 'demo');
   const origin = 'https://a.web.app';
-  const locked = createApp({ store, patchify: fakePatchify, check: fakeCheck, allowOrigin: origin, passcode: 'open-sesame-1' });
+  const locked = createApp({ store, ...ai, allowOrigin: origin, passcode: 'open-sesame-1' });
   const get = (path: string, passcode?: string) =>
     locked.request(path, { headers: { Origin: origin, ...(passcode && { 'X-Passcode': passcode }) } });
 
@@ -139,4 +141,46 @@ test('合言葉を決めたら、合っているときだけ通す', async () =>
 test('入力の形が違えば 400 を返す', async () => {
   const { status } = await call('POST', '/manuals/demo-kitchen/utterances', { text: '' });
   assert.equal(status, 400);
+});
+
+test('入力ページから：関係するマニュアルを選んで記録する', async () => {
+  const { status, json } = await call('POST', '/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた', today: '2026-11-03' });
+  assert.equal(status, 201);
+  assert.deepEqual(json.results.map((r: any) => r.manualId), ['demo-kitchen']);
+  const [r] = json.results;
+  assert.equal(r.state.utterances.find((u: any) => u.id === r.utteranceId).speaker, '田中さん');
+  assert.equal(r.state.checks[0].kind, 'contradiction');
+});
+
+test('入力ページから：複数のマニュアルにまたがる指示は、それぞれに記録する', async () => {
+  const { json } = await call('POST', '/utterances', { text: '田中さんから、レジ締めは店長がやると言われた' });
+  assert.deepEqual(json.results.map((r: any) => r.manualId).sort(), ['demo-hall', 'demo-kitchen']);
+  for (const r of json.results) assert.equal(r.state.utterances.length, 1);
+});
+
+test('入力ページから：関係するマニュアルが無ければ保存せず、選んだマニュアルに記録できる', async () => {
+  const none = await call('POST', '/utterances', { text: '傘は入口の傘立てに置く' });
+  assert.equal(none.status, 200);
+  assert.deepEqual(none.json.results, []);
+  assert.equal(none.json.text, '傘は入口の傘立てに置く');
+  const manuals = await call('GET', '/manuals');
+  assert.ok(manuals.json.every((m: any) => m.utteranceCount === 0));
+
+  const picked = await call('POST', '/utterances', { text: none.json.text, manualIds: ['demo-hall'] });
+  assert.equal(picked.status, 201);
+  assert.deepEqual(picked.json.results.map((r: any) => r.manualId), ['demo-hall']);
+});
+
+test('入力ページから：ファイルや録音はテキストにしてから差分化する', async () => {
+  const data = Buffer.from('RIFF').toString('base64');
+  const { status, json } = await call('POST', '/utterances', { files: [{ mimeType: 'audio/wav', data }] });
+  assert.equal(status, 201);
+  assert.equal(json.text, '田中さんから塩は小さじ1/2でいいと言われた');
+  assert.equal(json.results[0].state.utterances[0].text, json.text);
+});
+
+test('入力ページから：中身が無い、受け付けない形式のファイルなら 400 を返す', async () => {
+  assert.equal((await call('POST', '/utterances', { text: ' ' })).status, 400);
+  const data = Buffer.from('x').toString('base64');
+  assert.equal((await call('POST', '/utterances', { files: [{ mimeType: 'video/mp4', data }] })).status, 400);
 });
