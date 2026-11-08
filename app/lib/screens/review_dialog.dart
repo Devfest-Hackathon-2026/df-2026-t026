@@ -55,6 +55,17 @@ class _ReviewDialogState extends State<ReviewDialog> {
     }
   }
 
+  /// 閉じる前に発言者と日付を保存する。保存に失敗しても閉じられなくならないよう、エラーを出してから閉じる
+  Future<void> _close() async {
+    setState(() => _busy = true);
+    try {
+      await _saveMeta();
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
   // Moon に日付選択が無いので、ここだけ Material の showDatePicker を使う（.claude/rules/flutter-ui.md）
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -91,7 +102,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       MoonButton.icon(
                         semanticLabel: '閉じる',
                         icon: Icon(LucideIcons.x, color: k.colors.ink),
-                        onTap: _busy ? null : () => _run(() async => Navigator.pop(context)),
+                        onTap: _busy ? null : _close,
                       ),
                     ]),
                   ),
