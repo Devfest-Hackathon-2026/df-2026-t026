@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'screens/home_screen.dart';
 
-void main() => runApp(App(api: Api()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  runApp(App(api: Api(passcode: prefs.getString(passcodeKey))));
+}
 
 class App extends StatelessWidget {
   const App({super.key, required this.api});

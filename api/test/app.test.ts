@@ -107,6 +107,35 @@ test('CORS は指定したオリジンだけを許可する', async () => {
   assert.equal(await origin('https://evil.example.com'), null);
 });
 
+test('合言葉を決めたら、合っているときだけ通す', async () => {
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  const origin = 'https://a.web.app';
+  const locked = createApp({ store, patchify: fakePatchify, check: fakeCheck, allowOrigin: origin, passcode: 'open-sesame-1' });
+  const get = (path: string, passcode?: string) =>
+    locked.request(path, { headers: { Origin: origin, ...(passcode && { 'X-Passcode': passcode }) } });
+
+  const preflight = await locked.request('/manuals', {
+    method: 'OPTIONS',
+    headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-passcode' },
+  });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('Access-Control-Allow-Headers') ?? '', /x-passcode/i);
+
+  const missing = await get('/manuals');
+  assert.equal(missing.status, 401);
+  assert.equal(((await missing.json()) as any).error, '合言葉を入れてください');
+  // CORS のヘッダーがないと、ブラウザからは 401 ではなく通信エラーに見えてしまう
+  assert.equal(missing.headers.get('Access-Control-Allow-Origin'), origin);
+
+  const wrong = await get('/manuals', 'open-sesame');
+  assert.equal(wrong.status, 401);
+  assert.equal(((await wrong.json()) as any).error, '合言葉が違います');
+
+  assert.equal((await get('/manuals', 'open-sesame-1')).status, 200);
+  assert.equal((await get('/health')).status, 200);
+});
+
 test('入力の形が違えば 400 を返す', async () => {
   const { status } = await call('POST', '/manuals/demo-kitchen/utterances', { text: '' });
   assert.equal(status, 400);

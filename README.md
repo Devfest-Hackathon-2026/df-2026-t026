@@ -47,6 +47,8 @@ API は環境変数で切り替える。認証は ADC（`gcloud auth application
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI のリージョン | `global` |
 | `GEMINI_MODEL` | モデル | `gemini-3.8-flash` |
 | `ALLOW_ORIGIN` | CORS で許可するオリジン | すべて |
+| `PASSCODE` | API の合言葉。決めると `X-Passcode` ヘッダーで一致しないリクエストを 401 にする（[ADR 0003](docs/adr/0003-demo-passcode.md)） | 確かめない |
+| `HOST` | 待ち受けるアドレス | `127.0.0.1`（自分のマシンからだけ） |
 | `PORT` | ポート | `8787` |
 
 ```sh
