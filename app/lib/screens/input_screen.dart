@@ -736,7 +736,9 @@ class _InputScreenState extends State<InputScreen> {
       backgroundColor: k.colors.canvas,
       borderColor: k.colors.rule,
       onTapOutside: () => setState(() => _attachMenu = false),
-      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // 既定では画面いっぱいまで広がるので、項目の幅に合わせる
+      content: IntrinsicWidth(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         MoonMenuItem(
           borderRadius: k.radius.control,
           onTap: () => choose(widget.pickFiles),
@@ -749,7 +751,7 @@ class _InputScreenState extends State<InputScreen> {
             onTap: () => choose(takePhoto),
             label: Text('写真を撮る', style: k.text.body),
           ),
-      ]),
+      ])),
       child: MoonButton.icon(
         buttonSize: MoonButtonSize.sm,
         semanticLabel: 'ファイルを添える',
