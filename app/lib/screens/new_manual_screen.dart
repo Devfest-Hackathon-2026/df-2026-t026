@@ -37,10 +37,12 @@ class _NewManualScreenState extends State<NewManualScreen> {
     final k = context.tokens;
     return Scaffold(
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const PageHeader(title: 'マニュアルを登録'),
+        const TopBar(crumbs: ['DiffNote（仮）', 'マニュアルを登録']),
         Expanded(
           child: Narrow(
-            child: ListView(padding: EdgeInsets.all(k.space.xl), children: [
+            child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+              PageTitle('マニュアルを登録', meta: [Text('以後の変更は、このマニュアルへの差分として積み上げます', style: k.text.small)]),
+              SizedBox(height: k.space.xl),
               Text('何のマニュアル？', style: k.text.heading),
               SizedBox(height: k.space.sm),
               MoonTextInput(

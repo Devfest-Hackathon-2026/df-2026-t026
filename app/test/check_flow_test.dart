@@ -86,7 +86,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('確認待ち（1）'), findsOneWidget);
+    // 確認待ちがあれば、パネルは確認待ちを開いた状態で出る
+    expect(find.text('塩 小さじ1 ／ 塩 小さじ1/2'), findsOneWidget);
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
 

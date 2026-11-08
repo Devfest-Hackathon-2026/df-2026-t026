@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
@@ -10,7 +9,7 @@ import 'check_screen.dart';
 import 'common.dart';
 import 'review_dialog.dart';
 
-/// マニュアル1冊の画面：現行マニュアル・入力欄／確認待ち・確認の記録・記録した発言
+/// マニュアル1冊の画面：文書面（現行マニュアル）と、記録と確認のパネル
 class ManualScreen extends StatefulWidget {
   const ManualScreen({super.key, required this.api, required this.manualId});
   final Api api;
@@ -25,8 +24,11 @@ class _ManualScreenState extends State<ManualScreen> {
   final _input = TextEditingController();
   var _busy = false;
 
-  /// 狭い画面で開いているタブ（0: マニュアル、1: 確認・記録）
+  /// 狭い画面で開いているタブ（0: マニュアル、1〜3: パネルの切り替えと同じ）
   var _tab = 0;
+
+  /// パネルの切り替え（0: 確認待ち、1: 確認済み、2: 発言）。読み込み後に一度だけ決め、以後は利用者の選択に任せる
+  int? _filter;
 
   @override
   void dispose() {
@@ -63,7 +65,7 @@ class _ManualScreenState extends State<ManualScreen> {
         final s = c.state;
         return Scaffold(
           body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            PageHeader(title: s?.title ?? '', wide: true),
+            TopBar(crumbs: ['DiffNote（仮）', s?.title ?? '']),
             Expanded(
               child: s == null
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
@@ -77,55 +79,68 @@ class _ManualScreenState extends State<ManualScreen> {
 
   Widget _layout(ManualState s, double width) {
     final k = context.tokens;
-    final manual = _manualPane(s);
-    final side = _sidePane(s);
+    _filter ??= s.openChecks.isNotEmpty ? 0 : 2;
     if (width >= k.wideLayout) {
       return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(flex: 3, child: manual),
+        Expanded(child: _document(s)),
         Container(width: k.hairline, color: k.colors.rule),
-        Expanded(flex: 2, child: side),
+        SizedBox(
+          width: k.panelWidth,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: _panel(s, withHeader: true)),
+            _composer(stacked: true),
+          ]),
+        ),
       ]);
     }
+    // 狭い画面ではパネルの切り替えをタブに並べ、タブの中にさらに切り替えを重ねない
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+        padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
         child: MoonTabBar(
           initialIndex: _tab,
-          onTabChanged: (i) => setState(() => _tab = i),
+          onTabChanged: (i) => setState(() {
+            _tab = i;
+            if (i > 0) _filter = i - 1;
+          }),
           tabs: [
             const MoonTab(label: Text('マニュアル')),
-            MoonTab(label: Text(s.openChecks.isEmpty ? '確認・記録' : '確認・記録（${s.openChecks.length}）')),
+            MoonTab(label: Text('確認待ち ${s.openChecks.length}')),
+            MoonTab(label: Text('確認済み ${s.resolvedChecks.length}')),
+            MoonTab(label: Text('発言 ${s.utterances.length}')),
           ],
         ),
       ),
-      Expanded(child: IndexedStack(index: _tab, children: [manual, side])),
+      Expanded(child: _tab == 0 ? _document(s) : _panel(s, withHeader: false)),
+      _composer(stacked: false),
     ]);
   }
 
-  Widget _manualPane(ManualState s) {
+  /// 文書面：題名・メタ情報・本文
+  Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null).length;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Expanded(
-        child: ListView(padding: EdgeInsets.all(k.space.lg), children: [
-          Text('元のマニュアル ＋ 口頭で教わった差分 $changed 行', style: k.text.small),
-          SizedBox(height: k.space.sm),
-          // マニュアル本文は「紙」として面を分ける
-          Container(
-            padding: EdgeInsets.symmetric(vertical: k.space.md),
-            decoration: BoxDecoration(
-              color: k.colors.sheet,
-              border: Border.all(color: k.colors.rule, width: k.hairline),
-              borderRadius: k.radius.surface,
+    return Container(
+      color: k.colors.canvas,
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
+        child: Narrow(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Padding(
+              padding: EdgeInsets.only(left: k.gutter),
+              child: PageTitle(s.title, meta: [
+                Text('記録 ${s.utterances.length} 件', style: k.text.small),
+                Text('口頭で変わった行 $changed 行', style: k.text.small),
+                if (s.openChecks.isNotEmpty)
+                  StatusTag('確認待ち ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+              ]),
             ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              for (final line in s.lines) _line(s, line),
-            ]),
-          ),
-        ]),
+            SizedBox(height: k.space.xl),
+            for (final line in s.lines) _line(s, line),
+          ]),
+        ),
       ),
-      _composer(),
-    ]);
+    );
   }
 
   Widget _line(ManualState s, ManualLine line) {
@@ -133,7 +148,7 @@ class _ManualScreenState extends State<ManualScreen> {
     if (line.text.trim().isEmpty) return SizedBox(height: k.space.sm);
     if (line.text.startsWith('## ')) {
       return Padding(
-        padding: EdgeInsets.fromLTRB(k.gutter, k.space.md, k.space.lg, k.space.xs),
+        padding: EdgeInsets.fromLTRB(k.gutter, k.space.xl, 0, k.space.xs),
         child: LineText(line.text),
       );
     }
@@ -141,7 +156,8 @@ class _ManualScreenState extends State<ManualScreen> {
     final confirmed = s.confirmationFor(line);
     final patch = line.patchId == null ? null : s.patch(line.patchId!);
     final said = patch == null ? null : s.utterance(patch.utteranceId);
-    final fromSpeech = patch != null || confirmed != null;
+    // 左余白の色線は変更の種類を表す：確認待ちは黄、口頭で変わった行は緑
+    final bar = open.isNotEmpty ? k.colors.pending : (patch != null || confirmed != null ? k.colors.added : null);
     final marks = <Widget>[
       if (confirmed != null)
         ConfirmStamp(
@@ -151,36 +167,34 @@ class _ManualScreenState extends State<ManualScreen> {
           onTap: () => _openCheck(confirmed),
         )
       else if (said != null)
-        SpeakerTape(speaker: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
+        Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
       for (final o in open)
-        MoonTag(
-          tagSize: MoonTagSize.xs,
-          backgroundColor: k.colors.pending,
-          borderRadius: k.radius.control,
-          onTap: () => _openCheck(o),
-          leading: Icon(LucideIcons.circleAlert, color: k.colors.pendingBg),
-          label: Text('確認待ち', style: k.text.label.copyWith(color: k.colors.pendingBg)),
-        ),
+        StatusTag('確認待ち', bg: k.colors.pending, fg: k.colors.pendingBg, onTap: () => _openCheck(o)),
     ];
-    final text = LineText(line.text);
     return Container(
-      color: open.isNotEmpty ? k.colors.pendingBg : (fromSpeech ? k.colors.addedBg : null),
-      padding: EdgeInsets.fromLTRB(0, k.space.xs, k.space.lg, k.space.xs),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // 差分の行頭の印。口頭で教わって変わった行に「+」
-        SizedBox(
-          width: k.gutter,
-          child: Text(fromSpeech ? '+' : '', textAlign: TextAlign.center, style: k.text.body.copyWith(color: k.colors.added)),
-        ),
-        Expanded(
-          child: Wrap(
-            spacing: k.space.sm,
-            runSpacing: k.space.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [text, ...marks],
+      color: open.isNotEmpty ? k.colors.pendingBg : null,
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+            width: k.gutter,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(width: k.changeBar, color: bar),
+            ),
           ),
-        ),
-      ]),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: k.space.xs),
+              child: Wrap(
+                spacing: k.space.md,
+                runSpacing: k.space.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [LineText(line.text), ...marks],
+              ),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -189,13 +203,13 @@ class _ManualScreenState extends State<ManualScreen> {
     showMoonModal<void>(
       context: context,
       builder: (ctx) => MoonModal(
-        backgroundColor: k.colors.sheet,
+        backgroundColor: k.colors.canvas,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: k.modalWidth),
           child: Padding(
             padding: EdgeInsets.all(k.space.xl),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）', style: k.text.heading),
+              Speaker(name: u.speaker, day: u.saidAt),
               SizedBox(height: k.space.md),
               Text('「${u.text}」', style: k.text.hand),
               SizedBox(height: k.space.xl),
@@ -207,117 +221,175 @@ class _ManualScreenState extends State<ManualScreen> {
     );
   }
 
-  Widget _composer() {
+  /// 記録の入力欄。広い画面ではパネルの下に縦に積み、狭い画面では画面の下に横に並べる
+  Widget _composer({required bool stacked}) {
     final k = context.tokens;
+    final input = MoonTextInput(
+      controller: _input,
+      onSubmitted: (_) => _record(),
+      hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
+    );
+    final button = MoonFilledButton(
+      onTap: _busy ? null : _record,
+      leading: _busy ? const ButtonLoader() : null,
+      label: Text(_busy ? '差分を作成中…' : '差分を作る'),
+    );
     return Container(
       decoration: BoxDecoration(
-        color: k.colors.sheet,
+        color: k.colors.shell,
         border: Border(top: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
       padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('言われたことを記録', style: k.text.small),
         SizedBox(height: k.space.sm),
-        Row(children: [
-          Expanded(
-            child: MoonTextInput(
-              controller: _input,
-              onSubmitted: (_) => _record(),
-              hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-            ),
-          ),
-          SizedBox(width: k.space.sm),
-          MoonFilledButton(
-            onTap: _busy ? null : _record,
-            leading: _busy ? const ButtonLoader() : null,
-            label: Text(_busy ? '差分を作成中…' : '差分を作る'),
-          ),
-        ]),
+        if (stacked) ...[
+          input,
+          SizedBox(height: k.space.sm),
+          Align(alignment: Alignment.centerRight, child: button),
+        ] else
+          Row(children: [Expanded(child: input), SizedBox(width: k.space.sm), button]),
       ]),
     );
   }
 
-  Widget _sidePane(ManualState s) {
+  /// 記録と確認のパネル：見出し・切り替え・項目。withHeader が false なら項目だけ（狭い画面のタブの中身）
+  Widget _panel(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
-    Widget empty(String text) => Padding(
-          padding: EdgeInsets.symmetric(horizontal: k.space.lg),
-          child: Text(text, style: k.text.small),
-        );
-
-    return ListView(padding: EdgeInsets.only(bottom: k.space.xl), children: [
-      SectionHeading('確認待ち（${s.openChecks.length}）'),
-      if (s.openChecks.isEmpty) empty('食い違っている指示はありません'),
-      for (final chk in s.openChecks.reversed) _openRow(s, chk),
-      SectionHeading('確認の記録（${s.resolvedChecks.length}）'),
-      if (s.resolvedChecks.isEmpty) empty('確認して確定したことがここに残ります'),
-      for (final chk in s.resolvedChecks.reversed) ...[_resolvedRow(chk), Rule(indent: k.space.lg)],
-      SectionHeading('記録した発言（${s.utterances.length}）'),
-      if (s.utterances.isEmpty) empty('下の欄に言われたことを書くと、ここに並びます'),
-      for (final u in s.utterances.reversed) ...[_utteranceRow(s, u), Rule(indent: k.space.lg)],
-    ]);
+    final filter = _filter!;
+    final entries = switch (filter) {
+      0 => [for (final chk in s.openChecks.reversed) _openEntry(s, chk)],
+      1 => [for (final chk in s.resolvedChecks.reversed) _resolvedEntry(s, chk)],
+      _ => [for (final u in s.utterances.reversed) _utteranceEntry(s, u)],
+    };
+    final empty = switch (filter) {
+      0 => '食い違っている指示はありません',
+      1 => '確認して確定したことがここに残ります',
+      _ => '言われたことを下の欄に書くと、ここに並びます',
+    };
+    return Container(
+      color: k.colors.shell,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (withHeader) ...[
+          Padding(
+            padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
+            child: Text('記録と確認', style: k.text.title),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: k.space.lg),
+            child: MoonSegmentedControl(
+              isExpanded: true,
+              backgroundColor: k.colors.rule,
+              initialIndex: filter,
+              onSegmentChanged: (i) => setState(() => _filter = i),
+              segments: [
+                Segment(label: const Text('確認待ち'), trailing: Text('${s.openChecks.length}')),
+                Segment(label: const Text('確認済み'), trailing: Text('${s.resolvedChecks.length}')),
+                Segment(label: const Text('発言'), trailing: Text('${s.utterances.length}')),
+              ],
+            ),
+          ),
+        ],
+        SizedBox(height: k.space.md),
+        Expanded(
+          child: entries.isEmpty
+              ? Padding(
+                  padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+                  child: Text(empty, style: k.text.small),
+                )
+              : ListView(children: [
+                  for (final e in entries) ...[e, const Rule()],
+                ]),
+        ),
+      ]),
+    );
   }
 
-  /// 確認待ちは付箋の色で、他の記録と分ける
-  Widget _openRow(ManualState s, Check chk) {
+  Widget _entry({required VoidCallback onTap, required Widget head, required List<Widget> body}) {
+    final k = context.tokens;
+    return MoonMenuItem(
+      onTap: onTap,
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
+      label: head,
+      content: Padding(
+        padding: EdgeInsets.only(top: k.space.sm),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: body),
+      ),
+    );
+  }
+
+  /// 確認待ち：誰が・いつ → 食い違い（マニュアル ／ 言われたこと）→ 次の操作
+  Widget _openEntry(ManualState s, Check chk) {
     final k = context.tokens;
     final p = s.patch(chk.patchId);
     final u = s.utterance(chk.utteranceId);
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.xs),
-      child: MoonMenuItem(
-        backgroundColor: k.colors.pendingBg,
-        borderRadius: k.radius.control,
-        onTap: () => _openCheck(chk),
-        label: Text('${plain(chk.conflictLine ?? '')} ／ ${plain(p.text)}', style: k.text.body),
-        content: Text('マニュアル ／ ${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）',
-            style: k.text.small.copyWith(color: k.colors.pending)),
-        trailing: Icon(LucideIcons.chevronRight, color: k.colors.pending),
-      ),
-    );
-  }
-
-  Widget _resolvedRow(Check chk) {
-    final k = context.tokens;
-    final r = chk.resolution!;
-    return MoonMenuItem(
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+    return _entry(
       onTap: () => _openCheck(chk),
-      label: Text('${fmtDay(r.decidedAt)} ${r.decidedBy}に確認：${r.note}', style: k.text.body),
-      content: r.note == plain(r.text) ? null : Text('→ ${plain(r.text)}', style: k.text.small),
+      head: Speaker(name: u.speaker, day: u.saidAt),
+      body: [
+        Text('${plain(chk.conflictLine ?? '')} ／ ${plain(p.text)}', style: k.text.heading),
+        SizedBox(height: k.space.xs),
+        Text(chk.reason, style: k.text.small),
+        SizedBox(height: k.space.md),
+        MoonOutlinedButton(
+          buttonSize: MoonButtonSize.sm,
+          onTap: () => _openCheck(chk),
+          label: const Text('誰に確認するか見る'),
+        ),
+      ],
     );
   }
 
-  Widget _utteranceRow(ManualState s, Utterance u) {
+  /// 確認済み：誰が・いつ言ったか → 食い違っていたこと → 誰がいつ確認して何に決まったか
+  Widget _resolvedEntry(ManualState s, Check chk) {
     final k = context.tokens;
-    return MoonMenuItem(
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+    final p = s.patch(chk.patchId);
+    final u = s.utterance(chk.utteranceId);
+    final r = chk.resolution!;
+    return _entry(
+      onTap: () => _openCheck(chk),
+      head: Speaker(name: u.speaker, day: u.saidAt),
+      body: [
+        Text('${plain(chk.conflictLine ?? '')} ／ ${plain(p.text)}', style: k.text.small),
+        SizedBox(height: k.space.sm),
+        Row(children: [
+          ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
+          SizedBox(width: k.space.sm),
+          Expanded(child: Text(r.note, style: k.text.body)),
+        ]),
+        if (r.note != plain(r.text)) ...[
+          SizedBox(height: k.space.xs),
+          Text('確定した内容：${plain(r.text)}', style: k.text.small),
+        ],
+      ],
+    );
+  }
+
+  /// 発言：誰が・いつ → 言われたこと（手書き）→ 状態
+  Widget _utteranceEntry(ManualState s, Utterance u) {
+    final k = context.tokens;
+    return _entry(
       onTap: () => showReview(context, c, u.id),
-      label: Text(u.text, style: k.text.hand),
-      content: Padding(
-        padding: EdgeInsets.only(top: k.space.xs),
-        child: Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Text('${u.speaker ?? '発言者未入力'} ${fmtDay(u.saidAt)}', style: k.text.small),
+      head: Speaker(name: u.speaker, day: u.saidAt),
+      body: [
+        Text(u.text, style: k.text.hand),
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
           for (final st in _statuses(s, u)) _statusTag(st),
         ]),
-      ),
+      ],
     );
   }
 
   Widget _statusTag(String status) {
-    final k = context.tokens;
-    final c = k.colors;
+    final c = context.tokens.colors;
     final (bg, fg) = switch (status) {
       '確認待ち' => (c.pendingBg, c.pending),
       '確認済み' || '反映済み' => (c.addedBg, c.added),
-      '確認の答え' => (c.sheet, c.stamp),
+      '確認の答え' => (c.canvas, c.stamp),
       _ => (c.rule, c.ink),
     };
-    return MoonTag(
-      tagSize: MoonTagSize.xs,
-      backgroundColor: bg,
-      borderRadius: k.radius.control,
-      label: Text(status, style: k.text.label.copyWith(color: fg)),
-    );
+    return StatusTag(status, bg: bg, fg: fg);
   }
 
   List<String> _statuses(ManualState s, Utterance u) {
