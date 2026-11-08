@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/theme.dart';
@@ -146,14 +147,18 @@ class _FakeSink implements WebSocketSink {
 }
 
 Future<void> _pumpInput(WidgetTester tester, http.Client client,
-    {StreamController<Uint8List>? mic, _FakeSocket? socket}) async {
+    {StreamController<Uint8List>? mic, _FakeSocket? socket, List<PickedFile> picked = const []}) async {
   tester.view.physicalSize = const Size(1200, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final api = Api(client: client, baseUrl: 'http://api', connect: (_) => socket!);
   await tester.pumpWidget(MaterialApp(
     theme: appTheme(),
-    home: mic == null ? InputScreen(api: api) : InputScreen(api: api, newRecorder: () => _FakeMic(mic)),
+    home: InputScreen(
+      api: api,
+      newRecorder: mic == null ? AudioRecorder.new : () => _FakeMic(mic),
+      pickFiles: () async => picked,
+    ),
   ));
   await tester.pumpAndSettle();
 }
@@ -531,6 +536,42 @@ void main() {
     expect(socket.sent.last, 'end');
     await socket.close();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('画像はサムネイル、PDF は名前で添え、受け付けない形式は除いて知らせる', (tester) async {
+    // 1×1 の PNG
+    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+    Map<String, dynamic>? sent;
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent = body;
+        return _json({
+          'text': '塩は小さじ1/2',
+          'results': [
+            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+          ],
+        }, 201);
+      }),
+      picked: [
+        (name: 'メモ.PNG', type: '', bytes: png),
+        (name: '手順.pdf', type: 'application/pdf', bytes: Uint8List(8)),
+        (name: 'メモ.txt', type: 'text/plain', bytes: Uint8List(8)),
+      ],
+    );
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルを添える'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.bySemanticsLabel('メモ.PNG'), findsOneWidget);
+    expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
+    expect(find.text('メモ.txt'), findsNothing);
+    expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
+    await _waitToast(tester);
+
+    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.pumpAndSettle();
+    expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
   });
 }
 

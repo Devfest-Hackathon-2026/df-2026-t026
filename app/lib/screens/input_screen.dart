@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -14,6 +15,7 @@ import '../audio/capture_recorder.dart';
 import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../web/files.dart';
 import '../web/screen.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
@@ -46,13 +48,29 @@ const _maxAttachmentBytes = 10 * 1024 * 1024;
 /// 最近の記録に並べる数
 const _recentCount = 5;
 
+/// サムネイルで見せる形式（HEIC は Safari 以外で描けないので名前だけにする）
+const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
+
+Future<List<PickedFile>> _pickWithFilePicker() async => [
+      for (final f in await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _fileTypes.keys.toList()))
+        (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
+    ];
+
 /// アプリを開いて最初の画面。どのマニュアルかを選ばずに、常時待ち受けからの切り出し・書く（音声入力つき）・ファイルを添えるで記録する（ADR 0005）
 class InputScreen extends StatefulWidget {
-  const InputScreen({super.key, required this.api, this.newRecorder = AudioRecorder.new});
+  const InputScreen({
+    super.key,
+    required this.api,
+    this.newRecorder = AudioRecorder.new,
+    this.pickFiles = _pickWithFilePicker,
+  });
   final Api api;
 
   /// 録音を始めるたびに作る（作るだけでマイクの用意が走るため）。テストではマイクの代わりを渡す
   final AudioRecorder Function() newRecorder;
+
+  /// 「ファイルを添える」で選ぶ。テストではファイル選択の代わりを渡す
+  final Future<List<PickedFile>> Function() pickFiles;
 
   @override
   State<InputScreen> createState() => _InputScreenState();
@@ -81,12 +99,14 @@ class _InputScreenState extends State<InputScreen> {
   var _beforeDictation = '';
 
   late final void Function() _stopWatchingScreen;
+  late final void Function() _stopWatchingDrops;
 
   @override
   void initState() {
     super.initState();
     // 画面に戻ったら、待ち受けのマイクが止められていないかを確かめる
     _stopWatchingScreen = onScreenShown(() => _listener?.checkAlive());
+    _stopWatchingDrops = onFilesDropped(_addPicked);
     SharedPreferences.getInstance().then((p) {
       if (mounted && p.getBool(listeningKey) == true) setState(() => _wantListening = true);
     });
@@ -96,6 +116,7 @@ class _InputScreenState extends State<InputScreen> {
   void dispose() {
     _text.dispose();
     _stopWatchingScreen();
+    _stopWatchingDrops();
     if (_listener != null) keepScreenOn(false);
     _listener?.stop();
     _dictation?.stop();
@@ -126,13 +147,19 @@ class _InputScreenState extends State<InputScreen> {
 
   bool get _ready => _text.text.trim().isNotEmpty || _files.isNotEmpty;
 
-  Future<void> _pickFiles() async {
-    final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _fileTypes.keys.toList());
-    final added = [
-      for (final f in picked)
-        if (_fileTypes[f.extension?.toLowerCase()] case final mimeType?)
-          Attachment(name: f.name, mimeType: mimeType, bytes: await f.xFile.readAsBytes()),
-    ];
+  /// 選んだ・撮った・貼り付けた・ドロップしたファイルを添える。受け付けない形式は除き、大きな画像は縮める
+  Future<void> _addPicked(List<PickedFile> picked) async {
+    if (_busy || picked.isEmpty) return;
+    final added = <Attachment>[];
+    for (final f in picked) {
+      final mimeType = _fileTypes[f.name.split('.').last.toLowerCase()] ??
+          (_fileTypes.containsValue(f.type) ? f.type : null);
+      if (mimeType == null) continue;
+      final small = await shrinkImage(f.bytes, mimeType);
+      added.add(Attachment(name: f.name, mimeType: small.mimeType, bytes: small.bytes));
+    }
+    if (!mounted) return;
+    if (added.length < picked.length) showError(context, '添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
     _addFiles(added);
   }
 
@@ -475,24 +502,26 @@ class _InputScreenState extends State<InputScreen> {
         ]),
         if (_files.isNotEmpty) ...[
           SizedBox(height: k.space.sm),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            for (final f in _files)
-              MoonTag(
-                tagSize: MoonTagSize.sm,
-                backgroundColor: k.colors.shell,
-                label: Text(f.name, style: k.text.small),
-                trailing: MoonButton.icon(
-                  buttonSize: MoonButtonSize.xs,
-                  semanticLabel: '${f.name}を外す',
-                  icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
-                  onTap: _busy ? null : () => setState(() => _files.remove(f)),
-                ),
-              ),
-          ]),
+          Wrap(
+            spacing: k.space.sm,
+            runSpacing: k.space.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [for (final f in _files) _attachment(f)],
+          ),
         ],
         SizedBox(height: k.space.md),
         Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          MoonOutlinedButton(onTap: _busy ? null : _pickFiles, label: const Text('ファイルを添える')),
+          MoonOutlinedButton(
+            onTap: _busy ? null : () async => _addPicked(await widget.pickFiles()),
+            label: const Text('ファイルを添える'),
+          ),
+          if (_onPhone)
+            MoonOutlinedButton(
+              onTap: _busy ? null : () async => _addPicked(await takePhoto()),
+              label: const Text('写真を撮る'),
+            )
+          else
+            Text('PDF・画像は貼り付けやドロップでも添えられます', style: k.text.small),
           if (_dictation != null) StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
         ]),
         SizedBox(height: k.space.lg),
@@ -506,6 +535,36 @@ class _InputScreenState extends State<InputScreen> {
         ),
       ]),
     );
+  }
+
+  /// Web でも端末の種類を返す。スマホではカメラを直接開くボタンを出す
+  bool get _onPhone => const {TargetPlatform.android, TargetPlatform.iOS}.contains(defaultTargetPlatform);
+
+  /// 添えたもの。画像はサムネイルで、ほかは名前で見せる
+  Widget _attachment(Attachment f) {
+    final k = context.tokens;
+    final remove = MoonButton.icon(
+      buttonSize: MoonButtonSize.xs,
+      backgroundColor: k.colors.canvas,
+      semanticLabel: '${f.name}を外す',
+      icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+      onTap: _busy ? null : () => setState(() => _files.remove(f)),
+    );
+    if (!_previewable.contains(f.mimeType)) {
+      return MoonTag(
+        tagSize: MoonTagSize.sm,
+        backgroundColor: k.colors.shell,
+        label: Text(f.name, style: k.text.small),
+        trailing: remove,
+      );
+    }
+    return Stack(children: [
+      ClipRRect(
+        borderRadius: k.radius.control,
+        child: Image.memory(f.bytes, width: k.thumbnail, height: k.thumbnail, fit: BoxFit.cover, semanticLabel: f.name),
+      ),
+      Positioned(top: k.space.xs, right: k.space.xs, child: remove),
+    ]);
   }
 
   /// 入力欄の中のマイク。聞き取り中は色で示し、確定の文面を待つ間は読み込み中にする
