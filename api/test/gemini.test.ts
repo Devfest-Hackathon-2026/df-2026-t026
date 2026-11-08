@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import { checkWithGemini } from '../src/conflict/check.ts';
 import { patchifyWithGemini } from '../src/foundation/patchify.ts';
 import { routeWithGemini, transcribeWithGemini } from '../src/intake.ts';
-import { toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
+import { GoogleGenAI } from '@google/genai';
+
+import { httpOptions, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
 
@@ -118,4 +120,59 @@ test('書き起こし：ファイルを添えて呼ぶ', async () => {
   const files = [{ mimeType: 'image/png', data: 'AAAA' }];
   assert.equal(await transcribeWithGemini(files, generate), '田中さんから塩は小さじ1/2');
   assert.deepEqual(calls[0].files, files);
+});
+
+/** 決まった順にステータスを返す fetch。呼ばれた回数を数える */
+function fakeFetch(statuses: number[]) {
+  let calls = 0;
+  const fetch = async () => {
+    const status = statuses[Math.min(calls++, statuses.length - 1)];
+    const body = status === 200 ? { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } : { error: { code: status, message: 'x' } };
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  };
+  return { fetch, calls: () => calls };
+}
+
+async function callWith(statuses: number[]) {
+  const f = fakeFetch(statuses);
+  // 待ち時間だけ短くして、やり直す回数と対象のステータスは本番と同じ設定で確かめる
+  const ai = new GoogleGenAI({
+    vertexai: true,
+    apiKey: 'test',
+    httpOptions: { ...httpOptions, retryOptions: { ...httpOptions.retryOptions, initialDelay: 0.01, maxDelay: 0.01 }, fetch: f.fetch },
+  });
+  const res = await ai.models.generateContent({ model: 'm', contents: 'x' }).then((r) => r.text, (e) => e);
+  return { res, calls: f.calls() };
+}
+
+test('呼び出し：混雑（503）やレート制限（429）は待ってやり直す', async () => {
+  assert.deepEqual(await callWith([503, 200]), { res: 'ok', calls: 2 });
+  assert.deepEqual(await callWith([429, 429, 200]), { res: 'ok', calls: 3 });
+});
+
+test('呼び出し：やり直しは決めた回数まで。リクエストの誤り（400）はやり直さない', async () => {
+  const busy = await callWith([503]);
+  assert.equal(busy.calls, 3);
+  assert.equal(busy.res.status, 503);
+  const bad = await callWith([400, 200]);
+  assert.equal(bad.calls, 1);
+  assert.equal(bad.res.status, 400);
+});
+
+test('呼び出し：応答が上限時間を過ぎたら打ち切り、やり直す', async () => {
+  let calls = 0;
+  const fetch = (_url: unknown, init?: RequestInit) => {
+    calls++;
+    if (calls > 1) return Promise.resolve(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] })));
+    // 1回目は返事をせず、打ち切られるのを待つ
+    return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+  };
+  const ai = new GoogleGenAI({
+    vertexai: true,
+    apiKey: 'test',
+    httpOptions: { ...httpOptions, timeout: 20, retryOptions: { ...httpOptions.retryOptions, initialDelay: 0.01, maxDelay: 0.01 }, fetch },
+  });
+  const r = await ai.models.generateContent({ model: 'm', contents: 'x' });
+  assert.equal(r.text, 'ok');
+  assert.equal(calls, 2);
 });
