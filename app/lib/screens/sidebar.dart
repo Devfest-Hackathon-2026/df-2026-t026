@@ -7,6 +7,7 @@ import '../theme.dart';
 import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
+import 'new_manual_screen.dart';
 
 /// サイドバーで、いまいる画面
 enum Place { input, manuals }
@@ -90,7 +91,7 @@ class _SidebarState extends State<_Sidebar> {
           children: [
             _item('言われたことを記録', selected: widget.place == Place.input, onTap: () => _go(null)),
             SizedBox(height: k.space.lg),
-            _item('マニュアル', selected: widget.place == Place.manuals, onTap: () => _go(HomeScreen(api: widget.api))),
+            _item('ノート', selected: widget.place == Place.manuals, onTap: () => _go(HomeScreen(api: widget.api))),
             for (final m in snap.data ?? const <ManualSummary>[])
               _item(
                 m.title,
@@ -99,6 +100,7 @@ class _SidebarState extends State<_Sidebar> {
                 open: m.openCount,
                 onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
               ),
+            _item('ノートを作る', nested: true, selected: false, onTap: () => _go(NewManualScreen(api: widget.api))),
           ],
         ),
       ),

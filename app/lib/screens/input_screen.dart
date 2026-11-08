@@ -308,9 +308,9 @@ class _InputScreenState extends State<InputScreen> {
           child: Padding(
             padding: EdgeInsets.all(k.space.xl),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('どのマニュアルに記録しますか？', style: k.text.title),
+              Text('どのノートに記録しますか？', style: k.text.title),
               SizedBox(height: k.space.xs),
-              Text('関係するマニュアルが見つかりませんでした。記録するマニュアルを選んでください', style: k.text.small),
+              Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
               SizedBox(height: k.space.md),
               Text('「$text」', style: k.text.body),
               SizedBox(height: k.space.lg),
@@ -360,7 +360,7 @@ class _InputScreenState extends State<InputScreen> {
                   : MoonOutlinedButton(
                       buttonSize: MoonButtonSize.sm,
                       onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('マニュアルを確認'),
+                      label: const Text('ノートを確認'),
                     ),
             ),
             Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
@@ -392,7 +392,7 @@ class _InputScreenState extends State<InputScreen> {
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-          PageTitle('言われたことを記録', meta: [Text('どのマニュアルのことかは選ばなくてかまいません', style: k.text.small)]),
+          PageTitle('言われたことを記録', meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)]),
           SizedBox(height: k.space.xl),
           if (manuals.isEmpty)
             _empty()
@@ -549,7 +549,7 @@ class _InputScreenState extends State<InputScreen> {
       Text('あとで確認', style: k.text.title),
       SizedBox(height: k.space.sm),
       if (open.isEmpty)
-        Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
+        Text('食い違いは、いまはありません', style: k.text.small)
       else
         // 罫線が方眼とぶつからないよう、白い面に載せる
         PaperSheet(
@@ -615,15 +615,15 @@ class _InputScreenState extends State<InputScreen> {
     return PaperSheet(
       padding: EdgeInsets.all(k.space.xxl),
       child: Column(children: [
-        Text('まだマニュアルがありません', style: k.text.heading),
+        Text('まだノートがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。\nマニュアルが無ければ、白紙から始められます。',
+          '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),
         SizedBox(height: k.space.xl),
-        MoonFilledButton(label: const Text('マニュアルを登録'), onTap: () => _push(NewManualScreen(api: widget.api))),
+        MoonFilledButton(label: const Text('ノートを作る'), onTap: () => _push(NewManualScreen(api: widget.api))),
       ]),
     );
   }

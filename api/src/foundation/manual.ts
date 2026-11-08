@@ -53,7 +53,7 @@ export function applyPatch(lines: ManualLine[], patch: PatchDraft & { id: string
   const added = patch.op === 'delete' ? [] : patch.text.split('\n').map((text) => ({ text, patchId: patch.id }));
   if (patch.op === 'insert' && patch.line === null) return [...lines, ...added];
   const i = lines.findIndex((l) => l.text === patch.line);
-  if (i < 0) throw new PatchError(`マニュアルに「${patch.line}」の行が見つかりません`);
+  if (i < 0) throw new PatchError(`ノートに「${patch.line}」の行が見つかりません`);
   const head = lines.slice(0, patch.op === 'insert' ? i + 1 : i);
   return [...head, ...added, ...lines.slice(i + 1)];
 }

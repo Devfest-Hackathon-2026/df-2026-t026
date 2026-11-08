@@ -20,8 +20,8 @@ void main() {
   testWidgets('マニュアルが無いときは、登録への案内を出す', (tester) async {
     await _pumpHome(tester, MockClient((_) async => _json([], 200)));
 
-    expect(find.text('まだマニュアルがありません'), findsOneWidget);
-    expect(find.text('マニュアルを登録'), findsOneWidget);
+    expect(find.text('まだノートがありません'), findsOneWidget);
+    expect(find.text('ノートを作る'), findsOneWidget);
   });
 
   testWidgets('読み込みに失敗したら理由を出し、もう一度読み込める', (tester) async {

@@ -42,7 +42,7 @@ export const fakePatchify: Patchify = async ({ lines, text, today }) => {
 export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
   const same = lines.find((l) => l.text === patch.text);
   if (same) {
-    return { kind: 'same', conflictLine: null, sameLine: same.text, reason: `マニュアルの「${strip(same.text)}」と同じ内容です`, ask: null };
+    return { kind: 'same', conflictLine: null, sameLine: same.text, reason: `ノートの「${strip(same.text)}」と同じ内容です`, ask: null };
   }
   // 追記は、頭の言葉（「塩」など）が同じで中身の違う項目があれば、その項目と食い違うとみなす
   const rival = patch.op === 'insert' ? lines.find((l) => !l.text.startsWith('## ') && headWord(l.text) === headWord(patch.text)) : null;
@@ -61,7 +61,7 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
     kind: 'contradiction',
     conflictLine,
     sameLine: null,
-    reason: `マニュアルの「${strip(conflictLine)}」と両立しません`,
+    reason: `ノートの「${strip(conflictLine)}」と両立しません`,
     ask: {
       candidates,
       question: `「${strip(conflictLine)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,

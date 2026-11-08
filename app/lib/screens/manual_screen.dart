@@ -141,7 +141,7 @@ class _ManualScreenState extends State<ManualScreen> {
           initialIndex: _tab,
           onTabChanged: (i) => setState(() => _tab = i),
           tabs: [
-            const MoonTab(label: Text('マニュアル')),
+            const MoonTab(label: Text('ノート')),
             MoonTab(label: Text('発言 ${s.said.length}')),
           ],
         ),

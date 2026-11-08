@@ -108,7 +108,7 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
 
   async function load(userId: string, manualId: string) {
     const manual = await store.getManual(userId, manualId);
-    if (!manual) throw new HTTPException(404, { message: 'マニュアルが見つかりません' });
+    if (!manual) throw new HTTPException(404, { message: 'ノートが見つかりません' });
     const [utterances, patches, checks] = await Promise.all([
       store.list<Utterance>(userId, manualId, 'utterances'),
       store.list<Patch>(userId, manualId, 'patches'),

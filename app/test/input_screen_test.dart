@@ -212,7 +212,7 @@ void main() {
     await tester.tap(find.byIcon(LucideIcons.x));
     await tester.pumpAndSettle();
     expect(find.text('差分の確認'), findsOneWidget);
-    expect(find.text('マニュアルに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
+    expect(find.text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.x));
     await tester.pumpAndSettle();
@@ -237,7 +237,7 @@ void main() {
     );
     await _record(tester, '傘は入口に置く');
 
-    expect(find.text('どのマニュアルに記録しますか？'), findsOneWidget);
+    expect(find.text('どのノートに記録しますか？'), findsOneWidget);
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
     await tester.pumpAndSettle();
 
@@ -276,7 +276,7 @@ void main() {
   testWidgets('マニュアルが無いうちは、登録への案内を出す', (tester) async {
     await _pumpInput(tester, MockClient((_) async => _json([])));
 
-    expect(find.text('まだマニュアルがありません'), findsOneWidget);
+    expect(find.text('まだノートがありません'), findsOneWidget);
     expect(find.byType(MoonTextArea), findsNothing);
   });
 
@@ -434,12 +434,14 @@ void main() {
   testWidgets('広い画面では、左のサイドバーからマニュアルへ直接移れ、あとで確認の件数も並ぶ', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})));
 
-    // サイドバーと役割が重なるので、上部バーの「マニュアルを確認」は出さない
-    expect(find.widgetWithText(MoonOutlinedButton, 'マニュアルを確認'), findsNothing);
+    // サイドバーと役割が重なるので、上部バーの「ノートを確認」は出さない
+    expect(find.widgetWithText(MoonOutlinedButton, 'ノートを確認'), findsNothing);
 
     // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
     final hall = find.widgetWithText(MoonMenuItem, 'ホール');
     expect(hall, findsOneWidget);
+    // ノートがあっても、サイドバーから新しいノートを作れる
+    expect(find.widgetWithText(MoonMenuItem, 'ノートを作る'), findsOneWidget);
     expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン').first, matching: find.text('1')), findsOneWidget);
 
     await tester.tap(hall);
@@ -472,13 +474,13 @@ void main() {
     expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
   });
 
-  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「マニュアルを確認」から一覧へ進む', (tester) async {
+  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「ノートを確認」から一覧へ進む', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})), size: const Size(400, 900));
 
     expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsNothing);
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'マニュアルを確認'));
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートを確認'));
     await tester.pumpAndSettle();
-    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('マニュアル')), findsOneWidget);
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('ノート')), findsOneWidget);
   });
 }
 

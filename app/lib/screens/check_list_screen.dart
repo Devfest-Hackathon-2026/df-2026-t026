@@ -89,13 +89,13 @@ class _CheckListScreenState extends State<CheckListScreen> {
     final k = context.tokens;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       PageTitle('確認リスト', meta: [
-        Text('マニュアルと食い違っていた指示です。聞けるときに確認して、決まったら記録します', style: k.text.small),
+        Text('ノートの中で食い違っていることです。聞けるときに確認して、決まったら記録します', style: k.text.small),
       ]),
       SizedBox(height: k.space.xxl),
       Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.openChecks.isEmpty)
-        Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
+        Text('食い違いは、いまはありません', style: k.text.small)
       else
         for (final chk in s.openChecks.reversed) ...[
           _openRow(s, chk, selected: chk.id == selected, onTap: () => onOpen(chk)),

@@ -117,7 +117,7 @@ class _CheckDetailState extends State<CheckDetail> {
             if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
             _step(chk.isOpen ? '1' : null, chk.isOpen ? '食い違っていること' : '食い違っていたこと'),
             ConflictPair(
-              leftLabel: 'マニュアル',
+              leftLabel: 'ノート',
               left: chk.conflictLine ?? '',
               rightLabel: who,
               right: p.text,
@@ -220,7 +220,7 @@ class _CheckDetailState extends State<CheckDetail> {
   Widget _form(Check chk, Patch p, Utterance u) {
     final k = context.tokens;
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    final keep = _choice(_Outcome.keep, 'マニュアルのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
+    final keep = _choice(_Outcome.keep, 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

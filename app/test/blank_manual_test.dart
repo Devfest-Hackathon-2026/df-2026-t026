@@ -29,11 +29,11 @@ Future<void> _pump(WidgetTester tester, Widget screen) async {
 }
 
 void main() {
-  testWidgets('本文を空のままでも、題名だけで白紙から始められる', (tester) async {
+  testWidgets('本文を空のままでも、題名だけで白紙から始め、そのまま開いて書ける', (tester) async {
     Map<String, dynamic>? sent;
     final client = MockClient((req) async {
-      sent = jsonDecode(req.body) as Map<String, dynamic>;
-      return _json(_blank, 201);
+      if (req.method == 'POST') sent = jsonDecode(req.body) as Map<String, dynamic>;
+      return _json(_blank, req.method == 'POST' ? 201 : 200);
     });
     await _pump(tester, NewManualScreen(api: Api(client: client, baseUrl: 'http://api')));
 
@@ -48,9 +48,11 @@ void main() {
     await tester.tap(blank);
     await tester.pumpAndSettle();
     expect(sent, {'title': '自分用メモ', 'body': ''});
+    expect(find.byType(ManualScreen), findsOneWidget);
+    expect(find.widgetWithText(MoonTextButton, '行を書き足す'), findsOneWidget);
   });
 
-  testWidgets('白紙のマニュアルは、記録すると書き足されることを案内する', (tester) async {
+  testWidgets('白紙のノートは、直接書くか記録すると書き足されることを案内する', (tester) async {
     final client = MockClient((_) async => _json(_blank, 200));
     await _pump(tester, ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'));
 
