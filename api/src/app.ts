@@ -9,18 +9,17 @@ import { z } from 'zod';
 import type { Assess } from './assess.ts';
 import { manualContext, type Check } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
-import { readFiles, type Route, type Transcribe } from './intake.ts';
+import { readFiles, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
   store: Store;
-  /** 差分化と分類（ADR 0006） */
+  /** 振り分け・差分化・分類（ADR 0006） */
   assess: Assess;
   transcribe: Transcribe;
   listen: Listen;
   dictate: Dictate;
-  route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
   /** API を使うための合言葉（X-Passcode ヘッダーで受ける）。未指定なら確かめない（ローカル開発用） */
@@ -69,7 +68,7 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, assess, transcribe, listen, dictate, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, transcribe, listen, dictate, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
@@ -112,6 +111,8 @@ export function createApp({ store, assess, transcribe, listen, dictate, route, a
     return Promise.all(manuals.map((m) => load(userId, m.id)));
   }
 
+  type State = Awaited<ReturnType<typeof load>>;
+
   /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
   const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
 
@@ -148,67 +149,76 @@ export function createApp({ store, assess, transcribe, listen, dictate, route, a
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
 
-  // 取り込み → 差分化（土台）と分類（衝突検知）。Gemini は1回（ADR 0006）
-  async function record(userId: string, manualId: string, text: string, today: string) {
-    const s = await load(userId, manualId);
-
-    const speakers = [...new Set(s.utterances.map((u) => u.speaker).filter((x): x is string => !!x))];
-    const draft = await assess({ ...manualContext(s.lines, s.patches, s.utterances, s.checks), text, today, speakers });
-    const utterance: Utterance = {
-      id: randomUUID(),
+  // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
+  // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
+  async function record(userId: string, states: State[], text: string, today: string, keepAll: boolean) {
+    if (states.length === 0) return [];
+    const speakers = [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
+    const draft = await assess({
+      manuals: states.map((s) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) })),
       text,
-      speaker: draft.speaker,
-      saidAt: draft.saidAt ?? today,
-      createdAt: now(),
-    };
-    const patches: Patch[] = draft.items.map(({ patch: p }) => ({
-      ...p,
-      id: randomUUID(),
-      utteranceId: utterance.id,
-      status: 'proposed',
-      createdAt: now(),
-      appliedAt: null,
-    }));
-    await store.put(userId, manualId, 'utterances', utterance);
-    await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
-
-    const checks: Check[] = patches.map((p, i) => ({
-      ...draft.items[i].check,
-      id: randomUUID(),
-      patchId: p.id,
-      utteranceId: utterance.id,
-      resolution: null,
-      createdAt: now(),
-    }));
-    await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
-    return { utteranceId: utterance.id, state: await load(userId, manualId) };
+      today,
+      speakers,
+    });
+    const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
+    return Promise.all(
+      targets.map(async (s) => {
+        const manualId = s.manual.id;
+        const items = draft.items.filter((x) => x.manual === states.indexOf(s));
+        const utterance: Utterance = {
+          id: randomUUID(),
+          text,
+          speaker: draft.speaker,
+          saidAt: draft.saidAt ?? today,
+          createdAt: now(),
+        };
+        const patches: Patch[] = items.map(({ patch: p }) => ({
+          ...p,
+          id: randomUUID(),
+          utteranceId: utterance.id,
+          status: 'proposed',
+          createdAt: now(),
+          appliedAt: null,
+        }));
+        const checks: Check[] = patches.map((p, i) => ({
+          ...items[i].check,
+          id: randomUUID(),
+          patchId: p.id,
+          utteranceId: utterance.id,
+          resolution: null,
+          createdAt: now(),
+        }));
+        await store.put(userId, manualId, 'utterances', utterance);
+        await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
+        await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
+        return { manualId, utteranceId: utterance.id, state: await load(userId, manualId) };
+      }),
+    );
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
+    const { userId } = c.var;
     const body = NewUtterance.parse(await c.req.json());
-    return c.json(await record(c.var.userId, c.req.param('id'), body.text, body.today ?? todayInJapan()), 201);
+    const [r] = await record(userId, [await load(userId, c.req.param('id'))], body.text, body.today ?? todayInJapan(), true);
+    return c.json({ utteranceId: r.utteranceId, state: r.state }, 201);
   });
 
-  // 入力ページから。ファイル・録音をテキストにし、関係するマニュアルごとに記録する（ADR 0005）
+  // 入力ページから。ファイル・録音をテキストにし、関係するマニュアルごとに記録する（ADR 0005・0006）
   app.post('/utterances', async (c) => {
     const { userId } = c.var;
     const body = NewIntake.parse(await c.req.json());
-    // 全マニュアルは、録音のフレーズヒントと振り分けにだけ使う
+    // 記録先が選ばれていなければ全マニュアルを渡し、Gemini に振り分けてもらう
+    const states = body.manualIds
+      ? await Promise.all(body.manualIds.map((id) => load(userId, id)))
+      : await loadAll(userId);
     const hasAudio = body.files.some((f) => f.mimeType === 'audio/wav');
-    const states = hasAudio || !body.manualIds ? await loadAll(userId) : [];
-    const heard = await readFiles(body.files, { transcribe, listen, phrases: hasAudio ? phrasesOf(states) : [] });
+    // 録音のフレーズヒントには、記録先に関係なく全マニュアルの語句を使う
+    const hints = hasAudio ? phrasesOf(body.manualIds ? await loadAll(userId) : states) : [];
+    const heard = await readFiles(body.files, { transcribe, listen, phrases: hints });
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
-    let manualIds = body.manualIds;
-    if (!manualIds) {
-      const picked = await route({ manuals: states.map((s) => ({ title: s.manual.title, lines: s.lines.map((l) => l.text) })), text });
-      manualIds = picked.map((i) => states[i].manual.id);
-    }
-    const today = body.today ?? todayInJapan();
-    const results = await Promise.all(
-      manualIds.map(async (manualId) => ({ manualId, ...(await record(userId, manualId, text, today)) })),
-    );
+    const results = await record(userId, states, text, body.today ?? todayInJapan(), !!body.manualIds);
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });

@@ -37,7 +37,12 @@ const kinds: Kind[] = ['same', 'addition', 'qualification', 'contradiction'];
 /** 1件の発言から複数のパッチが出たら、いちばん重い分類をその発言の判定にする（矛盾が1つでもあれば聞きに行くため） */
 async function judge(c: Case): Promise<{ kind: Kind; reason: string }> {
   const lines = c.manual.split('\n');
-  const r = await assess({ lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: c.utterance, today: c.today, speakers: [] });
+  const r = await assess({
+    manuals: [{ title: 'マニュアル', lines: lines.map((text) => ({ text, note: null })), confirmations: [] }],
+    text: c.utterance,
+    today: c.today,
+    speakers: [],
+  });
   // パッチがなければマニュアルは変わらず、聞きにも行かない
   if (r.items.length === 0) return { kind: 'addition', reason: 'パッチなし' };
   return r.items.map((x) => x.check).reduce((a, b) => (kinds.indexOf(b.kind) > kinds.indexOf(a.kind) ? b : a));

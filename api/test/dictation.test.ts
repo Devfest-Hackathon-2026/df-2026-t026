@@ -7,7 +7,7 @@ import { serve } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 
 import { createApp, type Deps } from '../src/app.ts';
-import { fakeAssess, fakeDictate, fakeListen, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -21,7 +21,6 @@ async function start(t: { after(fn: () => void): void }, deps: Partial<Deps> = {
     transcribe: fakeTranscribe,
     listen: fakeListen,
     dictate: fakeDictate,
-    route: fakeRoute,
     ...deps,
   });
   const wss = new WebSocketServer({ noServer: true });

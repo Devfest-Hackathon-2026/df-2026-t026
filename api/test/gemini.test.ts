@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
-import { routeWithGemini, transcribeWithGemini } from '../src/intake.ts';
+import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
 import { httpOptions, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
@@ -23,7 +23,7 @@ const ask = { candidates: [{ who: '店長', why: '決める立場' }], question:
 
 /** まとめた呼び出しの応答のパッチ1件。指定しない項目は「追記」 */
 const item = (o: Record<string, unknown>) => ({
-  op: 'insert', lineNo: null, text: '- x', summary: 'x',
+  manualNo: 1, op: 'insert', lineNo: null, text: '- x', summary: 'x',
   kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null, ...o,
 });
 
@@ -31,7 +31,7 @@ function assessWith(patches: unknown[]) {
   const s = stub({ speaker: '田中さん', saidAt: '2026-11-03', patches });
   const run = () =>
     assessWithGemini(
-      { lines: lines.map((text) => ({ text, note: null })), confirmations: [], text: '田中さんから…', today: '2026-11-03', speakers: [] },
+      { manuals: [{ title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [] }], text: '田中さんから…', today: '2026-11-03', speakers: [] },
       s.generate,
     );
   return { run, calls: s.calls };
@@ -99,16 +99,24 @@ test('Gemini に渡すスキーマに、使えないキーワードを含めな�
   assert.doesNotMatch(json, /"\$schema"|"pattern"/);
 });
 
-test('振り分け：番号をマニュアルの添字に直し、重複を除く', async () => {
-  const { generate, calls } = stub({ manualNos: [2, 1, 2] });
+test('振り分け：パッチごとのマニュアル番号を添字に直し、行番号はそのマニュアルの行で確かめる', async () => {
+  const hall = ['## 会計', '- レジは現金とカードのみ'];
   const manuals = [
-    { title: 'キッチン', lines },
-    { title: 'ホール', lines: ['## 会計', '- レジは現金とカードのみ'] },
+    { title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [] },
+    { title: 'ホール', lines: hall.map((text) => ({ text, note: null })), confirmations: [] },
   ];
-  assert.deepEqual(await routeWithGemini({ manuals, text: 'レジ締めは店長' }, generate), [0, 1]);
+  const run = (patches: unknown[]) => {
+    const s = stub({ speaker: null, saidAt: null, patches });
+    return { calls: s.calls, done: assessWithGemini({ manuals, text: 'x', today: '2026-11-03', speakers: [] }, s.generate) };
+  };
+  const ok = run([item({ manualNo: 2, op: 'replace', lineNo: 2, text: '- レジは現金のみ' }), item({ manualNo: 1, op: 'replace', lineNo: 2 })]);
+  const r = await ok.done;
+  assert.deepEqual(r.items.map((x) => [x.manual, x.patch.line]), [[1, '- レジは現金とカードのみ'], [0, '- 塩 小さじ1']]);
   // 全マニュアルの全文を載せている
-  assert.match(calls[0].prompt, /# マニュアル2: ホール\n## 会計\n- レジは現金とカードのみ/);
-  await assert.rejects(routeWithGemini({ manuals, text: 'x' }, stub({ manualNos: [3] }).generate));
+  assert.match(ok.calls[0].prompt, /# マニュアル2: ホール\nL1: ## 会計\nL2: - レジは現金とカードのみ/);
+  // ホールに5行目はない
+  await assert.rejects(run([item({ manualNo: 2, op: 'replace', lineNo: 5 })]).done);
+  await assert.rejects(run([item({ manualNo: 3 })]).done);
 });
 
 test('書き起こし：ファイルを添えて呼ぶ', async () => {

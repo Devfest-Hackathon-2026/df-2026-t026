@@ -1,7 +1,7 @@
 import type { Assess } from './assess.ts';
 import type { CheckResult } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
-import type { Route, Transcribe } from './intake.ts';
+import type { Transcribe } from './intake.ts';
 import type { Dictate, Listen } from './stt.ts';
 
 /*
@@ -39,10 +39,25 @@ function fakePatchify(lines: string[], text: string, today: string): { speaker: 
   return { speaker, saidAt, patches: [patch] };
 }
 
-export const fakeAssess: Assess = async ({ lines, text, today }) => {
-  const texts = lines.map((l) => l.text);
-  const draft = fakePatchify(texts, text, today);
-  return { ...draft, items: draft.patches.map((patch) => ({ patch, check: fakeCheck(texts, patch, draft.speaker) })) };
+export const fakeAssess: Assess = async ({ manuals, text, today }) => {
+  // 振り分け：見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくれば関係あり。1冊だけ渡されたら（記録先を選んだとき）その1冊
+  const relevant = (lines: string[]) =>
+    manuals.length === 1 ||
+    lines.some((l) => {
+      const word = strip(l).split(/[\sはをにがの、（]/)[0];
+      return !!word && text.includes(word);
+    });
+  const texts = manuals.map((m) => m.lines.map((l) => l.text));
+  const first = fakePatchify(texts[0] ?? [], text, today);
+  return {
+    speaker: first.speaker,
+    saidAt: first.saidAt,
+    items: texts.flatMap((lines, manual) =>
+      relevant(lines)
+        ? fakePatchify(lines, text, today).patches.map((patch) => ({ manual, patch, check: fakeCheck(lines, patch, first.speaker) }))
+        : [],
+    ),
+  };
 };
 
 function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): CheckResult {
@@ -88,17 +103,6 @@ export const fakeDictate: Dictate = async (_, on) => {
     end: () => on.done(said.slice(0, Math.ceil(bytes / 8000)).join('')),
   };
 };
-
-/** 見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくるマニュアルを選ぶ */
-export const fakeRoute: Route = async ({ manuals, text }) =>
-  manuals.flatMap((m, i) =>
-    m.lines.some((l) => {
-      const word = strip(l).split(/[\sはをにがの、（]/)[0];
-      return !!word && text.includes(word);
-    })
-      ? [i]
-      : [],
-  );
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {

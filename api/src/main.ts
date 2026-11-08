@@ -3,9 +3,9 @@ import { WebSocketServer } from 'ws';
 
 import { createApp } from './app.ts';
 import { assessWithGemini } from './assess.ts';
-import { fakeAssess, fakeDictate, fakeListen, fakeRoute, fakeTranscribe } from './fake-ai.ts';
+import { fakeAssess, fakeDictate, fakeListen, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
-import { routeWithGemini, transcribeWithGemini } from './intake.ts';
+import { transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
@@ -21,7 +21,6 @@ const app = createApp({
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   listen: useGemini ? listenWithSpeech : fakeListen,
   dictate: useGemini ? dictateWithSpeech : fakeDictate,
-  route: useGemini ? (i) => routeWithGemini(i) : fakeRoute,
   allowOrigin: process.env.ALLOW_ORIGIN,
   passcode: process.env.PASSCODE,
 });
