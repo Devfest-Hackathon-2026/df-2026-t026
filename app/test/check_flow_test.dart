@@ -35,6 +35,8 @@ Map<String, dynamic> _state({required bool resolved}) => {
           'text': '- 塩 小さじ1/2',
           'summary': '塩: 小さじ1 → 小さじ1/2',
           'status': resolved ? 'discarded' : 'proposed',
+          'createdAt': '2026-11-03T10:00:00Z',
+          'appliedAt': null,
         },
         if (resolved)
           {
@@ -45,6 +47,8 @@ Map<String, dynamic> _state({required bool resolved}) => {
             'text': '- 塩 小さじ1/2',
             'summary': '確認：1/2で統一',
             'status': 'applied',
+            'createdAt': '2026-11-07T10:00:00Z',
+            'appliedAt': '2026-11-07T10:00:00Z',
           },
       ],
       'checks': [
@@ -100,6 +104,8 @@ Map<String, dynamic> _sameState({required String status}) => {
           'text': '- 塩 小さじ1',
           'summary': '塩: 小さじ1',
           'status': status,
+          'createdAt': '2026-11-09T10:00:00Z',
+          'appliedAt': status == 'applied' ? '2026-11-09T10:00:00Z' : null,
         },
       ],
       'checks': [
@@ -150,10 +156,13 @@ void main() {
     await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
     await tester.pumpAndSettle();
 
+    // 広い画面では一覧の右にいちばん新しい食い違いの詳細が出ていて、画面を移らずに確認から記録までできる
     expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認すること'), findsOneWidget);
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
 
+    expect(find.text('あとで確認（1）'), findsOneWidget);
     expect(find.text('あとで確認すること'), findsOneWidget);
     expect(find.text('お店のやり方を決める立場なので'), findsOneWidget);
     expect(find.textContaining('どちらに合わせればよいですか'), findsOneWidget);
@@ -161,14 +170,14 @@ void main() {
     // 確定の入力欄は、確認できたと利用者が言うまで出さない
     final note = find.widgetWithText(MoonTextInput, '例: 1/2で統一');
     expect(note, findsNothing);
-    final start = find.widgetWithText(MoonOutlinedButton, '確認できたので記録する');
+    final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
     await tester.ensureVisible(start);
     await tester.tap(start);
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');
-    final confirm = find.widgetWithText(MoonFilledButton, '確定する');
+    final confirm = find.widgetWithText(MoonFilledButton, '確認済みにする');
     await tester.ensureVisible(confirm);
     await tester.tap(confirm);
     await tester.pumpAndSettle();
@@ -177,7 +186,9 @@ void main() {
     expect(resolveBody, containsPair('text', '- 塩 小さじ1/2'));
     expect(resolveBody, containsPair('note', '1/2で統一'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
-    expect(find.text('確定した内容：塩 小さじ1/2'), findsOneWidget);
+    // 確定した内容は、確認済みの行と右の確認の記録の両方に出る
+    expect(find.text('確認済み（1）'), findsOneWidget);
+    expect(find.text('確定した内容：塩 小さじ1/2'), findsNWidgets(2));
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 
@@ -204,11 +215,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('あとで確認すること'), findsOneWidget);
 
-    final start = find.widgetWithText(MoonOutlinedButton, '確認できたので記録する');
+    final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
     await tester.ensureVisible(start);
     await tester.tap(start);
     await tester.pumpAndSettle();
-    final confirm = find.widgetWithText(MoonFilledButton, '確定する');
+    final confirm = find.widgetWithText(MoonFilledButton, '確認済みにする');
     await tester.ensureVisible(confirm);
     await tester.pumpAndSettle();
     await tester.tap(confirm);
@@ -235,7 +246,7 @@ void main() {
 
     expect(find.text('同じ内容'), findsWidgets);
     expect(find.textContaining('と同じ内容です。本文は変えずに'), findsOneWidget);
-    await tester.tap(find.widgetWithText(MoonFilledButton, '記録だけ残す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '書き込まない'));
     await tester.pumpAndSettle();
 
     expect(discarded, isTrue);

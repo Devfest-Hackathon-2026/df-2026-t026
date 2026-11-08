@@ -148,7 +148,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: Row(children: [
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('差分の確認', style: k.text.title),
+                          Text('ノートに書き込む前の確認', style: k.text.title),
                           // 入力ページからは複数のマニュアルの確認が続くので、どの1冊かを添える
                           Text(s.title, style: k.text.small),
                         ]),
@@ -194,7 +194,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                         ),
                         SizedBox(height: k.space.xl),
                         if (patches.isEmpty)
-                          Text('マニュアルに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
+                          Text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
                         for (final p in patches) ...[
                           const Rule(),
                           SizedBox(height: k.space.lg),
@@ -224,7 +224,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
           SizedBox(height: k.space.xs),
           MoonTextButton(
             onTap: _busy ? null : () => setState(() => _fix = TextEditingController(text: _u.text)),
-            label: const Text('書き起こしを直す'),
+            label: const Text('言われたことを直す'),
           ),
         ],
       ];
@@ -233,12 +233,12 @@ class _ReviewDialogState extends State<ReviewDialog> {
       MoonTextInput(controller: fix, maxLines: 4, minLines: 1, hintText: '言われたこと'),
       SizedBox(height: k.space.sm),
       Row(children: [
-        MoonTextButton(onTap: _busy ? null : () => setState(() => _fix = null), label: const Text('直すのをやめる')),
+        MoonTextButton(onTap: _busy ? null : () => setState(() => _fix = null), label: const Text('やめる')),
         const Spacer(),
         MoonFilledButton(
           onTap: _busy ? null : _fixText,
           leading: _busy ? const ButtonLoader() : null,
-          label: const Text('直して差分を作り直す'),
+          label: const Text('直して照らし合わせ直す'),
         ),
       ]),
     ];
@@ -270,7 +270,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
     final k = context.tokens;
     return [
       ConflictPair(
-        leftLabel: 'マニュアル',
+        leftLabel: 'ノート',
         left: chk.conflictLine ?? '',
         rightLabel: '${_hasSpeaker ? _speaker.text.trim() : '発言者未入力'}（${fmtDay(_saidAt)}）',
         right: p.text,
@@ -306,7 +306,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
   List<Widget> _same(Patch p, Check chk) {
     final k = context.tokens;
     return [
-      Text('マニュアルの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
+      Text('ノートの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
@@ -314,13 +314,13 @@ class _ReviewDialogState extends State<ReviewDialog> {
         Row(children: [
           MoonTextButton(
             onTap: _busy || !_hasSpeaker ? null : () => _run(() => widget.c.applyPatch(p.id)),
-            label: const Text('それでも反映する'),
+            label: const Text('それでも書き込む'),
           ),
           const Spacer(),
           MoonFilledButton(
             onTap: _busy ? null : () => _run(() => widget.c.discardPatch(p.id)),
             leading: _busy ? const ButtonLoader() : null,
-            label: const Text('記録だけ残す'),
+            label: const Text('書き込まない'),
           ),
         ]),
     ];
@@ -341,7 +341,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
         Row(children: [
           MoonTextButton(
             onTap: _busy ? null : () => _run(() => widget.c.discardPatch(p.id)),
-            label: const Text('反映しない'),
+            label: const Text('書き込まない'),
           ),
           MoonTextButton(
             onTap: () => setState(() {
@@ -351,13 +351,13 @@ class _ReviewDialogState extends State<ReviewDialog> {
                 _editing.remove(p.id);
               }
             }),
-            label: Text(edit == null ? '修正' : '修正をやめる'),
+            label: Text(edit == null ? '書き込む内容を直す' : 'やめる'),
           ),
           const Spacer(),
           MoonFilledButton(
             onTap: _busy || !_hasSpeaker ? null : () => _run(() => widget.c.applyPatch(p.id, text: edit?.text.trim())),
             leading: _busy ? const ButtonLoader() : null,
-            label: const Text('承認して反映'),
+            label: const Text('ノートに書き込む'),
           ),
         ]),
     ];

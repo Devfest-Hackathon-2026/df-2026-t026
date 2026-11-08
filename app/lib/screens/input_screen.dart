@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -24,6 +25,7 @@ import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'review_dialog.dart';
+import 'sidebar.dart';
 
 /// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
 const passcodeKey = 'passcode';
@@ -437,9 +439,9 @@ class _InputScreenState extends State<InputScreen> {
             child: Padding(
               padding: EdgeInsets.all(k.space.xl),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Text('どのマニュアルに記録しますか？', style: k.text.title),
+                Text('どのノートに記録しますか？', style: k.text.title),
                 SizedBox(height: k.space.xs),
-                Text('関係するマニュアルが見つかりませんでした。記録するマニュアルを選んでください', style: k.text.small),
+                Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
                 SizedBox(height: k.space.md),
                 Text('「$text」', style: k.text.body),
                 SizedBox(height: k.space.lg),
@@ -459,10 +461,10 @@ class _InputScreenState extends State<InputScreen> {
                 ],
                 SizedBox(height: k.space.lg),
                 Row(children: [
-                  MoonOutlinedButton(label: const Text('記録しない'), onTap: () => Navigator.pop(ctx)),
+                  MoonOutlinedButton(label: const Text('やめる'), onTap: () => Navigator.pop(ctx)),
                   const Spacer(),
                   MoonFilledButton(
-                    label: const Text('記録する'),
+                    label: const Text('選んだノートと照らし合わせる'),
                     onTap: picked.isEmpty
                         ? null
                         : () => Navigator.pop(ctx, [for (final m in manuals) if (picked.contains(m.id)) m.id]),
@@ -489,17 +491,24 @@ class _InputScreenState extends State<InputScreen> {
         onPointerUp: (_) => scheduleMicrotask(() {
           if (mounted && _wantListening && _listener == null && !_micDenied) _startListening();
         }),
-        child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          TopBar(
-            crumbs: const ['DiffNote（仮）'],
-            trailing: MoonOutlinedButton(
-              buttonSize: MoonButtonSize.sm,
-              onTap: () => _push(HomeScreen(api: widget.api)),
-              label: const Text('マニュアルを確認'),
+        child: WithSidebar(
+          api: widget.api,
+          place: Place.input,
+          child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TopBar(
+              crumbs: const ['DiffNote（仮）'],
+              // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
+              trailing: showsSidebar(context)
+                  ? null
+                  : MoonOutlinedButton(
+                      buttonSize: MoonButtonSize.sm,
+                      onTap: () => _push(HomeScreen(api: widget.api)),
+                      label: const Text('ノートを見る'),
+                    ),
             ),
-          ),
-          Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-        ])),
+            Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+          ])),
+        ),
       ),
     );
   }
@@ -513,41 +522,58 @@ class _InputScreenState extends State<InputScreen> {
     final manuals = snap.data!;
 
     final k = context.tokens;
-    return Narrow(
-      child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-        PageTitle('言われたことを記録', meta: [Text('どのマニュアルのことかは選ばなくてかまいません', style: k.text.small)]),
-        SizedBox(height: k.space.xl),
-        if (manuals.isEmpty)
-          _empty()
-        else ...[
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoonSegmentedControl(
-              // 前回のタブを読み込めたら、そのタブで作り直す
-              key: ValueKey(_tabRestored),
-              initialIndex: _tab,
-              // 切り出しの途中で待ち受けを止めない
-              isDisabled: _capturing,
-              onSegmentChanged: _selectTab,
-              segments: const [Segment(label: Text('リワインド')), Segment(label: Text('整理・入力'))],
+    return LayoutBuilder(builder: (context, box) {
+      // 広い画面の「整理・入力」では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
+      final wide = box.maxWidth >= k.wideLayout && _tab != _rewind;
+      final input = [
+        ..._unsorted(),
+        _composer(manuals, wide: wide),
+        SizedBox(height: k.space.xxl),
+        ..._openChecks(manuals),
+      ];
+      return Narrow(
+        maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
+        child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+          PageTitle('言われたことを記録', meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)]),
+          SizedBox(height: k.space.xl),
+          if (manuals.isEmpty)
+            _empty()
+          else ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoonSegmentedControl(
+                // 前回のタブを読み込めたら、そのタブで作り直す
+                key: ValueKey(_tabRestored),
+                initialIndex: _tab,
+                // 切り出しの途中で待ち受けを止めない
+                isDisabled: _capturing,
+                onSegmentChanged: _selectTab,
+                segments: const [Segment(label: Text('リワインド')), Segment(label: Text('整理・入力'))],
+              ),
             ),
-          ),
-          SizedBox(height: k.space.lg),
-          if (_tab == _rewind) ...[
-            _listening(),
-            SizedBox(height: k.space.xxl),
-            ..._stock(),
-          ] else ...[
-            ..._unsorted(),
-            _composer(manuals),
-            SizedBox(height: k.space.xxl),
-            ..._openChecks(manuals),
-            SizedBox(height: k.space.xxl),
-            ..._recent(manuals),
+            SizedBox(height: k.space.lg),
+            if (_tab == _rewind) ...[
+              _listening(),
+              SizedBox(height: k.space.xxl),
+              ..._stock(),
+            ] else if (wide)
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: input)),
+                SizedBox(width: k.space.xxl),
+                SizedBox(
+                  width: k.panelWidth,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _recent(manuals, noteWidth: k.panelWidth)),
+                ),
+              ])
+            else ...[
+              ...input,
+              SizedBox(height: k.space.xxl),
+              ..._recent(manuals),
+            ],
           ],
-        ],
-      ]),
-    );
+        ]),
+      );
+    });
   }
 
   /// 常時待ち受け。待ち受け中は、何も送っていないことと音量をいつも見せる。白い面に載せる
@@ -594,7 +620,7 @@ class _InputScreenState extends State<InputScreen> {
             isFullWidth: true,
             onTap: _capturing ? null : _capture,
             leading: _capturing ? const ButtonLoader() : null,
-            label: Text(_capturing ? '話し終わりを待っています…' : '直前の発話を残す'),
+            label: Text(_capturing ? '話し終わるのを待っています…' : 'いま言われたことをメモする'),
           ),
         ],
       ]),
@@ -666,56 +692,64 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 書く欄。白い面に載せる
-  Widget _composer(List<ManualState> manuals) {
+  /// 書く欄。白い面に載せる。Ctrl/⌘+Enter でも送れる（Slack やレビューのコメントを貼って、そのまま送る使い方のため）
+  Widget _composer(List<ManualState> manuals, {bool wide = false}) {
     final k = context.tokens;
-    return PaperSheet(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Stack(children: [
-          MoonTextArea(
-            controller: _text,
-            height: k.composerHeight,
-            expands: true,
-            readOnly: _dictating,
-            textStyle: k.text.body,
-            // 下の行に添付とマイクのボタンを置くので、文字がその下に潜らないよう空けておく
-            textPadding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.xxl),
-            hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-            onChanged: (v) => setState(() {
-              // 消し切ったら、流し込んだメモはもう使っていない
-              if (v.trim().isEmpty) _poured.clear();
-            }),
-          ),
-          Positioned(left: k.space.sm, bottom: k.space.sm, child: _attach()),
-          Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
+    void submit() => _submit(manuals);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): submit,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): submit,
+      },
+      child: PaperSheet(
+        padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.lg),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Stack(children: [
+            MoonTextArea(
+              controller: _text,
+              height: k.composerHeight,
+              expands: true,
+              readOnly: _dictating,
+              textStyle: k.text.body,
+              // 下の行に添付とマイクのボタンを置くので、文字がその下に潜らないよう空けておく
+              textPadding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.xxl),
+              hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
+              onChanged: (v) => setState(() {
+                // 消し切ったら、流し込んだメモはもう使っていない
+                if (v.trim().isEmpty) _poured.clear();
+              }),
+            ),
+            Positioned(left: k.space.sm, bottom: k.space.sm, child: _attach()),
+            Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
+          ]),
+          if (_files.isNotEmpty) ...[
+            SizedBox(height: k.space.sm),
+            Wrap(
+              spacing: k.space.sm,
+              runSpacing: k.space.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [for (final f in _files) _attachment(f)],
+            ),
+          ],
+          if (_dictation != null) ...[
+            SizedBox(height: k.space.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
+            ),
+          ],
+          SizedBox(height: k.space.lg),
+          // 2列の狭い側ではボタンと案内が1行に収まらないので、案内を折り返す
+          Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            MoonFilledButton(
+              onTap: _ready && !_busy && !_dictating ? submit : null,
+              leading: _busy ? const ButtonLoader() : null,
+              label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+            ),
+            if (wide) Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
+          ]),
         ]),
-        if (_files.isNotEmpty) ...[
-          SizedBox(height: k.space.sm),
-          Wrap(
-            spacing: k.space.sm,
-            runSpacing: k.space.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [for (final f in _files) _attachment(f)],
-          ),
-        ],
-        if (_dictation != null) ...[
-          SizedBox(height: k.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
-          ),
-        ],
-        SizedBox(height: k.space.lg),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: MoonFilledButton(
-            onTap: _ready && !_busy && !_dictating ? () => _submit(manuals) : null,
-            leading: _busy ? const ButtonLoader() : null,
-            label: Text(_busy ? '差分を作成中…' : '差分を作る'),
-          ),
-        ),
-      ]),
+      ),
     );
   }
 
@@ -796,7 +830,7 @@ class _InputScreenState extends State<InputScreen> {
     final listening = _dictation != null;
     return MoonButton.icon(
       buttonSize: MoonButtonSize.sm,
-      semanticLabel: listening ? '音声入力を止める' : '音声入力',
+      semanticLabel: listening ? '声での入力をやめる' : '声で入力する',
       backgroundColor: listening ? k.colors.pendingBg : null,
       onTap: _busy || (_dictating && !listening) ? null : _toggleDictation,
       icon: _dictating && !listening
@@ -813,7 +847,7 @@ class _InputScreenState extends State<InputScreen> {
       Text('あとで確認', style: k.text.title),
       SizedBox(height: k.space.sm),
       if (open.isEmpty)
-        Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
+        Text('食い違いは、いまはありません', style: k.text.small)
       else
         // 罫線が方眼とぶつからないよう、白い面に載せる
         PaperSheet(
@@ -838,11 +872,12 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   /// 全マニュアルの記録を新しい順に、言われたことの付箋で並べる。押すとそのマニュアルを開く
-  List<Widget> _recent(List<ManualState> manuals) {
+  /// noteWidth は付箋1枚の幅。広い画面の右の列では、列の幅いっぱいに縦に積む
+  List<Widget> _recent(List<ManualState> manuals, {double? noteWidth}) {
     final k = context.tokens;
     final recent = [
       for (final s in manuals)
-        for (final u in s.utterances) (manual: s, u: u),
+        for (final u in s.said) (manual: s, u: u),
     ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt));
     return [
       Text('最近の記録', style: k.text.title),
@@ -855,7 +890,7 @@ class _InputScreenState extends State<InputScreen> {
           child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
             for (final (:manual, :u) in recent.take(_recentCount))
               SizedBox(
-                width: k.stickyWidth,
+                width: noteWidth ?? k.stickyWidth,
                 child: StickyNote(
                   onTap: () => _push(ManualScreen(api: widget.api, manualId: manual.id)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -878,15 +913,15 @@ class _InputScreenState extends State<InputScreen> {
     return PaperSheet(
       padding: EdgeInsets.all(k.space.xxl),
       child: Column(children: [
-        Text('まだマニュアルがありません', style: k.text.heading),
+        Text('まだノートがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
+          '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),
         SizedBox(height: k.space.xl),
-        MoonFilledButton(label: const Text('マニュアルを登録'), onTap: () => _push(NewManualScreen(api: widget.api))),
+        MoonFilledButton(label: const Text('ノートを作る'), onTap: () => _push(NewManualScreen(api: widget.api))),
       ]),
     );
   }

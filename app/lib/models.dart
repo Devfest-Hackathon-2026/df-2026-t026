@@ -25,6 +25,8 @@ class ManualSummary {
 }
 
 class ManualLine {
+  ManualLine(this.text, this.patchId);
+
   ManualLine.fromJson(Map<String, dynamic> j)
       : text = j['text'],
         patchId = j['patchId'];
@@ -39,6 +41,7 @@ class Utterance {
         text = j['text'],
         speaker = j['speaker'],
         saidAt = j['saidAt'],
+        fromEdit = j['fromEdit'] ?? false,
         createdAt = j['createdAt'];
 
   final String id;
@@ -47,6 +50,9 @@ class Utterance {
 
   /// YYYY-MM-DD
   final String saidAt;
+
+  /// 利用者がノートを直接編集した記録。口頭で言われたことではない
+  final bool fromEdit;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -60,12 +66,14 @@ class Patch {
         line = j['line'],
         text = j['text'],
         summary = j['summary'],
-        status = j['status'];
+        status = j['status'],
+        createdAt = j['createdAt'],
+        appliedAt = j['appliedAt'];
 
   final String id;
   final String utteranceId;
 
-  /// replace / insert
+  /// replace / insert / delete
   final String op;
   final String? line;
   final String text;
@@ -73,6 +81,10 @@ class Patch {
 
   /// proposed / applied / discarded
   final String status;
+
+  /// 記録した日時・ノートに反映した日時（ISO 8601）。ノートは反映した順にパッチを当てて組み立てる
+  final String createdAt;
+  final String? appliedAt;
 }
 
 class AskCandidate {
@@ -178,6 +190,8 @@ class ManualState {
   ManualState.fromJson(Map<String, dynamic> j)
       : id = j['manual']['id'],
         title = j['manual']['title'],
+        base = j['manual']['base'],
+        createdAt = j['manual']['createdAt'],
         lines = [for (final l in j['lines']) ManualLine.fromJson(l)],
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
@@ -185,12 +199,21 @@ class ManualState {
 
   final String id;
   final String title;
+
+  /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
+  final String base;
+
+  /// ノートを作った日時（ISO 8601）
+  final String createdAt;
   final List<ManualLine> lines;
   final List<Utterance> utterances;
   final List<Patch> patches;
   final List<Check> checks;
 
   Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
+
+  /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
+  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
   Patch patch(String id) => patches.firstWhere((p) => p.id == id);
   Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
   List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();

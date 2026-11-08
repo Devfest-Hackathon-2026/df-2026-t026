@@ -8,8 +8,9 @@ import '../theme.dart';
 import 'common.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'sidebar.dart';
 
-/// マニュアルの一覧。入力ページの上部バー「マニュアルを確認」から開く
+/// ノートの一覧。入力ページの上部バー「ノートを確認」から開く
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.api});
   final Api api;
@@ -31,23 +32,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _create() async {
-    final id = await Navigator.push<String>(
-        context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
-    if (id != null) await _open(id);
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
+    _reload();
   }
 
   Widget _createButton() => MoonFilledButton(
-        label: const Text('マニュアルを登録'),
+        label: const Text('ノートを作る'),
         onTap: _create,
       );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）', 'マニュアル']),
+      body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const TopBar(crumbs: ['DiffNote（仮）', 'ノート']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ])),
+      ]))),
     );
   }
 
@@ -61,8 +61,8 @@ class _HomeScreenState extends State<HomeScreen> {
       maxWidth: k.pageWidth,
       child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
         PageTitle(
-          'マニュアル',
-          meta: [Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small)],
+          'ノート',
+          meta: [Text('書いたことと教わったことを、誰がいつ言ったか付きで積み上げる', style: k.text.small)],
           trailing: manuals.isEmpty ? null : _createButton(),
         ),
         SizedBox(height: k.space.xl),
@@ -112,10 +112,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return PaperSheet(
       padding: EdgeInsets.all(k.space.xxl),
       child: Column(children: [
-        Text('まだマニュアルがありません', style: k.text.heading),
+        Text('まだノートがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
+          '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),

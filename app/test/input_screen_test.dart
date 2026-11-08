@@ -8,6 +8,7 @@ import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -25,7 +26,7 @@ Map<String, dynamic> _utterance(String id, String text, String createdAt) =>
 /// m1 はキッチン（食い違いが1件）、m2 はホール
 Map<String, dynamic> _state(String id) => switch (id) {
       'm1' => {
-          'manual': {'id': 'm1', 'title': 'キッチン'},
+          'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- 塩 小さじ1', 'patchId': null},
           ],
@@ -39,6 +40,8 @@ Map<String, dynamic> _state(String id) => switch (id) {
                 'text': '- 塩 小さじ1/2',
                 'summary': '塩: 小さじ1 → 小さじ1/2',
                 'status': 'proposed',
+                'createdAt': '2026-11-03T10:00:00Z',
+                'appliedAt': null,
               },
           ],
           'checks': [
@@ -55,7 +58,7 @@ Map<String, dynamic> _state(String id) => switch (id) {
           ],
         },
       _ => {
-          'manual': {'id': 'm2', 'title': 'ホール'},
+          'manual': {'id': 'm2', 'title': 'ホール', 'base': '- レジは現金とカードのみ', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- レジは現金とカードのみ', 'patchId': null},
           ],
@@ -157,8 +160,9 @@ Future<void> _pumpInput(WidgetTester tester, http.Client client,
     bool micAllowed = true,
     VoidCallback? onMicAsked,
     _FakeSocket? socket,
-    List<PickedFile> picked = const []}) async {
-  tester.view.physicalSize = const Size(1200, 1400);
+    List<PickedFile> picked = const [],
+    Size size = const Size(1200, 1400)}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final api = Api(client: client, baseUrl: 'http://api', connect: (_) => socket!);
@@ -186,7 +190,7 @@ Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) 
     ..add(_pcm(2000, voice: false))
     ..add(_pcm(1000, voice: true));
   await tester.pump();
-  await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+  await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
   await tester.pump();
   mic.add(_pcm(1200, voice: false));
   await tester.pump();
@@ -198,7 +202,7 @@ Future<void> _waitToast(WidgetTester tester) => tester.pumpAndSettle(const Durat
 Future<void> _record(WidgetTester tester, String text) async {
   await tester.enterText(find.byType(MoonTextArea), text);
   await tester.pump();
-  await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+  await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
   await tester.pumpAndSettle();
 }
 
@@ -208,7 +212,8 @@ void main() {
   testWidgets('あとで確認の件数と、全マニュアルの最近の記録を新しい順に出す', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})));
 
-    expect(find.text('言われたことを記録'), findsOneWidget);
+    // 広い画面ではサイドバーにも同じ名前が出るので、題名として出ているかを見る
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
     expect(find.text('あとで確認 1 件'), findsOneWidget);
     // 最近の記録は付箋を横にも並べるので、画面上の高さではなく並び順で比べる
     final texts = tester
@@ -237,18 +242,18 @@ void main() {
 
     expect(sent, containsPair('text', '田中さんから、レジ締めは店長がやると言われた'));
     expect(sent!.containsKey('manualIds'), isFalse);
-    expect(find.text('差分の確認'), findsOneWidget);
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     // 記録しても確認へ急がせない
     expect(find.text('確認リストに入れました。聞けるときに確認して、決まったら記録します'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.x));
     await tester.pumpAndSettle();
-    expect(find.text('差分の確認'), findsOneWidget);
-    expect(find.text('マニュアルに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
 
     await tester.tap(find.byIcon(LucideIcons.x));
     await tester.pumpAndSettle();
-    expect(find.text('差分の確認'), findsNothing);
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
     expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text, isEmpty);
   });
 
@@ -269,19 +274,19 @@ void main() {
     );
     await _record(tester, '傘は入口に置く');
 
-    expect(find.text('どのマニュアルに記録しますか？'), findsOneWidget);
+    expect(find.text('どのノートに記録しますか？'), findsOneWidget);
     // 選ぶまでは記録できない。1回の指示が複数にまたがることもあるので、いくつでも選べる
-    expect(tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, '記録する')).onTap, isNull);
+    expect(tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, '選んだノートと照らし合わせる')).onTap, isNull);
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('キッチン')));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '記録する'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '選んだノートと照らし合わせる'));
     await tester.pumpAndSettle();
 
     expect(sent.last['manualIds'], ['m1', 'm2']);
     expect(sent.last['text'], '傘は入口に置く');
     expect(sent.last['files'], isEmpty);
-    expect(find.text('差分の確認'), findsOneWidget);
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
   });
 
   testWidgets('差分の確認を閉じるときに、発言者の修正を保存する', (tester) async {
@@ -307,7 +312,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(editBody, containsPair('speaker', '田中さん（ホール）'));
-    expect(find.text('差分の確認'), findsNothing);
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
   });
 
   testWidgets('差分の確認で書き起こしを直すと、直した文面を送って差分を作り直す', (tester) async {
@@ -328,15 +333,15 @@ void main() {
     );
     await _record(tester, '塩は小さじ1/2');
 
-    await tester.tap(find.widgetWithText(MoonTextButton, '書き起こしを直す'));
+    await tester.tap(find.widgetWithText(MoonTextButton, '言われたことを直す'));
     await tester.pump();
     await tester.enterText(find.widgetWithText(MoonTextInput, '塩は小さじ1/2'), '塩は大さじ1/2');
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直して差分を作り直す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直して照らし合わせ直す'));
     await tester.pumpAndSettle();
 
     // 発言者と日付は変えていないので送らず、読み直した結果に任せる
     expect(editBody, {'text': '塩は大さじ1/2'});
-    expect(find.text('直して差分を作り直す'), findsNothing);
+    expect(find.text('直して照らし合わせ直す'), findsNothing);
   });
 
   testWidgets('差分の確認で、これまでの発言者を押すと発言者に入る', (tester) async {
@@ -370,7 +375,7 @@ void main() {
   testWidgets('マニュアルが無いうちは、登録への案内を出す', (tester) async {
     await _pumpInput(tester, MockClient((_) async => _json([])));
 
-    expect(find.text('まだマニュアルがありません'), findsOneWidget);
+    expect(find.text('まだノートがありません'), findsOneWidget);
     expect(find.byType(MoonTextArea), findsNothing);
   });
 
@@ -414,9 +419,9 @@ void main() {
       ..add(_pcm(2000, voice: false))
       ..add(_pcm(1000, voice: true));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
     await tester.pump();
-    expect(find.text('話し終わりを待っています…'), findsOneWidget);
+    expect(find.text('話し終わるのを待っています…'), findsOneWidget);
     expect(sent, isEmpty);
 
     mic.add(_pcm(1200, voice: false));
@@ -433,7 +438,7 @@ void main() {
     heard[1].complete(_json({'text': 'お冷やはすぐ出す'}));
     heard[0].complete(_json({'text': '塩は小さじ1/2'}));
     await tester.pumpAndSettle();
-    expect(find.text('差分の確認'), findsNothing);
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
     expect(find.text('2 件'), findsOneWidget);
     expect(find.text('塩は小さじ1/2'), findsOneWidget);
     // 端末内には、切り出した順にためる
@@ -501,7 +506,7 @@ void main() {
     expect(find.text('入力欄に入れました'), findsNWidgets(2));
 
     await tester.enterText(find.byType(MoonTextArea), '田中さんから、お冷やはすぐ出す。塩は小さじ1/2');
-    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
     await tester.pumpAndSettle();
 
     // 一番古いメモの日を、言われた日として送る
@@ -545,7 +550,7 @@ void main() {
       ..add(_pcm(1000, level: 8000))
       ..add(_pcm(1200, level: 1500));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
     await tester.pumpAndSettle();
 
     // 1秒の発話に前後300msの余白を足した長さだけで、騒音の部分は切り出さない
@@ -606,7 +611,7 @@ void main() {
 
     mic.add(_pcm(3000, voice: false));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(sent, isFalse);
@@ -696,6 +701,58 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('広い画面では、左のサイドバーからマニュアルへ直接移れ、あとで確認の件数も並ぶ', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})));
+
+    // サイドバーと役割が重なるので、上部バーの「ノートを見る」は出さない
+    expect(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'), findsNothing);
+
+    // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
+    final hall = find.widgetWithText(MoonMenuItem, 'ホール');
+    expect(hall, findsOneWidget);
+    // ノートがあっても、サイドバーから新しいノートを作れる
+    expect(find.widgetWithText(MoonMenuItem, 'ノートを作る'), findsOneWidget);
+    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン').first, matching: find.text('1')), findsOneWidget);
+
+    await tester.tap(hall);
+    await tester.pumpAndSettle();
+    expect(find.text('・レジは現金とカードのみ'), findsOneWidget);
+
+    // サイドバーから移っても画面は積み重ならず、戻ると入力ページに出る
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
+  });
+
+  testWidgets('Ctrl+Enter でも、ボタンを押さずに送れる', (tester) async {
+    Map<String, dynamic>? sent;
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent = body;
+        return _json({'text': body['text'], 'results': []}, 201);
+      }),
+    );
+    await tester.enterText(find.byType(MoonTextArea), 'UUID は使わないでと言われた');
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+
+    expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
+  });
+
+  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「ノートを見る」から一覧へ進む', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})), size: const Size(400, 900));
+
+    expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsNothing);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('ノート')), findsOneWidget);
+  });
+
   testWidgets('画像はサムネイル、PDF は名前で添え、受け付けない形式は除いて知らせる', (tester) async {
     // 1×1 の PNG
     final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
@@ -730,7 +787,7 @@ void main() {
     expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
     await _waitToast(tester);
 
-    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
     await tester.pumpAndSettle();
     expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
   });

@@ -46,7 +46,7 @@ terraform output -json github_variables \
 
 ## メンバーがローカルで本物の Gemini と Speech-to-Text を使えるようにする
 
-`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）が付く。Firestore の権限は付けない。外すときは一覧から消して `terraform apply` する。
+`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）、Firestore を読むだけの権限（`roles/datastore.viewer`）が付く。Firestore は読むだけで、本番のデータは書き換えられない。外すときは一覧から消して `terraform apply` する。
 
 ```hcl
 team_members = ["member1@gmail.com", "member2@gmail.com"]
