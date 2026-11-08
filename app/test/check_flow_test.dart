@@ -35,6 +35,8 @@ Map<String, dynamic> _state({required bool resolved}) => {
           'text': '- 塩 小さじ1/2',
           'summary': '塩: 小さじ1 → 小さじ1/2',
           'status': resolved ? 'discarded' : 'proposed',
+          'createdAt': '2026-11-03T10:00:00Z',
+          'appliedAt': null,
         },
         if (resolved)
           {
@@ -45,6 +47,8 @@ Map<String, dynamic> _state({required bool resolved}) => {
             'text': '- 塩 小さじ1/2',
             'summary': '確認：1/2で統一',
             'status': 'applied',
+            'createdAt': '2026-11-07T10:00:00Z',
+            'appliedAt': '2026-11-07T10:00:00Z',
           },
       ],
       'checks': [
@@ -100,6 +104,8 @@ Map<String, dynamic> _sameState({required String status}) => {
           'text': '- 塩 小さじ1',
           'summary': '塩: 小さじ1',
           'status': status,
+          'createdAt': '2026-11-09T10:00:00Z',
+          'appliedAt': status == 'applied' ? '2026-11-09T10:00:00Z' : null,
         },
       ],
       'checks': [

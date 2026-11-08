@@ -7,6 +7,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
+import 'history_screen.dart';
 import 'review_dialog.dart';
 import 'sidebar.dart';
 
@@ -89,6 +90,8 @@ class _ManualScreenState extends State<ManualScreen> {
 
   void _openList() => Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c)));
 
+  void _openHistory() => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(c: c)));
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -102,11 +105,19 @@ class _ManualScreenState extends State<ManualScreen> {
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
               trailing: s == null
                   ? null
-                  : MoonOutlinedButton(
-                      buttonSize: MoonButtonSize.sm,
-                      onTap: _openList,
-                      label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
-                    ),
+                  : Row(mainAxisSize: MainAxisSize.min, children: [
+                      MoonOutlinedButton(
+                        buttonSize: MoonButtonSize.sm,
+                        onTap: _openHistory,
+                        label: const Text('履歴'),
+                      ),
+                      SizedBox(width: context.tokens.space.sm),
+                      MoonOutlinedButton(
+                        buttonSize: MoonButtonSize.sm,
+                        onTap: _openList,
+                        label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
+                      ),
+                    ]),
             ),
             Expanded(
               child: s == null

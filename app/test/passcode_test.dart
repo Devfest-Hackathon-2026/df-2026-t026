@@ -21,7 +21,7 @@ void main() {
               {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 0, 'openCount': 0},
             ], 200),
           'open-sesame-1' => _json({
-              'manual': {'id': 'm1', 'title': 'キッチン'},
+              'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
               'lines': [],
               'utterances': [],
               'patches': [],

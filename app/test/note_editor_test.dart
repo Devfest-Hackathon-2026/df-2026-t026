@@ -33,7 +33,7 @@ class _Server {
       sent.add(body);
       final id = 'p${patches.length + 1}';
       utterances.add({'id': 'u$id', 'text': body['text'], 'speaker': '自分', 'saidAt': '2026-11-08', 'fromEdit': true, 'createdAt': '2026-11-08T00:00:00Z'});
-      patches.add({'id': id, 'utteranceId': 'u$id', 'op': body['op'], 'line': body['line'], 'text': body['text'], 'summary': '', 'status': 'applied'});
+      patches.add({'id': id, 'utteranceId': 'u$id', 'op': body['op'], 'line': body['line'], 'text': body['text'], 'summary': '', 'status': 'applied', 'createdAt': '2026-11-08T00:00:0${patches.length}Z', 'appliedAt': '2026-11-08T00:00:0${patches.length}Z'});
       final i = lines.indexWhere((l) => l['text'] == body['line']);
       if (body['op'] == 'delete') lines.removeAt(i);
       if (body['op'] == 'insert') lines.insert(i + 1, {'text': body['text'], 'patchId': id});
