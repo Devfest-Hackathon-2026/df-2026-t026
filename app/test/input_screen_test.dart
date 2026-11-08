@@ -13,6 +13,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
@@ -62,12 +63,11 @@ Map<String, dynamic> _state(String id) => switch (id) {
         },
     };
 
-/// 一覧と各マニュアルを返し、POST /utterances は onIntake に、POST /transcribe は onTranscribe に任せる
+/// 一覧と各マニュアルを返し、POST /utterances は onIntake に任せる
 MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onIntake,
-    {void Function(http.Request)? onOther, Future<http.Response> Function(Map<String, dynamic> body)? onTranscribe}) {
+    {void Function(http.Request)? onOther}) {
   return MockClient((req) async {
     if (req.method == 'POST' && req.url.path == '/utterances') return onIntake(jsonDecode(req.body));
-    if (req.method == 'POST' && req.url.path == '/transcribe') return onTranscribe!(jsonDecode(req.body));
     onOther?.call(req);
     if (req.url.path == '/manuals') {
       return _json([
@@ -106,11 +106,50 @@ Uint8List _pcm(int ms, {required bool voice}) {
   return d.buffer.asUint8List();
 }
 
-Future<void> _pumpInput(WidgetTester tester, http.Client client, {StreamController<Uint8List>? mic}) async {
+/// 音声入力のサーバーの代わり。アプリが送ったものを残し、test から文面を返す
+class _FakeSocket implements WebSocketChannel {
+  final sent = <Object?>[];
+  final _replies = StreamController<dynamic>();
+
+  void reply(Map<String, dynamic> m) => _replies.add(jsonEncode(m));
+  Future<void> close() => _replies.close();
+
+  /// 送られた PCM の合計の大きさ
+  int get pcmBytes => sent.whereType<Uint8List>().fold(0, (n, b) => n + b.length);
+
+  @override
+  Stream<dynamic> get stream => _replies.stream;
+
+  @override
+  late final WebSocketSink sink = _FakeSink(sent, onClose: close);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeSink implements WebSocketSink {
+  _FakeSink(this.sent, {required this.onClose});
+  final List<Object?> sent;
+
+  /// 本物と同じく、アプリが閉じたらサーバーからの流れも終える
+  final Future<void> Function() onClose;
+
+  @override
+  void add(dynamic data) => sent.add(data);
+
+  @override
+  Future<void> close([int? closeCode, String? closeReason]) => onClose();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> _pumpInput(WidgetTester tester, http.Client client,
+    {StreamController<Uint8List>? mic, _FakeSocket? socket}) async {
   tester.view.physicalSize = const Size(1200, 1400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final api = Api(client: client, baseUrl: 'http://api');
+  final api = Api(client: client, baseUrl: 'http://api', connect: (_) => socket!);
   await tester.pumpWidget(MaterialApp(
     theme: appTheme(),
     home: mic == null ? InputScreen(api: api) : InputScreen(api: api, newRecorder: () => _FakeMic(mic)),
@@ -304,48 +343,87 @@ void main() {
     await _waitToast(tester);
   });
 
-  testWidgets('テキスト欄の音声入力は、書き起こした文面を入力欄に足す', (tester) async {
+  testWidgets('音声入力は、話している途中から入力欄に文字を出し、話し終わると止めて確定の文面にする', (tester) async {
     final mic = StreamController<Uint8List>();
-    Map<String, dynamic>? sent;
-    await _pumpInput(
-      tester,
-      _client((_) async => _json({}), onTranscribe: (body) async {
-        sent = body;
-        return _json({'text': '塩は小さじ1/2でいい'});
-      }),
-      mic: mic,
-    );
+    final socket = _FakeSocket();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, socket: socket);
     await tester.enterText(find.byType(MoonTextArea), '田中さんから');
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '音声入力'));
+    await tester.tap(find.byIcon(LucideIcons.mic));
     await tester.pump();
-    mic.add(_pcm(1000, voice: true));
-    await tester.pump();
-    expect(find.text('録音中 あと59秒'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '音声入力を止める'));
+    mic.add(_pcm(500, voice: true));
+    await tester.pump();
+    expect(socket.pcmBytes, 500 * 16 * 2);
+    expect(find.text('聞き取り中。話し終わると止まります'), findsOneWidget);
+    socket.reply({'text': '塩は'});
+    await tester.pump();
+    expect(_typed(tester), '田中さんから\n塩は');
+
+    mic.add(_pcm(1600, voice: false));
+    await tester.pump();
+    expect(socket.sent.last, 'end');
+    expect(find.text('聞き取り中。話し終わると止まります'), findsNothing);
+
+    socket.reply({'text': '塩は小さじ1/2でいい', 'done': true});
+    await socket.close();
     await tester.pumpAndSettle();
-
-    expect(base64Decode(sent!['data']).length, 44 + 1000 * 16 * 2);
-    expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text, '田中さんから\n塩は小さじ1/2でいい');
+    expect(_typed(tester), '田中さんから\n塩は小さじ1/2でいい');
+    expect(find.byIcon(LucideIcons.mic), findsOneWidget);
   });
 
-  testWidgets('音声入力は60秒で止めて書き起こす', (tester) async {
+  testWidgets('音声入力は、話し出さないまま8秒たったら、無音を送らずに止めて知らせる', (tester) async {
     final mic = StreamController<Uint8List>();
-    Map<String, dynamic>? sent;
-    await _pumpInput(
-      tester,
-      _client((_) async => _json({}), onTranscribe: (body) async {
-        sent = body;
-        return _json({'text': '長い説明'});
-      }),
-      mic: mic,
-    );
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '音声入力'));
+    final socket = _FakeSocket();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, socket: socket);
+    await tester.tap(find.byIcon(LucideIcons.mic));
     await tester.pump();
-    mic.add(_pcm(61000, voice: true));
-    await tester.pumpAndSettle();
 
-    expect(base64Decode(sent!['data']).length, 44 + 60000 * 16 * 2);
-    expect(find.widgetWithText(MoonOutlinedButton, '音声入力'), findsOneWidget);
+    mic.add(_pcm(7000, voice: false));
+    await tester.pump();
+    expect(find.text('聞き取り中。話し終わると止まります'), findsOneWidget);
+    mic.add(_pcm(1100, voice: false));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // Speech-to-Text は無音を「はい。」などと書き起こすことがあるので、無音は送らない
+    expect(socket.sent, isEmpty);
+    expect(find.text('声が入っていませんでした。マイクを押してから話してください'), findsOneWidget);
+    expect(find.text('聞き取り中。話し終わると止まります'), findsNothing);
+    await _waitToast(tester);
+  });
+
+  testWidgets('音声入力は、声が聞こえる前の無音を送らず、話し始めの直前0.5秒からを送る', (tester) async {
+    final mic = StreamController<Uint8List>();
+    final socket = _FakeSocket();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, socket: socket);
+    await tester.tap(find.byIcon(LucideIcons.mic));
+    await tester.pump();
+
+    for (var i = 0; i < 30; i++) {
+      mic.add(_pcm(100, voice: false));
+    }
+    await tester.pump();
+    expect(socket.sent, isEmpty);
+    mic.add(_pcm(300, voice: true));
+    await tester.pump();
+    expect(socket.pcmBytes, (500 + 300) * 16 * 2);
+    await socket.close();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('音声入力は60秒で止める', (tester) async {
+    final mic = StreamController<Uint8List>();
+    final socket = _FakeSocket();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, socket: socket);
+    await tester.tap(find.byIcon(LucideIcons.mic));
+    await tester.pump();
+
+    mic.add(_pcm(61000, voice: true));
+    await tester.pump();
+    expect(socket.pcmBytes, 60000 * 16 * 2);
+    expect(socket.sent.last, 'end');
+    await socket.close();
+    await tester.pumpAndSettle();
   });
 }
+
+String _typed(WidgetTester tester) => tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text;

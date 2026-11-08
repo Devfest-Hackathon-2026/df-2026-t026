@@ -18,10 +18,12 @@
     "@google/genai": "^3.0.0",
     "@hono/node-server": "^2.1.6",
     "hono": "^4.13.17",
+    "ws": "^8.22.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2"
   },
   "packageManager": "pnpm@10.33.2"

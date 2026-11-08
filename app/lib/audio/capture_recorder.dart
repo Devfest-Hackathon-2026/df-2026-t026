@@ -14,7 +14,7 @@ const sampleRate = 16000;
 /// 常時待ち受けで手元に持つ長さ
 const keepSeconds = 60;
 
-/// 音声入力の最長。Speech-to-Text の同期の書き起こしに渡せる長さに合わせる
+/// 音声入力の最長。メモの吹き込みには足り、書き起こしの料金を抑えられる。バックエンドもこの長さで打ち切る
 const maxDictationSeconds = 60;
 
 const _pcm = RecordConfig(
@@ -39,6 +39,15 @@ final _pad = _ms(300);
 /// これ未満の声は物音とみなす
 final _minVoice = _ms(200);
 
+/// 音声入力で、話し終わりとみなす無音の長さ。考えながら話す間で止まらないよう、切り出しより長くする
+final _dictationEndSilence = _ms(1500);
+
+/// 音声入力で、話し出さないまま止めるまでの長さ
+final _noSpeech = _ms(8000);
+
+/// 音声入力で、声が聞こえる前からさかのぼって送る長さ（話し始めを切らないため）
+final _prerollBytes = _ms(500) * 2;
+
 /// little-endian の 16bit PCM を標本にする
 Int16List _samples(Uint8List bytes) {
   final d = ByteData.sublistView(bytes);
@@ -47,6 +56,23 @@ Int16List _samples(Uint8List bytes) {
 
 /// RMS を 0〜1 の音量にする（-60dBFS で 0、0dBFS で 1）
 double _level(double rms) => ((20 * log(max(rms, 1) / 32768) / ln10 + 60) / 60).clamp(0, 1);
+
+/// 届いた標本を判定の単位（20ms）ごとに区切り、その RMS を渡す
+class _Frames {
+  _Frames(this._onFrame);
+  final void Function(double rms) _onFrame;
+  final _frame = Int16List(EnergyVad.frame);
+  var _filled = 0;
+
+  void add(Int16List s) {
+    for (final x in s) {
+      _frame[_filled++] = x;
+      if (_filled < _frame.length) continue;
+      _filled = 0;
+      _onFrame(EnergyVad.rms(_frame, 0, _frame.length));
+    }
+  }
+}
 
 /// 常時待ち受け（遡り録音、ADR 0005）。直前60秒を端末のメモリだけに持ち、押したら近くの発話だけを WAV にする
 class CaptureRecorder {
@@ -67,42 +93,41 @@ class CaptureRecorder {
   late final StreamSubscription<Uint8List> _sub;
   final _buffer = RingBuffer(sampleRate * keepSeconds);
   final _vad = const EnergyVad();
+  late final _frames = _Frames(_onFrame);
 
   /// いまの音量（0〜1）
   final level = ValueNotifier<double>(0);
 
-  /// 判定の単位に満たない、まだ見ていない標本
-  final _frame = Int16List(EnergyVad.frame);
-  var _filled = 0;
-
   /// 受け取った標本の数（通しの位置）
   var _written = 0;
+
+  /// 判定し終えた標本の数（通しの位置）
+  var _judged = 0;
   var _lastVoice = -sampleRate * keepSeconds;
   ({int at, Completer<void> done})? _waiting;
 
   void _onData(Uint8List bytes) {
     final s = _samples(bytes);
     _buffer.add(s);
-    for (final x in s) {
-      _frame[_filled++] = x;
-      _written++;
-      if (_filled < _frame.length) continue;
-      _filled = 0;
-      final rms = EnergyVad.rms(_frame, 0, _frame.length);
-      level.value = _level(rms);
-      if (rms >= _vad.threshold) _lastVoice = _written;
-      final w = _waiting;
-      if (w != null && (_written - _lastVoice >= _endSilence || _written - w.at >= _maxExtend)) {
-        _waiting = null;
-        w.done.complete();
-      }
+    _written += s.length;
+    _frames.add(s);
+  }
+
+  void _onFrame(double rms) {
+    _judged += EnergyVad.frame;
+    level.value = _level(rms);
+    if (rms >= _vad.threshold) _lastVoice = _judged;
+    final w = _waiting;
+    if (w != null && (_judged - _lastVoice >= _endSilence || _judged - w.at >= _maxExtend)) {
+      _waiting = null;
+      w.done.complete();
     }
   }
 
   /// 話し終わりを待ってから、押した時刻に最も近い発話を WAV にする。声が無ければ null
   Future<Uint8List?> capture() async {
     final at = _written;
-    if (_written - _lastVoice < _endSilence) {
+    if (_judged - _lastVoice < _endSilence) {
       final done = Completer<void>();
       _waiting = (at: at, done: done);
       await done.future;
@@ -125,53 +150,87 @@ class CaptureRecorder {
   }
 }
 
-/// テキスト欄の音声入力。始めてから止めるまで（最長60秒）を WAV にする
+/// テキスト欄の音声入力。声が聞こえてからの PCM を onPcm に流し、話し終わったら onEnd を呼ぶ。
+/// 話し終わりは、話したあと無音が1.5秒続く・話し出さないまま8秒たつ・60秒に達する、のどれか
 class Dictation {
-  Dictation._(this._rec, this._onFull);
+  Dictation._(this._rec, this._onPcm, this._onEnd);
 
-  /// マイクを使えなければ null。最長に達したら onFull を呼ぶ
-  static Future<Dictation?> start(AudioRecorder rec, {required VoidCallback onFull}) async {
+  /// マイクを使えなければ null
+  static Future<Dictation?> start(
+    AudioRecorder rec, {
+    required void Function(Uint8List pcm) onPcm,
+    required VoidCallback onEnd,
+  }) async {
     if (!await rec.hasPermission()) {
       await rec.dispose();
       return null;
     }
-    final d = Dictation._(rec, onFull);
+    final d = Dictation._(rec, onPcm, onEnd);
     d._sub = (await rec.startStream(_pcm)).listen(d._onData);
     return d;
   }
 
   final AudioRecorder _rec;
-  final VoidCallback _onFull;
+  final void Function(Uint8List pcm) _onPcm;
+  final VoidCallback _onEnd;
   late final StreamSubscription<Uint8List> _sub;
-  final _taken = <Int16List>[];
-  var _count = 0;
+  late final _frames = _Frames(_onFrame);
+  final _vad = const EnergyVad();
 
-  /// 録音した秒数
-  final seconds = ValueNotifier<int>(0);
+  var _count = 0;
+  var _judged = 0;
+  var _voiced = 0;
+  var _lastVoice = 0;
+  var _shouldEnd = false;
+  var _ended = false;
+
+  /// 声が聞こえるまでの直前の PCM。Speech-to-Text は無音を「はい。」などと書き起こすことがあるので、
+  /// 声が聞こえるまでは送らず、聞こえたら話し始めの分もさかのぼって送る
+  final _preroll = <Uint8List>[];
+
+  /// 声が聞こえたか（物音は除く）。聞こえないまま終わったら、何も送っていない
+  bool get heard => _voiced >= _minVoice;
 
   void _onData(Uint8List bytes) {
     final limit = sampleRate * maxDictationSeconds;
-    if (_count >= limit) return;
-    final s = _samples(bytes);
-    final take = Int16List.sublistView(s, 0, min(s.length, limit - _count));
-    _taken.add(take);
-    _count += take.length;
-    seconds.value = _count ~/ sampleRate;
-    if (_count >= limit) _onFull();
+    if (_ended) return;
+    final take = min(bytes.length ~/ 2, limit - _count);
+    final pcm = Uint8List.sublistView(bytes, 0, take * 2);
+    _count += take;
+    final wasHeard = heard;
+    _frames.add(_samples(pcm));
+    if (heard) {
+      if (!wasHeard) _preroll.forEach(_onPcm);
+      _preroll.clear();
+      _onPcm(pcm);
+    } else {
+      _preroll.add(pcm);
+      while (_preroll.fold(0, (n, p) => n + p.length) - _preroll.first.length >= _prerollBytes) {
+        _preroll.removeAt(0);
+      }
+    }
+    if (_shouldEnd || _count >= limit) _end();
   }
 
-  /// 声が無ければ null
-  Future<Uint8List?> stop() async {
+  void _onFrame(double rms) {
+    _judged += EnergyVad.frame;
+    if (rms >= _vad.threshold) {
+      _voiced += EnergyVad.frame;
+      _lastVoice = _judged;
+    }
+    if (heard ? _judged - _lastVoice >= _dictationEndSilence : _judged >= _noSpeech) _shouldEnd = true;
+  }
+
+  void _end() {
+    if (_ended) return;
+    _ended = true;
+    _onEnd();
+  }
+
+  Future<void> stop() async {
+    _ended = true;
     // 止めた時点で次のデータは届かないので、片付けの終わりは待たない
     unawaited(_sub.cancel());
     await _rec.dispose();
-    final all = Int16List(_count);
-    var at = 0;
-    for (final s in _taken) {
-      all.setAll(at, s);
-      at += s.length;
-    }
-    if (const EnergyVad().chunks(all, gap: _gap, pad: 0, minVoice: _minVoice).isEmpty) return null;
-    return wav(all, sampleRate: sampleRate);
   }
 }

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import { fakeCheck, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeCheck, fakeDictate, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -14,7 +14,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, listen: fakeListen, route: fakeRoute };
+const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate, route: fakeRoute };
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
@@ -209,16 +209,6 @@ test('入力ページから：録音は Speech-to-Text、PDF・画像は Gemini 
   assert.ok(heard[0].phrases.includes('味噌汁'));
   assert.ok(heard[0].phrases.includes('塩'));
   assert.ok(heard[0].phrases.includes('領収書'));
-});
-
-test('音声入力：書き起こした文面だけを返し、記録はしない', async () => {
-  const data = Buffer.from('RIFF').toString('base64');
-  const { status, json } = await call('POST', '/transcribe', { data });
-  assert.equal(status, 200);
-  assert.equal(json.text, '佐藤さんから、ご飯はおかわり1回まで無料と教わった');
-  const manual = await call('GET', '/manuals/demo-kitchen');
-  assert.equal(manual.json.utterances.length, 0);
-  assert.equal((await call('POST', '/transcribe', { data: 'not base64!' })).status, 400);
 });
 
 test('入力ページから：中身が無い、受け付けない形式のファイルなら 400 を返す', async () => {

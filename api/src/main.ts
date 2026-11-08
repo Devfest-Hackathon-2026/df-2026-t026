@@ -1,14 +1,15 @@
 import { serve } from '@hono/node-server';
+import { WebSocketServer } from 'ws';
 
 import { createApp } from './app.ts';
 import { checkWithGemini } from './conflict/check.ts';
-import { fakeCheck, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from './fake-ai.ts';
+import { fakeCheck, fakeDictate, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
 import { patchifyWithGemini } from './foundation/patchify.ts';
 import { routeWithGemini, transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
-import { listenWithSpeech } from './stt.ts';
+import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
 
 // 既定は GCP なしで動く組み合わせ。Cloud Run では AI=gemini STORE=firestore にする
 const useGemini = process.env.AI === 'gemini';
@@ -21,12 +22,15 @@ const app = createApp({
   check: useGemini ? (i) => checkWithGemini(i) : fakeCheck,
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   listen: useGemini ? listenWithSpeech : fakeListen,
+  dictate: useGemini ? dictateWithSpeech : fakeDictate,
   route: useGemini ? (i) => routeWithGemini(i) : fakeRoute,
   allowOrigin: process.env.ALLOW_ORIGIN,
   passcode: process.env.PASSCODE,
 });
 const port = Number(process.env.PORT ?? 8787);
 // 既定では自分のマシンからだけ受ける（同じネットワークの人に Gemini を呼ばせない）。Cloud Run では Dockerfile で 0.0.0.0 にする
-serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? '127.0.0.1' }, () => {
+// 音声入力（/dictation）を WebSocket で受ける
+const websocket = { server: new WebSocketServer({ noServer: true }) };
+serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? '127.0.0.1', websocket }, () => {
   console.log(`api: http://localhost:${port}（AI=${useGemini ? 'gemini' : 'fake'}, STORE=${process.env.STORE ?? 'memory'}）`);
 });

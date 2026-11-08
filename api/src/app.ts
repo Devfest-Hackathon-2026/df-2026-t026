@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
+import { upgradeWebSocket } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
@@ -10,7 +11,7 @@ import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance
 import type { Patchify } from './foundation/patchify.ts';
 import { readFiles, type Route, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
-import { phraseHints, type Listen } from './stt.ts';
+import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
   store: Store;
@@ -18,6 +19,7 @@ export interface Deps {
   check: CheckPatch;
   transcribe: Transcribe;
   listen: Listen;
+  dictate: Dictate;
   route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
@@ -51,7 +53,8 @@ const NewIntake = z
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
-const Dictation = z.object({ data: z.base64().max(MAX_ATTACHMENT_CHARS) });
+/** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
+const MAX_DICTATION_BYTES = 16000 * 2 * 65;
 const EditUtterance =z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
 const Resolve = z.object({
@@ -66,13 +69,14 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, patchify, check, transcribe, listen, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, patchify, check, transcribe, listen, dictate, route, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
   app.use(async (c, next) => {
     if (passcode && c.req.path !== '/health') {
-      const given = c.req.header('X-Passcode');
+      // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
+      const given = c.req.header('X-Passcode') ?? (c.req.path === '/dictation' ? c.req.query('passcode') : undefined);
       if (!given) throw new HTTPException(401, { message: '合言葉を入れてください' });
       // 長さの違いや一致までの時間から合言葉を推し量られないよう、ハッシュをそろえて比べる
       if (!timingSafeEqual(digest(given), digest(passcode))) throw new HTTPException(401, { message: '合言葉が違います' });
@@ -211,12 +215,50 @@ export function createApp({ store, patchify, check, transcribe, listen, route, a
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });
 
-  // テキスト欄の音声入力。書き起こすだけで記録はしない（利用者が手直ししてから送る）
-  app.post('/transcribe', async (c) => {
-    const body = Dictation.parse(await c.req.json());
-    const text = await listen({ mimeType: 'audio/wav', data: body.data }, phrasesOf(await loadAll(c.var.userId)));
-    return c.json({ text });
-  });
+  // テキスト欄の音声入力。PCM を受けるたびに途中の文面（{text}）を返し、"end" を受けたら
+  // 確定の文面（{text, done: true}）を返して閉じる。書き起こすだけで記録はしない（利用者が手直ししてから送る）
+  app.get(
+    '/dictation',
+    upgradeWebSocket(async (c) => {
+      const phrases = phrasesOf(await loadAll(c.var.userId));
+      let stream: Promise<DictationStream | null> = Promise.resolve(null);
+      let bytes = 0;
+      let ended = false;
+      const end = async () => {
+        if (ended) return;
+        ended = true;
+        (await stream)?.end();
+      };
+      return {
+        onOpen(_, ws) {
+          const send = (body: object) => {
+            if (ws.readyState === 1) ws.send(JSON.stringify(body));
+          };
+          const fail = (e: unknown) => {
+            console.error(e);
+            send({ error: '書き起こせませんでした。もう一度話すか、文字で書いてください' });
+            ws.close();
+          };
+          stream = dictate(phrases, {
+            text: (text) => send({ text }),
+            done: (text) => {
+              send({ text, done: true });
+              ws.close();
+            },
+            error: fail,
+          }).catch((e) => (fail(e), null));
+        },
+        async onMessage(e) {
+          if (e.data === 'end') return end();
+          if (!(e.data instanceof ArrayBuffer) || ended) return;
+          bytes += e.data.byteLength;
+          if (bytes > MAX_DICTATION_BYTES) return end();
+          (await stream)?.write(Buffer.from(e.data));
+        },
+        onClose: end,
+      };
+    }),
+  );
 
   app.patch('/manuals/:id/utterances/:uid', async (c) => {
     const { userId } = c.var;

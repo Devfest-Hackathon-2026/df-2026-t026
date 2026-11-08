@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../api.dart';
 import '../audio/capture_recorder.dart';
@@ -70,8 +72,12 @@ class _InputScreenState extends State<InputScreen> {
   /// 切り出しボタンを押してから、差分の確認を出すまで
   var _capturing = false;
 
+  /// 音声入力の録音。話し終わると null になり、確定の文面が届いてソケットが閉じるのを待つ
   Dictation? _dictation;
-  var _transcribing = false;
+  WebSocketChannel? _dictationSocket;
+
+  /// 音声入力を始めたときの入力欄。届いた文面はこの後ろに足す
+  var _beforeDictation = '';
 
   @override
   void initState() {
@@ -86,6 +92,7 @@ class _InputScreenState extends State<InputScreen> {
     _text.dispose();
     _listener?.stop();
     _dictation?.stop();
+    _dictationSocket?.sink.close();
     super.dispose();
   }
 
@@ -183,40 +190,69 @@ class _InputScreenState extends State<InputScreen> {
     if (mounted) setState(() => _capturing = false);
   }
 
-  /// テキスト欄の音声入力。止めたら書き起こして、入力欄に足す
+  /// テキスト欄の音声入力。話している途中から入力欄に文字を出し、話し終わったら自動で止める
   Future<void> _toggleDictation() async {
-    if (_dictation case final d?) {
-      setState(() {
-        _dictation = null;
-        _transcribing = true;
-      });
-      try {
-        final wav = await d.stop();
-        if (wav == null) throw ApiException('声が入っていませんでした。もう一度話してください');
-        final heard = await widget.api.transcribe(wav);
-        if (heard.isEmpty) throw ApiException('聞き取れませんでした。もう一度話すか、文字で書いてください');
-        final before = _text.text.trimRight();
-        _text.text = before.isEmpty ? heard : '$before\n$heard';
-      } on ApiException catch (e) {
-        if (mounted) showError(context, e);
-      } finally {
-        if (mounted) setState(() => _transcribing = false);
-      }
-      return;
-    }
-    final d = await Dictation.start(widget.newRecorder(), onFull: _toggleDictation);
-    if (!mounted) {
+    if (_dictation != null) return _finishDictation();
+    if (_dictationSocket != null) return;
+    final socket = widget.api.dictation();
+    final d = await Dictation.start(widget.newRecorder(), onPcm: socket.sink.add, onEnd: _finishDictation);
+    if (!mounted || d == null) {
+      unawaited(socket.sink.close());
       await d?.stop();
+      if (mounted) showError(context, _noMic);
       return;
     }
-    if (d == null) {
-      showError(context, _noMic);
-      return;
-    }
-    setState(() => _dictation = d);
+    _beforeDictation = _text.text.trimRight();
+    socket.stream.listen(
+      _onDictation,
+      onError: (_) {
+        if (mounted) showError(context, '音声入力のサーバーにつながりません。少し待ってからもう一度押すか、文字で書いてください');
+      },
+      onDone: _onDictationClosed,
+    );
+    setState(() {
+      _dictation = d;
+      _dictationSocket = socket;
+    });
   }
 
-  bool get _dictating => _dictation != null || _transcribing;
+  void _onDictation(dynamic message) {
+    if (!mounted) return;
+    final m = jsonDecode(message as String) as Map<String, dynamic>;
+    if (m['error'] case final String e) {
+      showError(context, e);
+      return;
+    }
+    final heard = m['text'] as String;
+    setState(() => _text.text = [_beforeDictation, heard].where((t) => t.isNotEmpty).join('\n'));
+    if (m['done'] == true && heard.isEmpty) showError(context, '聞き取れませんでした。もう一度話すか、文字で書いてください');
+  }
+
+  /// 録音を止め、確定の文面を待つ。声が聞こえなかったら何も送っていないので、待たずに閉じる
+  void _finishDictation() {
+    final d = _dictation;
+    if (d == null) return;
+    d.stop();
+    setState(() => _dictation = null);
+    if (d.heard) {
+      _dictationSocket?.sink.add('end');
+      return;
+    }
+    _dictationSocket?.sink.close();
+    showError(context, '声が入っていませんでした。マイクを押してから話してください');
+  }
+
+  /// 確定の前に閉じられたとき（失敗・切断）も、録音を止めて元に戻す
+  void _onDictationClosed() {
+    _dictation?.stop();
+    if (!mounted) return;
+    setState(() {
+      _dictation = null;
+      _dictationSocket = null;
+    });
+  }
+
+  bool get _dictating => _dictationSocket != null;
 
   Future<void> _submit(List<ManualState> manuals) async {
     if (!_ready || _busy || _dictating) return;
@@ -404,14 +440,18 @@ class _InputScreenState extends State<InputScreen> {
   Widget _composer(List<ManualState> manuals) {
     final k = context.tokens;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      MoonTextArea(
-        controller: _text,
-        height: k.composerHeight,
-        expands: true,
-        textStyle: k.text.body,
-        hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-        onChanged: (_) => setState(() {}),
-      ),
+      Stack(children: [
+        MoonTextArea(
+          controller: _text,
+          height: k.composerHeight,
+          expands: true,
+          readOnly: _dictating,
+          textStyle: k.text.body,
+          hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
+          onChanged: (_) => setState(() {}),
+        ),
+        Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
+      ]),
       if (_files.isNotEmpty) ...[
         SizedBox(height: k.space.sm),
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
@@ -431,18 +471,8 @@ class _InputScreenState extends State<InputScreen> {
       ],
       SizedBox(height: k.space.md),
       Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        MoonOutlinedButton(
-          onTap: _busy || _transcribing ? null : _toggleDictation,
-          leading: _transcribing ? const ButtonLoader() : null,
-          label: Text(_transcribing ? '書き起こし中…' : (_dictation != null ? '音声入力を止める' : '音声入力')),
-        ),
         MoonOutlinedButton(onTap: _busy ? null : _pickFiles, label: const Text('ファイルを添える')),
-        if (_dictation case final d?)
-          ValueListenableBuilder(
-            valueListenable: d.seconds,
-            builder: (_, s, _) =>
-                StatusTag('録音中 あと${maxDictationSeconds - s}秒', bg: k.colors.pendingBg, fg: k.colors.pending),
-          ),
+        if (_dictation != null) StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
       ]),
       SizedBox(height: k.space.lg),
       Align(
@@ -454,6 +484,21 @@ class _InputScreenState extends State<InputScreen> {
         ),
       ),
     ]);
+  }
+
+  /// 入力欄の中のマイク。聞き取り中は色で示し、確定の文面を待つ間は読み込み中にする
+  Widget _mic() {
+    final k = context.tokens;
+    final listening = _dictation != null;
+    return MoonButton.icon(
+      buttonSize: MoonButtonSize.sm,
+      semanticLabel: listening ? '音声入力を止める' : '音声入力',
+      backgroundColor: listening ? k.colors.pendingBg : null,
+      onTap: _busy || (_dictating && !listening) ? null : _toggleDictation,
+      icon: _dictating && !listening
+          ? MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s)
+          : Icon(LucideIcons.mic, color: listening ? k.colors.pending : k.colors.inkMuted),
+    );
   }
 
   /// 「あとで確認」への導線。確認リストはマニュアルごとなので、件数とともに1冊ずつ並べる
