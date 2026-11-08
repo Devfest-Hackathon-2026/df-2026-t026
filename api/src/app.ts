@@ -6,7 +6,7 @@ import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
-import type { Assess } from './assess.ts';
+import type { Assess, AssessResult } from './assess.ts';
 import { manualContext, type Check } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
@@ -54,7 +54,12 @@ const NewIntake = z
   );
 /** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
 const MAX_DICTATION_BYTES = 16000 * 2 * 65;
-const EditUtterance =z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
+const EditUtterance =z.object({
+  speaker: z.string().trim().min(1).optional(),
+  saidAt: date.optional(),
+  /** 直した書き起こし。変わっていれば差分と分類を作り直す */
+  text: z.string().trim().min(1).optional(),
+});
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
@@ -153,18 +158,10 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
   // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
   async function record(userId: string, states: State[], text: string, today: string, keepAll: boolean) {
     if (states.length === 0) return [];
-    const speakers = [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
-    const draft = await assess({
-      manuals: states.map((s) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) })),
-      text,
-      today,
-      speakers,
-    });
+    const draft = await assess({ manuals: states.map(contextOf), text, today, speakers: speakersOf(states) });
     const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
     return Promise.all(
       targets.map(async (s) => {
-        const manualId = s.manual.id;
-        const items = draft.items.filter((x) => x.manual === states.indexOf(s));
         const utterance: Utterance = {
           id: randomUUID(),
           text,
@@ -172,28 +169,38 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
           saidAt: draft.saidAt ?? today,
           createdAt: now(),
         };
-        const patches: Patch[] = items.map(({ patch: p }) => ({
-          ...p,
-          id: randomUUID(),
-          utteranceId: utterance.id,
-          status: 'proposed',
-          createdAt: now(),
-          appliedAt: null,
-        }));
-        const checks: Check[] = patches.map((p, i) => ({
-          ...items[i].check,
-          id: randomUUID(),
-          patchId: p.id,
-          utteranceId: utterance.id,
-          resolution: null,
-          createdAt: now(),
-        }));
-        await store.put(userId, manualId, 'utterances', utterance);
-        await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
-        await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
-        return { manualId, utteranceId: utterance.id, state: await load(userId, manualId) };
+        const items = draft.items.filter((x) => x.manual === states.indexOf(s));
+        await propose(userId, s.manual.id, utterance, items);
+        return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
       }),
     );
+  }
+
+  const contextOf = (s: State) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) });
+  const speakersOf = (states: State[]) =>
+    [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
+
+  /** 発言と、その差分の候補・分類を保存する */
+  async function propose(userId: string, manualId: string, utterance: Utterance, items: AssessResult['items']) {
+    const patches: Patch[] = items.map(({ patch: p }) => ({
+      ...p,
+      id: randomUUID(),
+      utteranceId: utterance.id,
+      status: 'proposed',
+      createdAt: now(),
+      appliedAt: null,
+    }));
+    const checks: Check[] = patches.map((p, i) => ({
+      ...items[i].check,
+      id: randomUUID(),
+      patchId: p.id,
+      utteranceId: utterance.id,
+      resolution: null,
+      createdAt: now(),
+    }));
+    await store.put(userId, manualId, 'utterances', utterance);
+    await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
+    await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
@@ -274,7 +281,40 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
     const body = EditUtterance.parse(await c.req.json());
     const s = await load(userId, manualId);
     const u = find(s.utterances, c.req.param('uid'), '発言');
-    await store.put(userId, manualId, 'utterances', { ...u, ...body });
+    const { text, ...meta } = body;
+    if (!text || text === u.text) {
+      await store.put(userId, manualId, 'utterances', { ...u, ...meta });
+      return c.json(await load(userId, manualId));
+    }
+
+    // 書き起こしの聞き間違いを直す。反映・確定したものは本文や確認の記録に残っているので直させない
+    const patches = s.patches.filter((p) => p.utteranceId === u.id);
+    const checks = s.checks.filter((x) => x.utteranceId === u.id);
+    if (patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution)) {
+      throw new HTTPException(409, { message: '反映・確定した差分があるので、書き起こしは直せません' });
+    }
+    const rest: State = {
+      ...s,
+      utterances: s.utterances.filter((x) => x.id !== u.id),
+      patches: s.patches.filter((p) => p.utteranceId !== u.id),
+      checks: s.checks.filter((x) => x.utteranceId !== u.id),
+    };
+    // 「昨日」などは記録した日を基準に読む
+    const recordedOn = new Date(u.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+    // 記録先は決まっているので、そのマニュアルだけを渡して読み直す（Gemini は1回、ADR 0006）
+    const draft = await assess({ manuals: [contextOf(rest)], text, today: recordedOn, speakers: speakersOf([rest]) });
+    await Promise.all([
+      ...patches.map((p) => store.remove(userId, manualId, 'patches', p.id)),
+      ...checks.map((x) => store.remove(userId, manualId, 'checks', x.id)),
+    ]);
+    // 利用者が確認モーダルで入れた発言者・日付を、読み直した結果より優先する
+    const fixed: Utterance = {
+      ...u,
+      text,
+      speaker: meta.speaker ?? draft.speaker ?? u.speaker,
+      saidAt: meta.saidAt ?? draft.saidAt ?? u.saidAt,
+    };
+    await propose(userId, manualId, fixed, draft.items);
     return c.json(await load(userId, manualId));
   });
 
