@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -50,6 +51,10 @@ class Api {
         'manualIds': ?manualIds,
         'today': today,
       }));
+
+  /// リワインドで切り出した WAV を書き起こす。記録はしない
+  Future<String> listen(Uint8List wav) async =>
+      (await _send('POST', '/listen', {'data': base64Encode(wav)}))['text'] as String;
 
   /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
   /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない

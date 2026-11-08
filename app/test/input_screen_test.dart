@@ -65,11 +65,12 @@ Map<String, dynamic> _state(String id) => switch (id) {
         },
     };
 
-/// 一覧と各マニュアルを返し、POST /utterances は onIntake に任せる
+/// 一覧と各マニュアルを返し、POST /utterances は onIntake、POST /listen は onListen に任せる
 MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onIntake,
-    {void Function(http.Request)? onOther}) {
+    {void Function(http.Request)? onOther, Future<http.Response> Function(Map<String, dynamic> body)? onListen}) {
   return MockClient((req) async {
     if (req.method == 'POST' && req.url.path == '/utterances') return onIntake(jsonDecode(req.body));
+    if (req.method == 'POST' && req.url.path == '/listen') return onListen!(jsonDecode(req.body));
     onOther?.call(req);
     if (req.url.path == '/manuals') {
       return _json([
@@ -161,6 +162,27 @@ Future<void> _pumpInput(WidgetTester tester, http.Client client,
     ),
   ));
   await tester.pumpAndSettle();
+}
+
+/// リワインドのタブを開き、常時待ち受けを ON にする
+Future<void> _startRewind(WidgetTester tester) async {
+  await tester.tap(find.text('リワインド'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byType(MoonSwitch));
+  await tester.pumpAndSettle();
+}
+
+/// 前の発話のあとに長い無音をはさみ、話している途中で押して、話し終わらせる
+Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) async {
+  mic
+    ..add(_pcm(500, voice: true))
+    ..add(_pcm(2000, voice: false))
+    ..add(_pcm(1000, voice: true));
+  await tester.pump();
+  await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+  await tester.pump();
+  mic.add(_pcm(1200, voice: false));
+  await tester.pump();
 }
 
 /// トーストが消えるまで進める（タイマーを残したまま終えない）
@@ -347,54 +369,147 @@ void main() {
 
   testWidgets('常時待ち受けを ON にすると、送っていないことの案内と音量を出し、選んだことを覚える', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
-    expect(find.text('端末内で直前60秒を保持中（送信していません）'), findsNothing);
+    // 前回 OFF なら「整理・入力」から始まる
+    expect(find.byType(MoonTextArea), findsOneWidget);
+    expect(find.byType(MoonSwitch), findsNothing);
 
-    await tester.tap(find.byType(MoonSwitch));
-    await tester.pumpAndSettle();
+    await _startRewind(tester);
 
     expect(find.text('端末内で直前60秒を保持中（送信していません）'), findsOneWidget);
     expect(find.byType(MoonLinearProgress), findsOneWidget);
     expect((await SharedPreferences.getInstance()).getBool(listeningKey), isTrue);
   });
 
-  testWidgets('切り出すと、話し終わりを待って押した時刻の発話だけを送り、差分の確認を出す', (tester) async {
+  testWidgets('切り出すと、押した時刻の発話だけを書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
     final mic = StreamController<Uint8List>();
+    final heard = <Completer<http.Response>>[];
+    final sent = <Map<String, dynamic>>[];
+    await _pumpInput(
+      tester,
+      _client((_) async => _json({}), onListen: (body) {
+        sent.add(body);
+        heard.add(Completer());
+        return heard.last.future;
+      }),
+      mic: mic,
+    );
+    await _startRewind(tester);
+
+    mic
+      ..add(_pcm(500, voice: true))
+      ..add(_pcm(2000, voice: false))
+      ..add(_pcm(1000, voice: true));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
+    await tester.pump();
+    expect(find.text('話し終わりを待っています…'), findsOneWidget);
+    expect(sent, isEmpty);
+
+    mic.add(_pcm(1200, voice: false));
+    await tester.pump();
+    // 1秒の発話に前後300msの余白を足した長さ（16kHz・16bit）だけを切り出す
+    expect(base64Decode(sent.single['data']).length, 44 + 1600 * 16 * 2);
+    expect(find.text('書き起こし中 1 件'), findsOneWidget);
+
+    // 書き起こしを待たずに、もう一度切り出せる
+    await _captureOnce(tester, mic);
+    expect(sent, hasLength(2));
+    expect(find.text('書き起こし中 2 件'), findsOneWidget);
+
+    heard[1].complete(_json({'text': 'お冷やはすぐ出す'}));
+    heard[0].complete(_json({'text': '塩は小さじ1/2'}));
+    await tester.pumpAndSettle();
+    expect(find.text('差分の確認'), findsNothing);
+    expect(find.text('2 件'), findsOneWidget);
+    expect(find.text('塩は小さじ1/2'), findsOneWidget);
+    // 端末内には、切り出した順にためる
+    final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
+    expect([for (final m in saved) jsonDecode(m)['text']], ['塩は小さじ1/2', 'お冷やはすぐ出す']);
+  });
+
+  testWidgets('書き起こせなければ、メモを作らずに知らせる', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(
+      tester,
+      _client((_) async => _json({}),
+          onListen: (_) async => _json({'error': '聞き取れませんでした。言われた直後にもう一度押してください'}, 422)),
+      mic: mic,
+    );
+    await _startRewind(tester);
+    await _captureOnce(tester, mic);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('聞き取れませんでした。言われた直後にもう一度押してください'), findsOneWidget);
+    expect(find.text('0 件'), findsOneWidget);
+    expect((await SharedPreferences.getInstance()).getStringList(memosKey), isNull);
+    await _waitToast(tester);
+  });
+
+  testWidgets('前回 待ち受けを ON にしていたら、リワインドから始まり、ためたメモを出す', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      listeningKey: true,
+      memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじ1/2').toJson())],
+    });
+    await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
+
+    expect(find.text('画面のどこかを押すと、待ち受けを再開します'), findsOneWidget);
+    expect(find.text('11/3 14:05'), findsOneWidget);
+    expect(find.byType(MoonTextArea), findsNothing);
+  });
+
+  testWidgets('未整理メモを入力欄にまとめて入れ、切り出した日として記録したら、メモから消す', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      memosKey: [
+        jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじ1/2').toJson()),
+        jsonEncode(Memo(at: DateTime(2026, 11, 4, 9, 30), text: 'お冷やはすぐ出す').toJson()),
+        jsonEncode(Memo(at: DateTime(2026, 11, 4, 9, 40), text: 'えーと').toJson()),
+      ],
+    });
     Map<String, dynamic>? sent;
     await _pumpInput(
       tester,
       _client((body) async {
         sent = body;
         return _json({
-          'text': '塩は小さじ1/2',
+          'text': body['text'],
           'results': [
             {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
           ],
         }, 201);
       }),
-      mic: mic,
     );
-    await tester.tap(find.byType(MoonSwitch));
+
+    await tester.tap(find.text('お冷やはすぐ出す').first);
+    await tester.pump();
+    await tester.tap(find.text('塩は小さじ1/2').first);
+    await tester.pump();
+    expect(_typed(tester), 'お冷やはすぐ出す\n塩は小さじ1/2');
+    expect(find.text('入力欄に入れました'), findsNWidgets(2));
+
+    await tester.enterText(find.byType(MoonTextArea), '田中さんから、お冷やはすぐ出す。塩は小さじ1/2');
+    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
     await tester.pumpAndSettle();
 
-    // 前の発話のあとに長い無音をはさみ、話している途中で押す
-    mic
-      ..add(_pcm(500, voice: true))
-      ..add(_pcm(2000, voice: false))
-      ..add(_pcm(1000, voice: true));
-    await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を記録する'));
-    await tester.pump();
-    expect(find.text('話し終わりを待っています…'), findsOneWidget);
-    expect(sent, isNull);
-
-    mic.add(_pcm(1200, voice: false));
+    // 一番古いメモの日を、言われた日として送る
+    expect(sent, containsPair('today', '2026-11-03'));
+    await tester.tap(find.byIcon(LucideIcons.x).last);
     await tester.pumpAndSettle();
+    final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
+    expect([for (final m in saved) jsonDecode(m)['text']], ['えーと']);
+    expect(find.text('入力欄に入れました'), findsNothing);
+  });
 
-    final file = (sent!['files'] as List).single;
-    expect(file['mimeType'], 'audio/wav');
-    // 1秒の発話に前後300msの余白を足した長さ（16kHz・16bit）だけを切り出す
-    expect(base64Decode(file['data']).length, 44 + 1600 * 16 * 2);
-    expect(find.text('差分の確認'), findsOneWidget);
+  testWidgets('いらない未整理メモは消せる', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: 'えーと').toJson())],
+    });
+    await _pumpInput(tester, _client((_) async => _json({})));
+
+    await tester.tap(find.bySemanticsLabel('メモを消す'));
+    await tester.pump();
+
+    expect(find.text('えーと'), findsNothing);
+    expect((await SharedPreferences.getInstance()).getStringList(memosKey), isEmpty);
   });
 
   testWidgets('騒音が続く所でも、騒音を声とみなさずに発話だけを切り出す', (tester) async {
@@ -402,19 +517,13 @@ void main() {
     Map<String, dynamic>? sent;
     await _pumpInput(
       tester,
-      _client((body) async {
+      _client((_) async => _json({}), onListen: (body) async {
         sent = body;
-        return _json({
-          'text': '塩は小さじ1/2',
-          'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
-          ],
-        }, 201);
+        return _json({'text': '塩は小さじ1/2'});
       }),
       mic: mic,
     );
-    await tester.tap(find.byType(MoonSwitch));
-    await tester.pumpAndSettle();
+    await _startRewind(tester);
 
     // 換気扇の音（RMS 1500）の中で1秒話す
     mic
@@ -422,19 +531,17 @@ void main() {
       ..add(_pcm(1000, level: 8000))
       ..add(_pcm(1200, level: 1500));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を記録する'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
     await tester.pumpAndSettle();
 
-    final file = (sent!['files'] as List).single;
     // 1秒の発話に前後300msの余白を足した長さだけで、騒音の部分は切り出さない
-    expect(base64Decode(file['data']).length, 44 + 1600 * 16 * 2);
+    expect(base64Decode(sent!['data']).length, 44 + 1600 * 16 * 2);
   });
 
   testWidgets('待ち受けのマイクが止まったら知らせ、再開のしかたを出す', (tester) async {
     final mic = StreamController<Uint8List>();
     await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
-    await tester.tap(find.byType(MoonSwitch));
-    await tester.pumpAndSettle();
+    await _startRewind(tester);
 
     await mic.close();
     await tester.pump();
@@ -447,13 +554,12 @@ void main() {
   testWidgets('声が入っていなければ、切り出しても送らずに知らせる', (tester) async {
     final mic = StreamController<Uint8List>();
     var sent = false;
-    await _pumpInput(tester, _client((_) async => (sent = true, _json({})).$2), mic: mic);
-    await tester.tap(find.byType(MoonSwitch));
-    await tester.pumpAndSettle();
+    await _pumpInput(tester, _client((_) async => _json({}), onListen: (_) async => (sent = true, _json({})).$2), mic: mic);
+    await _startRewind(tester);
 
     mic.add(_pcm(3000, voice: false));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を記録する'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を残す'));
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(sent, isFalse);

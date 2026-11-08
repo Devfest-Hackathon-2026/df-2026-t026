@@ -144,6 +144,20 @@ class Attachment {
   final Uint8List bytes;
 }
 
+/// リワインドで切り出して書き起こした未整理メモ。端末内（shared_preferences）にだけ置く（ADR 0005）
+class Memo {
+  Memo({required this.at, required this.text});
+  Memo.fromJson(Map<String, dynamic> j)
+      : at = DateTime.parse(j['at']),
+        text = j['text'];
+
+  /// 切り出しボタンを押した時刻
+  final DateTime at;
+  final String text;
+
+  Map<String, dynamic> toJson() => {'at': at.toIso8601String(), 'text': text};
+}
+
 typedef Recorded = ({String manualId, String utteranceId, ManualState state});
 
 /// 入力ページから記録した結果。関係するマニュアルごとに1件

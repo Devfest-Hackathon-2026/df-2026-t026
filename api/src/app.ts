@@ -53,6 +53,8 @@ const NewIntake = z
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
+// リワインドの切り出し。アプリは発話のかたまり（最長で約1分）だけを送る
+const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS) });
 /** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
 const MAX_DICTATION_BYTES = 16000 * 2 * 65;
 const EditUtterance =z.object({
@@ -228,6 +230,14 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
     );
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
+  });
+
+  // リワインドの切り出し。書き起こすだけで記録はしない（アプリが未整理メモとして端末にためる）
+  app.post('/listen', async (c) => {
+    const body = NewListen.parse(await c.req.json());
+    const text = await listen({ mimeType: 'audio/wav', data: body.data }, phrasesOf(await loadAll(c.var.userId)));
+    if (!text) throw new HTTPException(422, { message: '聞き取れませんでした。言われた直後にもう一度押してください' });
+    return c.json({ text });
   });
 
   // テキスト欄の音声入力。PCM を受けるたびに途中の文面（{text}）を返し、"end" を受けたら

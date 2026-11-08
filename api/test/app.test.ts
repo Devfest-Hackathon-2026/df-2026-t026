@@ -261,3 +261,28 @@ test('入力ページから：中身が無い、受け付けない形式のフ�
   const data = Buffer.from('x').toString('base64');
   assert.equal((await call('POST', '/utterances', { files: [{ mimeType: 'video/mp4', data }] })).status, 400);
 });
+
+test('リワインド：切り出した録音を書き起こすだけで、記録はしない', async () => {
+  const heard: string[][] = [];
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  const rewind = createApp({ store, ...ai, listen: async (_, phrases) => (heard.push(phrases), '塩は小さじ1/2') });
+  const res = await rewind.request('/listen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: Buffer.from('RIFF').toString('base64') }),
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { text: '塩は小さじ1/2' });
+  assert.ok(heard[0].includes('塩'));
+  assert.equal((await store.list('demo', 'demo-kitchen', 'utterances')).length, 0);
+});
+
+test('リワインド：聞き取れなければ 422、録音が無ければ 400 を返す', async () => {
+  const store = new MemoryStore();
+  const silent = createApp({ store, ...ai, listen: async () => '' });
+  const post = (body: unknown) =>
+    silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
+  assert.equal((await post({ data: '' })).status, 400);
+});
