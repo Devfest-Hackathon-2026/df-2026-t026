@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
+import { upgradeWebSocket } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
@@ -8,14 +9,17 @@ import { z } from 'zod';
 import type { Assess } from './assess.ts';
 import { manualContext, type Check } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
-import type { Route, Transcribe } from './intake.ts';
+import { readFiles, type Route, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
+import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
   store: Store;
   /** 差分化と分類（ADR 0006） */
   assess: Assess;
   transcribe: Transcribe;
+  listen: Listen;
+  dictate: Dictate;
   route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
@@ -29,7 +33,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定して
 
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
-// Gemini が読める形式のうち、入力ページで受け付けるもの（PDF・画像・録音）
+// 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
   mimeType: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'audio/wav']),
   data: z.base64(),
@@ -49,7 +53,9 @@ const NewIntake = z
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
-const EditUtterance = z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
+/** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
+const MAX_DICTATION_BYTES = 16000 * 2 * 65;
+const EditUtterance =z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
@@ -63,13 +69,14 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, assess, transcribe, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, transcribe, listen, dictate, route, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
   app.use(async (c, next) => {
     if (passcode && c.req.path !== '/health') {
-      const given = c.req.header('X-Passcode');
+      // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
+      const given = c.req.header('X-Passcode') ?? (c.req.path === '/dictation' ? c.req.query('passcode') : undefined);
       if (!given) throw new HTTPException(401, { message: '合言葉を入れてください' });
       // 長さの違いや一致までの時間から合言葉を推し量られないよう、ハッシュをそろえて比べる
       if (!timingSafeEqual(digest(given), digest(passcode))) throw new HTTPException(401, { message: '合言葉が違います' });
@@ -99,6 +106,14 @@ export function createApp({ store, assess, transcribe, route, allowOrigin, passc
     checks.sort(byCreated);
     return { manual, lines: render(manual.base, patches), utterances, patches, checks };
   }
+
+  async function loadAll(userId: string) {
+    const manuals = await store.listManuals(userId);
+    return Promise.all(manuals.map((m) => load(userId, m.id)));
+  }
+
+  /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
+  const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
 
   function find<T extends { id: string }>(items: T[], id: string, label: string): T {
     const item = items.find((x) => x.id === id);
@@ -178,16 +193,17 @@ export function createApp({ store, assess, transcribe, route, allowOrigin, passc
   app.post('/utterances', async (c) => {
     const { userId } = c.var;
     const body = NewIntake.parse(await c.req.json());
-    const heard = body.files.length > 0 ? await transcribe(body.files) : '';
+    // 全マニュアルは、録音のフレーズヒントと振り分けにだけ使う
+    const hasAudio = body.files.some((f) => f.mimeType === 'audio/wav');
+    const states = hasAudio || !body.manualIds ? await loadAll(userId) : [];
+    const heard = await readFiles(body.files, { transcribe, listen, phrases: hasAudio ? phrasesOf(states) : [] });
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
     let manualIds = body.manualIds;
     if (!manualIds) {
-      const manuals = await store.listManuals(userId);
-      const states = await Promise.all(manuals.map((m) => load(userId, m.id)));
       const picked = await route({ manuals: states.map((s) => ({ title: s.manual.title, lines: s.lines.map((l) => l.text) })), text });
-      manualIds = picked.map((i) => manuals[i].id);
+      manualIds = picked.map((i) => states[i].manual.id);
     }
     const today = body.today ?? todayInJapan();
     const results = await Promise.all(
@@ -196,6 +212,51 @@ export function createApp({ store, assess, transcribe, route, allowOrigin, passc
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });
+
+  // テキスト欄の音声入力。PCM を受けるたびに途中の文面（{text}）を返し、"end" を受けたら
+  // 確定の文面（{text, done: true}）を返して閉じる。書き起こすだけで記録はしない（利用者が手直ししてから送る）
+  app.get(
+    '/dictation',
+    upgradeWebSocket(async (c) => {
+      const phrases = phrasesOf(await loadAll(c.var.userId));
+      let stream: Promise<DictationStream | null> = Promise.resolve(null);
+      let bytes = 0;
+      let ended = false;
+      const end = async () => {
+        if (ended) return;
+        ended = true;
+        (await stream)?.end();
+      };
+      return {
+        onOpen(_, ws) {
+          const send = (body: object) => {
+            if (ws.readyState === 1) ws.send(JSON.stringify(body));
+          };
+          const fail = (e: unknown) => {
+            console.error(e);
+            send({ error: '書き起こせませんでした。もう一度話すか、文字で書いてください' });
+            ws.close();
+          };
+          stream = dictate(phrases, {
+            text: (text) => send({ text }),
+            done: (text) => {
+              send({ text, done: true });
+              ws.close();
+            },
+            error: fail,
+          }).catch((e) => (fail(e), null));
+        },
+        async onMessage(e) {
+          if (e.data === 'end') return end();
+          if (!(e.data instanceof ArrayBuffer) || ended) return;
+          bytes += e.data.byteLength;
+          if (bytes > MAX_DICTATION_BYTES) return end();
+          (await stream)?.write(Buffer.from(e.data));
+        },
+        onClose: end,
+      };
+    }),
+  );
 
   app.patch('/manuals/:id/utterances/:uid', async (c) => {
     const { userId } = c.var;
