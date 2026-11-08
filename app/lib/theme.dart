@@ -167,8 +167,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampDiameter = 84;
 
   /// 履歴のグラフで、幹と枝を並べる1本分の幅と、版の点の直径
-  final double graphLane = 20;
-  final double graphDot = 10;
+  final double graphLane = 24;
+  final double graphDot = 14;
+
+  /// 履歴のグラフの線の太さと、1件の行の高さ。行の高さをそろえて、幹と枝の形が一目で見えるようにする
+  final double graphStroke = 3;
+  final double graphRow = 40;
 
   @override
   AppTokens copyWith() => this;

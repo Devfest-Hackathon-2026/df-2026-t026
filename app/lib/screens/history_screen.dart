@@ -44,9 +44,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, onOpen: _push));
                 final commits = h.rows.map((r) => r.commit);
                 final selected = commits.where((x) => x.id == _selected).firstOrNull ?? commits.first;
+                // グラフが主役なので、確認リストのような細い一覧にせず、差分と半分ずつにする
                 return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  SizedBox(
-                    width: k.panelWidth,
+                  Expanded(
                     child: _scroll(_list(s, h, selected: selected.id, onOpen: (x) => setState(() => _selected = x.id))),
                   ),
                   Container(width: k.hairline, color: k.colors.rule),
@@ -100,7 +100,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: IntrinsicHeight(
+        // 1件を同じ高さの1行に詰め、行の間で線を途切れさせずに木の形を見せる
+        child: SizedBox(
+          height: k.graphRow,
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             SizedBox(
               width: h.lanes * k.graphLane,
@@ -109,29 +111,34 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   row: r,
                   lane: k.graphLane,
                   dot: k.graphDot,
-                  // 点を、行の頭（誰が・いつ）の高さにそろえる
-                  dotY: k.space.md * 2 + k.hairline * 2,
-                  stroke: k.hairline * 2,
+                  stroke: k.graphStroke,
                   trunk: k.colors.ink,
                   branch: k.colors.inkMuted,
-                  dotColor: x.onBranch && (x.check?.isOpen ?? false) ? k.colors.pending : (x.onBranch ? k.colors.inkMuted : k.colors.ink),
+                  // 版は塗り、あとで確認の記録は黄で塗り、それ以外の記録は白抜きにする
+                  dotFill: !x.onBranch ? k.colors.ink : ((x.check?.isOpen ?? false) ? k.colors.pending : k.colors.canvas),
                 ),
               ),
             ),
             Expanded(
               child: Container(
-                padding: EdgeInsets.all(k.space.md),
+                padding: EdgeInsets.symmetric(horizontal: k.space.sm),
                 decoration: BoxDecoration(
                   borderRadius: k.radius.control,
                   // 選んでいない行も同じ太さの白い枠にして、選んだときに中身がずれないようにする
                   border: Border.all(color: selected ? k.colors.action : k.colors.canvas, width: k.hairline * 2),
                 ),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _Who(x),
-                  SizedBox(height: k.space.xs),
-                  Text(_message(x), maxLines: 2, overflow: TextOverflow.ellipsis, style: k.text.body),
-                  SizedBox(height: k.space.xs),
-                  _Changes(x),
+                child: Row(children: [
+                  // 誰が・いつと本文を1つの文にし、スマホの幅でも本文の末尾を省いて1行に収める
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(children: [_whoSpan(k, x), const TextSpan(text: '  '), TextSpan(text: _message(x), style: k.text.body)]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: k.text.small,
+                    ),
+                  ),
+                  SizedBox(width: k.space.sm),
+                  _Changes(x, short: true),
                 ]),
               ),
             ),
@@ -250,15 +257,38 @@ class _Who extends StatelessWidget {
     final r = x.onBranch ? null : x.check?.resolution;
     if (r != null) return ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt);
     if (x.said case final u?) return Speaker(name: u.speaker, day: u.saidAt);
-    final day = DateFormat('yyyy-MM-dd').format(DateTime.parse(x.at).toLocal());
-    return Text(fmtDay(day), style: k.text.small);
+    return Text(_createdDay(x), style: k.text.small);
   }
 }
 
+/// グラフの1行に置く、誰が・いつ。アバターを外し、本文と一緒に省けるよう文の一部にする
+InlineSpan _whoSpan(AppTokens k, Commit x) {
+  final r = x.onBranch ? null : x.check?.resolution;
+  if (r != null) {
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
+    );
+  }
+  if (x.said case final u?) {
+    return TextSpan(children: [
+      TextSpan(text: u.speaker ?? '発言者未入力', style: k.text.small.copyWith(color: k.colors.ink)),
+      TextSpan(text: '  ${fmtDay(u.saidAt)}'),
+    ]);
+  }
+  return TextSpan(text: _createdDay(x));
+}
+
+/// ノートを作った版の日付
+String _createdDay(Commit x) => fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(x.at).toLocal()));
+
 /// 版なら増えた行と消えた行の数、枝ならノートに入らなかったわけ（状態）
 class _Changes extends StatelessWidget {
-  const _Changes(this.x);
+  const _Changes(this.x, {this.short = false});
   final Commit x;
+
+  /// グラフの1行では「行」を外し、スマホの幅でも本文を見せる
+  final bool short;
 
   @override
   Widget build(BuildContext context) {
@@ -275,9 +305,10 @@ class _Changes extends StatelessWidget {
     }
     final added = x.diff.where((l) => l.change == LineChange.added).length;
     final removed = x.diff.where((l) => l.change == LineChange.removed).length;
+    final unit = short ? '' : ' 行';
     return Wrap(spacing: k.space.sm, children: [
-      if (added > 0) Text('+$added 行', style: k.text.small.copyWith(color: c.added)),
-      if (removed > 0) Text('-$removed 行', style: k.text.small.copyWith(color: c.removed)),
+      if (added > 0) Text('+$added$unit', style: k.text.small.copyWith(color: c.added)),
+      if (removed > 0) Text('-$removed$unit', style: k.text.small.copyWith(color: c.removed)),
     ]);
   }
 }
@@ -305,20 +336,18 @@ class _GraphPainter extends CustomPainter {
     required this.row,
     required this.lane,
     required this.dot,
-    required this.dotY,
     required this.stroke,
     required this.trunk,
     required this.branch,
-    required this.dotColor,
+    required this.dotFill,
   });
   final GraphRow row;
   final double lane;
   final double dot;
-  final double dotY;
   final double stroke;
   final Color trunk;
   final Color branch;
-  final Color dotColor;
+  final Color dotFill;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -327,7 +356,7 @@ class _GraphPainter extends CustomPainter {
       ..color = l == 0 ? trunk : branch
       ..strokeWidth = stroke
       ..style = PaintingStyle.stroke;
-    final at = Offset(x(row.lane), dotY);
+    final at = Offset(x(row.lane), size.height / 2);
     for (final l in row.through) {
       canvas.drawLine(Offset(x(l), 0), Offset(x(l), size.height), pen(l));
     }
@@ -339,9 +368,11 @@ class _GraphPainter extends CustomPainter {
     for (final l in row.merges) {
       canvas.drawPath(Path()..moveTo(x(l), size.height)..quadraticBezierTo(x(l), at.dy, at.dx, at.dy), pen(l));
     }
-    canvas.drawCircle(at, dot / 2, Paint()..color = dotColor);
+    canvas.drawCircle(at, dot / 2, Paint()..color = dotFill);
+    // 縁は線と同じ色・太さにして、白抜きの点も線から浮かないようにする
+    canvas.drawCircle(at, (dot - stroke) / 2, pen(row.lane));
   }
 
   @override
-  bool shouldRepaint(_GraphPainter old) => old.row != row || old.dotColor != dotColor;
+  bool shouldRepaint(_GraphPainter old) => old.row != row || old.dotFill != dotFill;
 }

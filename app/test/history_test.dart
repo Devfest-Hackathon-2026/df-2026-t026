@@ -167,15 +167,20 @@ void main() {
     }
 
     testWidgets('狭い画面：版と枝を新しい順に並べ、押すとその版のノートを増減の印つきで見せる', (tester) async {
-      await pump(tester, 800);
+      await pump(tester, 390);
 
       expect(find.text('版 3'), findsOneWidget);
-      expect(find.text('ノートを作った'), findsOneWidget);
-      expect(find.text('だしは昆布でとって'), findsOneWidget);
+      // 行は「誰が・いつ」と本文を1つの文にしている
+      expect(find.textContaining('ノートを作った'), findsOneWidget);
+      expect(find.textContaining('だしは昆布でとって'), findsOneWidget);
       expect(find.text('あとで確認'), findsOneWidget);
       expect(find.text('確認済み'), findsOneWidget);
+      // 1件を同じ高さの1行に詰め、行の間で線を途切れさせずに幹と枝の形を見せる
+      final graph = find.byWidgetPredicate((w) => w is CustomPaint && '${w.painter.runtimeType}' == '_GraphPainter');
+      expect(graph, findsNWidgets(5));
+      expect({for (final e in graph.evaluate()) e.size!.height}, hasLength(1));
 
-      await tester.tap(find.text('1/2で統一'));
+      await tester.tap(find.textContaining('1/2で統一'));
       await tester.pumpAndSettle();
 
       expect(find.text('この版のノート'), findsOneWidget);
@@ -192,11 +197,13 @@ void main() {
       expect(find.text('・だしは昆布'), findsOneWidget);
       expect(find.text('確認リストで開く'), findsOneWidget);
 
-      await tester.tap(find.text('ノートを作った'));
+      await tester.tap(find.textContaining('ノートを作った'));
       await tester.pumpAndSettle();
 
       expect(find.text('この版のノート'), findsOneWidget);
-      expect(find.text('+3 行'), findsNWidgets(2));
+      // 行の中では「行」を外し、詳細では付ける
+      expect(find.text('+3'), findsOneWidget);
+      expect(find.text('+3 行'), findsOneWidget);
     });
   });
 }
