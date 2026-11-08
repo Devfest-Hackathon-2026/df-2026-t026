@@ -1,5 +1,5 @@
 import type { Assess } from './assess.ts';
-import type { CheckResult } from './conflict/check.ts';
+import type { CheckPatch, CheckResult } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
 import type { Dictate, Listen } from './stt.ts';
@@ -44,7 +44,7 @@ export const fakeAssess: Assess = async ({ manuals, text, today }) => {
   const relevant = (lines: string[]) =>
     manuals.length === 1 ||
     lines.some((l) => {
-      const word = strip(l).split(/[\sはをにがの、（]/)[0];
+      const word = headWord(l);
       return !!word && text.includes(word);
     });
   const texts = manuals.map((m) => m.lines.map((l) => l.text));
@@ -60,14 +60,20 @@ export const fakeAssess: Assess = async ({ manuals, text, today }) => {
   };
 };
 
+/** 直接編集の分類だけ（ADR 0007） */
+export const fakeCheckPatch: CheckPatch = async ({ lines, patch, utterance }) => fakeCheck(lines.map((l) => l.text), patch, utterance.speaker);
+
 function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): CheckResult {
   const same = lines.find((l) => l === patch.text);
   if (same) {
-    return { kind: 'same', conflictLine: null, sameLine: same, reason: `マニュアルの「${strip(same)}」と同じ内容です`, ask: null };
+    return { kind: 'same', conflictLine: null, sameLine: same, reason: `ノートの「${strip(same)}」と同じ内容です`, ask: null };
   }
-  if (patch.op === 'insert') {
+  // 追記は、頭の言葉（「塩」など）が同じで中身の違う項目があれば、その項目と食い違うとみなす
+  const rival = patch.op === 'insert' ? lines.find((l) => !l.startsWith('## ') && headWord(l) === headWord(patch.text)) : null;
+  if (patch.op === 'insert' && !rival) {
     return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
   }
+  const conflictLine = rival ?? patch.line!;
   if (patch.text.startsWith(`${patch.line}（`)) {
     return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
   }
@@ -77,12 +83,12 @@ function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): 
   }
   return {
     kind: 'contradiction',
-    conflictLine: patch.line,
+    conflictLine,
     sameLine: null,
-    reason: `マニュアルの「${strip(patch.line!)}」と両立しません`,
+    reason: `ノートの「${strip(conflictLine)}」と両立しません`,
     ask: {
       candidates,
-      question: `「${strip(patch.line!)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
+      question: `「${strip(conflictLine)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
     },
   };
 }
@@ -103,6 +109,10 @@ export const fakeDictate: Dictate = async (_, on) => {
     end: () => on.done(said.slice(0, Math.ceil(bytes / 8000)).join('')),
   };
 };
+
+function headWord(line: string): string {
+  return strip(line).split(/[\sはをにがの、（]/)[0];
+}
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {

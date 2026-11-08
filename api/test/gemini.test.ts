@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
+import { checkWithGemini } from '../src/conflict/check.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
@@ -117,6 +118,48 @@ test('振り分け：パッチごとのマニュアル番号を添字に直し�
   // ホールに5行目はない
   await assert.rejects(run([item({ manualNo: 2, op: 'replace', lineNo: 5 })]).done);
   await assert.rejects(run([item({ manualNo: 3 })]).done);
+});
+
+test('白紙のノート：題名だけで振り分けさせ、末尾への追記だけを受け付ける', async () => {
+  const blank = { title: '自分用メモ', lines: [], confirmations: [] };
+  const ok = stub({ speaker: null, saidAt: null, patches: [item({ text: '- 塩 小さじ1' })] });
+  const r = await assessWithGemini({ manuals: [blank], text: '塩は小さじ1', today: '2026-11-03', speakers: [] }, ok.generate);
+  assert.deepEqual(r.items.map((x) => [x.manual, x.patch.op, x.patch.line]), [[0, 'insert', null]]);
+  assert.match(ok.calls[0].prompt, /# マニュアル1: 自分用メモ\n（白紙。まだ何も書かれていません）/);
+  // 最小1・最大0のような、満たせない範囲を Gemini に渡さない
+  assert.doesNotMatch(JSON.stringify(toGeminiSchema(ok.calls[0].schema)), /"maximum":0/);
+  const bad = stub({ speaker: null, saidAt: null, patches: [item({ lineNo: 1 })] });
+  await assert.rejects(assessWithGemini({ manuals: [blank], text: 'x', today: '2026-11-03', speakers: [] }, bad.generate));
+});
+
+test('直接編集の分類：白紙のノートでも、満たせない行番号の範囲を渡さずに判定する', async () => {
+  const { generate, calls } = stub({ kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null });
+  const r = await checkWithGemini(
+    {
+      lines: [],
+      confirmations: [],
+      utterance: { text: '- 塩 小さじ1', speaker: '自分', saidAt: '2026-11-08' },
+      patch: { op: 'insert', line: null, text: '- 塩 小さじ1', summary: '追記' },
+    },
+    generate,
+  );
+  assert.equal(r.kind, 'addition');
+  assert.match(calls[0].prompt, /白紙/);
+  assert.doesNotMatch(JSON.stringify(toGeminiSchema(calls[0].schema)), /"maximum":0/);
+});
+
+test('直接編集の分類：矛盾なら衝突相手の行を文字列で返す', async () => {
+  const { generate } = stub({ kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask });
+  const r = await checkWithGemini(
+    {
+      lines: lines.map((text) => ({ text, note: null })),
+      confirmations: [],
+      utterance: { text: '- 塩 小さじ2', speaker: '自分', saidAt: '2026-11-08' },
+      patch: { op: 'insert', line: null, text: '- 塩 小さじ2', summary: '追記' },
+    },
+    generate,
+  );
+  assert.deepEqual([r.kind, r.conflictLine], ['contradiction', '- 塩 小さじ1']);
 });
 
 test('書き起こし：ファイルを添えて呼ぶ', async () => {

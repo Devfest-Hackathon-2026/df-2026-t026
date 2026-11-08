@@ -13,14 +13,16 @@ export interface Utterance {
   speaker: string | null;
   /** YYYY-MM-DD */
   saidAt: string;
+  /** 利用者がノートを直接編集した記録。口頭で言われたことではない */
+  fromEdit?: boolean;
   createdAt: string;
 }
 
 export interface PatchDraft {
-  op: 'replace' | 'insert';
-  /** replace: 置き換える行。insert: この行の後ろに入れる（null なら末尾） */
+  op: 'replace' | 'insert' | 'delete';
+  /** replace・delete: 対象の行。insert: この行の後ろに入れる（null なら末尾） */
   line: string | null;
-  /** 新しい行。複数行なら改行区切り */
+  /** 新しい行。複数行なら改行区切り。delete では空 */
   text: string;
   summary: string;
 }
@@ -48,11 +50,11 @@ export class PatchError extends Error {}
  * 別のパッチが入っても、対象の行が残っていれば当てられるようにするため。
  */
 export function applyPatch(lines: ManualLine[], patch: PatchDraft & { id: string }): ManualLine[] {
-  const added = patch.text.split('\n').map((text) => ({ text, patchId: patch.id }));
+  const added = patch.op === 'delete' ? [] : patch.text.split('\n').map((text) => ({ text, patchId: patch.id }));
   if (patch.op === 'insert' && patch.line === null) return [...lines, ...added];
   const i = lines.findIndex((l) => l.text === patch.line);
-  if (i < 0) throw new PatchError(`マニュアルに「${patch.line}」の行が見つかりません`);
-  const head = lines.slice(0, patch.op === 'replace' ? i : i + 1);
+  if (i < 0) throw new PatchError(`ノートに「${patch.line}」の行が見つかりません`);
+  const head = lines.slice(0, patch.op === 'insert' ? i + 1 : i);
   return [...head, ...added, ...lines.slice(i + 1)];
 }
 
@@ -61,6 +63,7 @@ export function render(base: string, patches: Patch[]): ManualLine[] {
   const applied = patches
     .filter((p) => p.status === 'applied')
     .sort((a, b) => a.appliedAt!.localeCompare(b.appliedAt!));
-  const lines = base.split('\n').map((text) => ({ text, patchId: null }));
+  // 白紙から始めたマニュアルは、空行1行ではなく行なしにする
+  const lines = (base ? base.split('\n') : []).map((text) => ({ text, patchId: null }));
   return applied.reduce<ManualLine[]>((acc, p) => applyPatch(acc, p), lines);
 }

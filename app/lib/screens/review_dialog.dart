@@ -194,7 +194,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                         ),
                         SizedBox(height: k.space.xl),
                         if (patches.isEmpty)
-                          Text('マニュアルに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
+                          Text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
                         for (final p in patches) ...[
                           const Rule(),
                           SizedBox(height: k.space.lg),
@@ -270,7 +270,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
     final k = context.tokens;
     return [
       ConflictPair(
-        leftLabel: 'マニュアル',
+        leftLabel: 'ノート',
         left: chk.conflictLine ?? '',
         rightLabel: '${_hasSpeaker ? _speaker.text.trim() : '発言者未入力'}（${fmtDay(_saidAt)}）',
         right: p.text,
@@ -306,7 +306,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
   List<Widget> _same(Patch p, Check chk) {
     final k = context.tokens;
     return [
-      Text('マニュアルの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
+      Text('ノートの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)

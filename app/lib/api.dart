@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -27,6 +27,9 @@ class Api {
 
   /// API の合言葉。サーバーが合言葉を決めていないとき（ローカル開発）は null のままでよい
   String? passcode;
+
+  /// 記録や確定でデータが変わるたびに増える。どの画面で変えても、サイドバーの件数を合わせるため
+  final changes = ValueNotifier(0);
 
   Future<List<ManualSummary>> listManuals() async =>
       [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
@@ -79,6 +82,20 @@ class Api {
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
 
+  /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete
+  Future<ManualState> edit(String manualId,
+          {required String op, String? line, String text = '', required String today}) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
+        'op': op,
+        'line': line,
+        'text': text,
+        'today': today,
+      }));
+
+  /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめる
+  Future<ManualState> checkEdit(String manualId, String patchId) async =>
+      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$patchId/check', {}));
+
   Future<ManualState> discardPatch(String manualId, String id) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
 
@@ -114,6 +131,7 @@ class Api {
     if (res.statusCode >= 400) {
       throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
+    if (method != 'GET') changes.value++;
     return json;
   }
 }

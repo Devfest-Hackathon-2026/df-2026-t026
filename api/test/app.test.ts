@@ -3,7 +3,7 @@ import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
-import { fakeAssess, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -15,7 +15,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { assess: fakeAssess, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate };
+const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate };
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
@@ -78,6 +78,81 @@ test('追記は承認するとそのまま反映され、誰の発言かが行�
   const texts = json.lines.map((l: any) => l.text);
   assert.equal(texts[texts.indexOf('- 炊けたら10分蒸らす') + 1], '- ご飯はおかわり1回まで無料');
   assert.equal(json.lines.find((l: any) => l.text === '- ご飯はおかわり1回まで無料').patchId, r.patch.id);
+});
+
+test('本文を空にすると白紙のマニュアルになり、言われたことから書き足せる', async () => {
+  const created = await call('POST', '/manuals', { title: '自分用メモ', body: '  ' });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.json.lines, []);
+  const id = created.json.manual.id;
+
+  const { json } = await call('POST', `/manuals/${id}/utterances`, { text: '佐藤さんから、ご飯はおかわり1回まで無料と教わった' });
+  const [p] = json.state.patches;
+  assert.equal(json.state.checks[0].kind, 'addition');
+  const applied = await call('POST', `/manuals/${id}/patches/${p.id}/apply`, {});
+  assert.deepEqual(applied.json.lines, [{ text: '- ご飯はおかわり1回まで無料', patchId: p.id }]);
+});
+
+async function edit(body: object) {
+  const { status, json } = await call('POST', '/manuals/demo-kitchen/edits', { today: '2026-11-08', ...body });
+  assert.equal(status, 201);
+  return { state: json, patch: json.patches.at(-1), texts: json.lines.map((l: any) => l.text) as string[] };
+}
+
+test('直接編集：行を足す・書き換える・消すと、自分が書いた記録としてすぐ反映される', async () => {
+  const added = await edit({ op: 'insert', line: '- 塩 小さじ1', text: '- だしは煮干し' });
+  assert.equal(added.texts[added.texts.indexOf('- 塩 小さじ1') + 1], '- だしは煮干し');
+  const u = added.state.utterances.find((x: any) => x.id === added.patch.utteranceId);
+  assert.deepEqual([u.speaker, u.saidAt, u.fromEdit], ['自分', '2026-11-08', true]);
+  assert.equal(added.state.lines.find((l: any) => l.text === '- だしは煮干し').patchId, added.patch.id);
+
+  const replaced = await edit({ op: 'replace', line: '- だしは煮干し', text: '- だしは昆布' });
+  assert.ok(replaced.texts.includes('- だしは昆布') && !replaced.texts.includes('- だしは煮干し'));
+
+  const deleted = await edit({ op: 'delete', line: '- だしは昆布' });
+  assert.ok(!deleted.texts.includes('- だしは昆布'));
+  // 編集しただけでは衝突検知の記録は作らない（確かめるのは別の呼び出し）
+  assert.equal(deleted.state.checks.length, 0);
+});
+
+test('直接編集：無い行は編集できず、中身が空の行は書けない', async () => {
+  assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 無い行' })).status, 409);
+  assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: ' ' })).status, 400);
+  assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: null, text: 'x' })).status, 400);
+});
+
+test('直接編集：書いた行がほかの行と食い違えば、あとで確認に入る', async () => {
+  const { patch } = await edit({ op: 'insert', line: null, text: '- 塩 小さじ2' });
+  const { status, json } = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(status, 200);
+  const chk = json.checks.find((c: any) => c.patchId === patch.id);
+  assert.deepEqual([chk.kind, chk.conflictLine], ['contradiction', '- 塩 小さじ1']);
+  // 同じ編集は二度確かめない
+  assert.equal((await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`)).status, 409);
+});
+
+test('直接編集：書き換える前の行とは食い違いにしない', async () => {
+  const { patch } = await edit({ op: 'replace', line: '- 塩 小さじ1', text: '- 塩 小さじ2' });
+  const { json } = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(json.checks.find((c: any) => c.patchId === patch.id).kind, 'addition');
+});
+
+test('直接編集：食い違いを確定すると、2行が確定した内容の1行にまとまる', async () => {
+  const { patch } = await edit({ op: 'insert', line: null, text: '- 塩 小さじ2' });
+  const checked = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  const chk = checked.json.checks.find((c: any) => c.patchId === patch.id);
+  const { json } = await call('POST', `/manuals/demo-kitchen/checks/${chk.id}/resolve`, {
+    decidedBy: '店長',
+    decidedAt: '2026-11-09',
+    text: '- 塩 小さじ2',
+  });
+  const salt = json.lines.filter((l: any) => l.text.startsWith('- 塩'));
+  assert.deepEqual(salt.map((l: any) => l.text), ['- 塩 小さじ2']);
+  assert.equal(json.checks.find((c: any) => c.id === chk.id).resolution.decidedBy, '店長');
+});
+
+test('題名がなければマニュアルを作らない', async () => {
+  assert.equal((await call('POST', '/manuals', { title: ' ', body: '' })).status, 400);
 });
 
 test('条件付きの補足は元の記述と併記される', async () => {

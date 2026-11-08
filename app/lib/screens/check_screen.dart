@@ -9,20 +9,51 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'sidebar.dart';
 
 enum _Outcome { keep, adopt, custom }
 
-/// 食い違いの提示 → 誰に確認するか → 確定の記録 → 証拠として見せる
-class CheckScreen extends StatefulWidget {
+/// 食い違い1件の画面。狭い画面で確認リストから開く。広い画面では確認リストの右に CheckDetail を直接置く
+class CheckScreen extends StatelessWidget {
   const CheckScreen({super.key, required this.c, required this.checkId});
   final ManualController c;
   final String checkId;
 
   @override
-  State<CheckScreen> createState() => _CheckScreenState();
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return ListenableBuilder(
+      listenable: c,
+      builder: (context, _) {
+        final s = c.state!;
+        final chk = s.checks.firstWhere((x) => x.id == checkId);
+        return Scaffold(
+          body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+                child: Narrow(child: CheckDetail(c: c, checkId: checkId)),
+              ),
+            ),
+          ]))),
+        );
+      },
+    );
+  }
 }
 
-class _CheckScreenState extends State<CheckScreen> {
+/// 食い違いの提示 → 誰に確認するか → 確定の記録 → 証拠として見せる
+class CheckDetail extends StatefulWidget {
+  const CheckDetail({super.key, required this.c, required this.checkId});
+  final ManualController c;
+  final String checkId;
+
+  @override
+  State<CheckDetail> createState() => _CheckDetailState();
+}
+
+class _CheckDetailState extends State<CheckDetail> {
   late final Check _initial = widget.c.state!.checks.firstWhere((x) => x.id == widget.checkId);
   late final _decidedBy = TextEditingController(text: _initial.candidates.firstOrNull?.who ?? '');
   late final _custom = TextEditingController(text: widget.c.state!.patch(_initial.patchId).text);
@@ -75,61 +106,49 @@ class _CheckScreenState extends State<CheckScreen> {
         final p = s.patch(chk.patchId);
         final u = s.utterance(chk.utteranceId);
         final who = '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）';
-        return Scaffold(
-          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                child: Narrow(
-                  child: PaperSheet(
-                    padding: EdgeInsets.all(k.space.xl),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      PageTitle(
-                        chk.isOpen ? 'あとで確認すること' : '確認の記録',
-                        meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
-                      ),
-                      SizedBox(height: k.space.xl),
-                      if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
-                      _step(chk.isOpen ? '1' : null, chk.isOpen ? '食い違っていること' : '食い違っていたこと'),
-                      ConflictPair(
-                        leftLabel: 'マニュアル',
-                        left: chk.conflictLine ?? '',
-                        rightLabel: who,
-                        right: p.text,
-                        settled: !chk.isOpen,
-                      ),
-                      SizedBox(height: k.space.md),
-                      Text(chk.reason, style: k.text.body),
-                      if (chk.isOpen) ...[
-                        SizedBox(height: k.space.xs),
-                        Text('どちらに合わせるかは、聞けたときに決めます', style: k.text.small),
-                        SizedBox(height: k.space.xxl),
-                        _step('2', '誰に確認する？'),
-                        for (final cand in chk.candidates) _candidate(cand),
-                        if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
-                        SizedBox(height: k.space.xxl),
-                        _step('3', '確認できたら記録する'),
-                        if (_recording)
-                          _form(chk, p, u)
-                        else ...[
-                          Text('聞いて決まったら、ここに残します。後で別の人に聞かれたときの記録になります', style: k.text.small),
-                          SizedBox(height: k.space.md),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: MoonOutlinedButton(
-                              onTap: () => setState(() => _recording = true),
-                              label: const Text('確認できたので記録する'),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ]),
+        return PaperSheet(
+          padding: EdgeInsets.all(k.space.xl),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            PageTitle(
+              chk.isOpen ? 'あとで確認すること' : '確認の記録',
+              meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
+            ),
+            SizedBox(height: k.space.xl),
+            if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
+            _step(chk.isOpen ? '1' : null, chk.isOpen ? '食い違っていること' : '食い違っていたこと'),
+            ConflictPair(
+              leftLabel: 'ノート',
+              left: chk.conflictLine ?? '',
+              rightLabel: who,
+              right: p.text,
+              settled: !chk.isOpen,
+            ),
+            SizedBox(height: k.space.md),
+            Text(chk.reason, style: k.text.body),
+            if (chk.isOpen) ...[
+              SizedBox(height: k.space.xs),
+              Text('どちらに合わせるかは、聞けたときに決めます', style: k.text.small),
+              SizedBox(height: k.space.xxl),
+              _step('2', '誰に確認する？'),
+              for (final cand in chk.candidates) _candidate(cand),
+              if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
+              SizedBox(height: k.space.xxl),
+              _step('3', '確認できたら記録する'),
+              if (_recording)
+                _form(chk, p, u)
+              else ...[
+                Text('聞いて決まったら、ここに残します。後で別の人に聞かれたときの記録になります', style: k.text.small),
+                SizedBox(height: k.space.md),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MoonOutlinedButton(
+                    onTap: () => setState(() => _recording = true),
+                    label: const Text('確認できたので記録する'),
                   ),
                 ),
-              ),
-            ),
-          ])),
+              ],
+            ],
+          ]),
         );
       },
     );
@@ -201,7 +220,7 @@ class _CheckScreenState extends State<CheckScreen> {
   Widget _form(Check chk, Patch p, Utterance u) {
     final k = context.tokens;
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    final keep = _choice(_Outcome.keep, 'マニュアルのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
+    final keep = _choice(_Outcome.keep, 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

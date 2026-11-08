@@ -39,6 +39,7 @@ class Utterance {
         text = j['text'],
         speaker = j['speaker'],
         saidAt = j['saidAt'],
+        fromEdit = j['fromEdit'] ?? false,
         createdAt = j['createdAt'];
 
   final String id;
@@ -47,6 +48,9 @@ class Utterance {
 
   /// YYYY-MM-DD
   final String saidAt;
+
+  /// 利用者がノートを直接編集した記録。口頭で言われたことではない
+  final bool fromEdit;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -65,7 +69,7 @@ class Patch {
   final String id;
   final String utteranceId;
 
-  /// replace / insert
+  /// replace / insert / delete
   final String op;
   final String? line;
   final String text;
@@ -191,6 +195,9 @@ class ManualState {
   final List<Check> checks;
 
   Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
+
+  /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
+  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
   Patch patch(String id) => patches.firstWhere((p) => p.id == id);
   Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
   List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();

@@ -7,7 +7,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
 import type { Assess, AssessResult } from './assess.ts';
-import { manualContext, type Check } from './conflict/check.ts';
+import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
@@ -17,6 +17,8 @@ export interface Deps {
   store: Store;
   /** 振り分け・差分化・分類（ADR 0006） */
   assess: Assess;
+  /** 直接書いた行の分類だけ（ADR 0007） */
+  check: CheckPatch;
   transcribe: Transcribe;
   listen: Listen;
   dictate: Dictate;
@@ -30,7 +32,8 @@ type Env = { Variables: { userId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
-const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) });
+// マニュアルが無い職場では、本文を空にして白紙から始める
+const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
 // 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
@@ -63,6 +66,16 @@ const EditUtterance =z.object({
   text: z.string().trim().min(1).optional(),
 });
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
+const Edit = z
+  .object({
+    op: z.enum(['insert', 'replace', 'delete']),
+    /** insert はこの行の後ろ（null なら末尾）、replace・delete はこの行 */
+    line: z.string().nullable(),
+    text: z.string().trim().default(''),
+    today: date.optional(),
+  })
+  .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
+  .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
   decidedAt: date,
@@ -70,12 +83,15 @@ const Resolve = z.object({
   note: z.string().trim().default(''),
 });
 
+/** 直接編集した人。認証を入れるまでは利用者本人1人 */
+const SELF = '自分';
+
 const now = () => new Date().toISOString();
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, assess, transcribe, listen, dictate, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, check, transcribe, listen, dictate, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
@@ -100,7 +116,7 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
 
   async function load(userId: string, manualId: string) {
     const manual = await store.getManual(userId, manualId);
-    if (!manual) throw new HTTPException(404, { message: 'マニュアルが見つかりません' });
+    if (!manual) throw new HTTPException(404, { message: 'ノートが見つかりません' });
     const [utterances, patches, checks] = await Promise.all([
       store.list<Utterance>(userId, manualId, 'utterances'),
       store.list<Patch>(userId, manualId, 'patches'),
@@ -139,7 +155,8 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
         const s = await load(userId, m.id);
         return {
           ...m,
-          utteranceCount: s.utterances.length,
+          // 直接編集は口頭の記録ではないので数えない
+          utteranceCount: s.utterances.filter((u) => !u.fromEdit).length,
           openCount: s.checks.filter((x) => x.kind === 'contradiction' && !x.resolution).length,
         };
       }),
@@ -343,6 +360,61 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
     return c.json(await load(userId, manualId));
   });
 
+  // ノートの直接編集。「自分がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）
+  app.post('/manuals/:id/edits', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const body = Edit.parse(await c.req.json());
+    const s = await load(userId, manualId);
+    const utterance: Utterance = {
+      id: randomUUID(),
+      text: body.op === 'delete' ? `「${body.line}」を消した` : body.text,
+      speaker: SELF,
+      saidAt: body.today ?? todayInJapan(),
+      fromEdit: true,
+      createdAt: now(),
+    };
+    const patch: Patch = {
+      id: randomUUID(),
+      utteranceId: utterance.id,
+      op: body.op,
+      line: body.line,
+      text: body.text,
+      summary: { insert: '追記', replace: '書き換え', delete: '削除' }[body.op],
+      status: 'applied',
+      createdAt: now(),
+      appliedAt: now(),
+    };
+    applyPatch(s.lines, patch);
+    await store.put(userId, manualId, 'utterances', utterance);
+    await store.put(userId, manualId, 'patches', patch);
+    return c.json(await load(userId, manualId), 201);
+  });
+
+  // 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを見る。
+  // Gemini は待ち時間が長いので、書いた行を先に画面に出せるよう編集とは別に呼ぶ
+  app.post('/manuals/:id/patches/:pid/check', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const s = await load(userId, manualId);
+    const p = find(s.patches, c.req.param('pid'), '差分');
+    const u = find(s.utterances, p.utteranceId, '発言');
+    if (!u.fromEdit || p.op === 'delete' || s.checks.some((x) => x.patchId === p.id)) {
+      throw new HTTPException(409, { message: 'この編集は確かめられません' });
+    }
+    // 書いた行そのものは相手にしない。書き換える前の行は本人が直したので、もう残っていない
+    const others = s.lines.filter((l) => l.patchId !== p.id);
+    const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
+    const result = await check({
+      ...manualContext(others, s.patches, s.utterances, s.checks),
+      utterance: { text: u.text, speaker: u.speaker, saidAt: u.saidAt },
+      patch: draft,
+    });
+    const chk: Check = { ...result, id: randomUUID(), patchId: p.id, utteranceId: u.id, resolution: null, createdAt: now() };
+    await store.put(userId, manualId, 'checks', chk);
+    return c.json(await load(userId, manualId));
+  });
+
   app.post('/manuals/:id/patches/:pid/discard', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
@@ -371,6 +443,24 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
       saidAt: body.decidedAt,
       createdAt: now(),
     };
+    const original = find(s.patches, chk.patchId, '差分');
+    let lines = s.lines;
+    // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる
+    let merge: Patch | null = null;
+    if (original.status === 'applied' && lines.some((l) => l.text === original.text)) {
+      merge = {
+        id: randomUUID(),
+        utteranceId: answer.id,
+        op: 'delete',
+        line: original.text,
+        text: '',
+        summary: `確認：${note}`,
+        status: 'applied',
+        createdAt: now(),
+        appliedAt: now(),
+      };
+      lines = applyPatch(lines, merge);
+    }
     let fix: Patch | null = null;
     if (body.text !== chk.conflictLine) {
       fix = {
@@ -384,11 +474,11 @@ export function createApp({ store, assess, transcribe, listen, dictate, allowOri
         createdAt: now(),
         appliedAt: now(),
       };
-      applyPatch(s.lines, fix);
+      applyPatch(lines, fix);
     }
     await store.put(userId, manualId, 'utterances', answer);
+    if (merge) await store.put(userId, manualId, 'patches', merge);
     if (fix) await store.put(userId, manualId, 'patches', fix);
-    const original = find(s.patches, chk.patchId, '差分');
     if (original.status === 'proposed') {
       await store.put(userId, manualId, 'patches', { ...original, status: 'discarded' });
     }

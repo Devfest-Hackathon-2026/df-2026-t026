@@ -1,4 +1,7 @@
-import type { ManualLine, Patch, Utterance } from '../foundation/manual.ts';
+import { z } from 'zod';
+
+import type { ManualLine, Patch, PatchDraft, Utterance } from '../foundation/manual.ts';
+import { generateJson, isItem, lineNo, numbered, type GenerateJson } from '../gemini.ts';
 
 export type Kind = 'same' | 'addition' | 'qualification' | 'contradiction';
 
@@ -99,3 +102,62 @@ reason: 判定の理由を1〜2文で
 ask: contradiction のときだけ入れる。それ以外は null
 - candidates: 確認する相手の候補を1〜3人。その判断に責任を持つ立場（店長・社員など）を優先する。言った本人も候補になる。マニュアルや記録に出てくる人・役職から選び、いなければ「店長」のような一般的な役職にする。who は呼び方、why はその人に聞く理由を短く
 - question: 新人がそのまま口頭で聞ける、丁寧で短い話し言葉。誰かが間違っていると責めない。「〜と教わったのですが、〜とも聞いて、どちらに合わせればよいですか」のように両方を並べて判断を仰ぐ。告げ口に聞こえないよう、もう一方の指示を出した人の名前は必要がなければ出さない`;
+
+/** 分類だけを1回で行うときの入力。行がもう決まっている直接編集で使う（ADR 0007）。記録からは assess で差分化と一緒に行う（ADR 0006） */
+export interface CheckInput extends ManualContext {
+  utterance: { text: string; speaker: string | null; saidAt: string };
+  patch: PatchDraft;
+}
+
+export type CheckPatch = (input: CheckInput) => Promise<CheckResult>;
+
+const system = `あなたは、飲食店などで働く新人が、矛盾した指示の板挟みにならないよう手助けするアシスタントです。
+新人が口頭で言われたことと、そこから作ったマニュアルへの変更案（パッチ）を、マニュアル全文と確定済みの記録に照らして判定します。
+マニュアルは行番号付きで、行の後ろの〔〕はその行の出どころ（誰がいつ言ったか、確認して確定したか）です。
+
+${checkRules}`;
+
+function schema(lines: string[]) {
+  return z
+    .object({
+      kind: z.enum(['same', 'addition', 'qualification', 'contradiction']),
+      conflictLineNo: lineNo(lines).nullable(),
+      sameLineNo: lineNo(lines).nullable(),
+      reason: z.string().min(1),
+      ask: z
+        .object({
+          candidates: z.array(z.object({ who: z.string().min(1), why: z.string().min(1) })).min(1).max(3),
+          question: z.string().min(1),
+        })
+        .nullable(),
+    })
+    .refine(
+      (o) => o.kind !== 'contradiction' || (o.conflictLineNo !== null && isItem(lines[o.conflictLineNo - 1]) && o.ask !== null),
+      'contradiction のときは、衝突相手の項目の行番号と ask を入れてください',
+    )
+    .refine(
+      (o) => o.kind !== 'same' || (o.sameLineNo !== null && isItem(lines[o.sameLineNo - 1])),
+      'same のときは、同じ内容の項目の行番号を入れてください',
+    );
+}
+
+export async function checkWithGemini(input: CheckInput, generate: GenerateJson = generateJson): Promise<CheckResult> {
+  const lines = input.lines.map((l) => l.text);
+  const { utterance: u, patch: p } = input;
+  // 変わらない部分（指示・マニュアル・確定済みの記録）を前に置き、暗黙のコンテキストキャッシュに乗せる
+  const prompt = `# 現行マニュアル
+${numbered(lines, (i) => input.lines[i].note)}
+
+# 確定済みの記録
+${input.confirmations.map((c) => `- ${c}`).join('\n') || '（なし）'}
+
+# 新しく言われたこと
+${u.speaker ?? '発言者不明'}（${u.saidAt}）: ${u.text}
+
+# そこから作ったパッチ
+${p.op === 'replace' ? `「${p.line}」を「${p.text}」に置き換える` : `「${p.text}」を${p.line ? `「${p.line}」の後ろに` : '末尾に'}追記する`}`;
+  const out = await generate({ system, prompt, schema: schema(lines) });
+  const sameLine = out.kind === 'same' ? lines[out.sameLineNo! - 1] : null;
+  if (out.kind !== 'contradiction') return { kind: out.kind, conflictLine: null, sameLine, reason: out.reason, ask: null };
+  return { kind: out.kind, conflictLine: lines[out.conflictLineNo! - 1], sameLine: null, reason: out.reason, ask: out.ask };
+}

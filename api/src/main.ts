@@ -3,7 +3,8 @@ import { WebSocketServer } from 'ws';
 
 import { createApp } from './app.ts';
 import { assessWithGemini } from './assess.ts';
-import { fakeAssess, fakeDictate, fakeListen, fakeTranscribe } from './fake-ai.ts';
+import { checkWithGemini } from './conflict/check.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
 import { transcribeWithGemini } from './intake.ts';
 import { seed } from './seed.ts';
@@ -18,6 +19,7 @@ await seed(store, 'demo');
 const app = createApp({
   store,
   assess: useGemini ? (i) => assessWithGemini(i) : fakeAssess,
+  check: useGemini ? (i) => checkWithGemini(i) : fakeCheckPatch,
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   listen: useGemini ? listenWithSpeech : fakeListen,
   dictate: useGemini ? dictateWithSpeech : fakeDictate,
