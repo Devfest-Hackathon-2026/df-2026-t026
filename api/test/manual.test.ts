@@ -36,6 +36,11 @@ test('白紙のマニュアルは行なしから始まり、追記が上から�
   ]);
 });
 
+test('delete はその行を消す', () => {
+  const del = patch({ op: 'delete', line: '- 塩 小さじ1', text: '' });
+  assert.deepEqual(render('## 味噌汁\n- 塩 小さじ1\n## ご飯', [del]).map((l) => l.text), ['## 味噌汁', '## ご飯']);
+});
+
 test('対象の行がなければ当てない', () => {
   assert.throws(() => render('- 塩 小さじ1', [patch({ op: 'replace', line: '- 砂糖', text: '- 砂糖 少々' })]), PatchError);
 });

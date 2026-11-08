@@ -44,9 +44,12 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
   if (same) {
     return { kind: 'same', conflictLine: null, sameLine: same.text, reason: `マニュアルの「${strip(same.text)}」と同じ内容です`, ask: null };
   }
-  if (patch.op === 'insert') {
+  // 追記は、頭の言葉（「塩」など）が同じで中身の違う項目があれば、その項目と食い違うとみなす
+  const rival = patch.op === 'insert' ? lines.find((l) => !l.text.startsWith('## ') && headWord(l.text) === headWord(patch.text)) : null;
+  if (patch.op === 'insert' && !rival) {
     return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
   }
+  const conflictLine = rival?.text ?? patch.line!;
   if (patch.text.startsWith(`${patch.line}（`)) {
     return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
   }
@@ -56,12 +59,12 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
   }
   return {
     kind: 'contradiction',
-    conflictLine: patch.line,
+    conflictLine,
     sameLine: null,
-    reason: `マニュアルの「${strip(patch.line!)}」と両立しません`,
+    reason: `マニュアルの「${strip(conflictLine)}」と両立しません`,
     ask: {
       candidates,
-      question: `「${strip(patch.line!)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
+      question: `「${strip(conflictLine)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
     },
   };
 };
@@ -87,12 +90,16 @@ export const fakeDictate: Dictate = async (_, on) => {
 export const fakeRoute: Route = async ({ manuals, text }) =>
   manuals.flatMap((m, i) =>
     m.lines.some((l) => {
-      const word = strip(l).split(/[\sはをにがの、（]/)[0];
+      const word = headWord(l);
       return !!word && text.includes(word);
     })
       ? [i]
       : [],
   );
+
+function headWord(line: string): string {
+  return strip(line).split(/[\sはをにがの、（]/)[0];
+}
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {
