@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'models.dart';
 
@@ -15,11 +16,13 @@ class ApiException implements Exception {
 }
 
 class Api {
-  Api({http.Client? client, String? baseUrl, this.passcode})
+  Api({http.Client? client, String? baseUrl, this.passcode, WebSocketChannel Function(Uri)? connect})
       : _client = client ?? http.Client(),
+        _connect = connect ?? WebSocketChannel.connect,
         baseUrl = baseUrl ?? const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:8787');
 
   final http.Client _client;
+  final WebSocketChannel Function(Uri) _connect;
   final String baseUrl;
 
   /// API の合言葉。サーバーが合言葉を決めていないとき（ローカル開発）は null のままでよい
@@ -51,6 +54,18 @@ class Api {
         'manualIds': ?manualIds,
         'today': today,
       }));
+
+  /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
+  /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない
+  WebSocketChannel dictation() {
+    final base = Uri.parse(baseUrl);
+    return _connect(base.replace(
+      scheme: base.scheme == 'https' ? 'wss' : 'ws',
+      path: '${base.path}/dictation',
+      // ブラウザの WebSocket はヘッダーを付けられないので、合言葉はクエリで渡す
+      queryParameters: passcode == null ? null : {'passcode': passcode},
+    ));
+  }
 
   Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {

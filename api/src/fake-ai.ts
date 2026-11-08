@@ -2,6 +2,7 @@ import type { CheckPatch } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Patchify } from './foundation/patchify.ts';
 import type { Route, Transcribe } from './intake.ts';
+import type { Dictate, Listen } from './stt.ts';
 
 /*
  * GCP なしで動かすための偽の Gemini。決まった言い回しだけを規則で解釈する。
@@ -67,6 +68,20 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
 
 // GCP なしではファイルや録音の中身を読めないので、デモの決まり文句を返す
 export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
+export const fakeListen: Listen = async () => '佐藤さんから、ご飯はおかわり1回まで無料と教わった';
+
+/** 音声入力は、届いた音声の長さに合わせて決まり文句を頭から少しずつ返す（16kHz・16bit で 0.25 秒ごとに1文字） */
+export const fakeDictate: Dictate = async (_, on) => {
+  const said = [...'佐藤さんから、ご飯はおかわり1回まで無料と教わった'];
+  let bytes = 0;
+  return {
+    write(pcm) {
+      bytes += pcm.length;
+      on.text(said.slice(0, Math.ceil(bytes / 8000)).join(''));
+    },
+    end: () => on.done(said.slice(0, Math.ceil(bytes / 8000)).join('')),
+  };
+};
 
 /** 見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくるマニュアルを選ぶ */
 export const fakeRoute: Route = async ({ manuals, text }) =>
