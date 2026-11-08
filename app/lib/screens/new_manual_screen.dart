@@ -39,11 +39,10 @@ class _NewManualScreenState extends State<NewManualScreen> {
       body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアルを登録']),
         Expanded(
-          child: Container(
-            color: k.colors.canvas,
+          child: PopBackground(
             child: Narrow(
               child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-                PageTitle('マニュアルを登録', meta: [Text('以後の変更は、このマニュアルへの差分として積み上げます', style: k.text.small)]),
+                PageTitle('マニュアルを登録', emoji: '✏️', meta: [Text('以後の変更は、このマニュアルへの差分として積み上げます', style: k.text.small)]),
                 SizedBox(height: k.space.xl),
                 Text('何のマニュアル？', style: k.text.heading),
                 SizedBox(height: k.space.sm),
