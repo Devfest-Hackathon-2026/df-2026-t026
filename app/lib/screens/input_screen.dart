@@ -88,6 +88,7 @@ class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
   final _text = TextEditingController();
   final _files = <Attachment>[];
+  var _attachMenu = false;
   var _busy = false;
 
   /// 常時待ち受けはリワインドを開いている間だけ。ブラウザはマイクを操作のあとでないと開けないので、
@@ -651,12 +652,15 @@ class _InputScreenState extends State<InputScreen> {
             expands: true,
             readOnly: _dictating,
             textStyle: k.text.body,
+            // 下の行に添付とマイクのボタンを置くので、文字がその下に潜らないよう空けておく
+            textPadding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.xxl),
             hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
             onChanged: (v) => setState(() {
               // 消し切ったら、流し込んだメモはもう使っていない
               if (v.trim().isEmpty) _poured.clear();
             }),
           ),
+          Positioned(left: k.space.sm, bottom: k.space.sm, child: _attach()),
           Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
         ]),
         if (_files.isNotEmpty) ...[
@@ -668,21 +672,13 @@ class _InputScreenState extends State<InputScreen> {
             children: [for (final f in _files) _attachment(f)],
           ),
         ],
-        SizedBox(height: k.space.md),
-        Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          MoonOutlinedButton(
-            onTap: _busy ? null : () async => _addPicked(await widget.pickFiles()),
-            label: const Text('ファイルを添える'),
+        if (_dictation != null) ...[
+          SizedBox(height: k.space.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
           ),
-          if (_onPhone)
-            MoonOutlinedButton(
-              onTap: _busy ? null : () async => _addPicked(await takePhoto()),
-              label: const Text('写真を撮る'),
-            )
-          else
-            Text('PDF・画像は貼り付けやドロップでも添えられます', style: k.text.small),
-          if (_dictation != null) StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
-        ]),
+        ],
         SizedBox(height: k.space.lg),
         Align(
           alignment: Alignment.centerLeft,
@@ -724,6 +720,44 @@ class _InputScreenState extends State<InputScreen> {
       ),
       Positioned(top: k.space.xs, right: k.space.xs, child: remove),
     ]);
+  }
+
+  /// 入力欄の中の＋。押すと添え方を選ぶメニューを開く
+  Widget _attach() {
+    final k = context.tokens;
+    Future<void> choose(Future<List<PickedFile>> Function() pick) async {
+      setState(() => _attachMenu = false);
+      _addPicked(await pick());
+    }
+
+    return MoonDropdown(
+      show: _attachMenu,
+      dropdownAnchorPosition: MoonDropdownAnchorPosition.topLeft,
+      backgroundColor: k.colors.canvas,
+      borderColor: k.colors.rule,
+      onTapOutside: () => setState(() => _attachMenu = false),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MoonMenuItem(
+          borderRadius: k.radius.control,
+          onTap: () => choose(widget.pickFiles),
+          label: Text('ファイルを選ぶ', style: k.text.body),
+          content: Text(_onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
+        ),
+        if (_onPhone)
+          MoonMenuItem(
+            borderRadius: k.radius.control,
+            onTap: () => choose(takePhoto),
+            label: Text('写真を撮る', style: k.text.body),
+          ),
+      ]),
+      child: MoonButton.icon(
+        buttonSize: MoonButtonSize.sm,
+        semanticLabel: 'ファイルを添える',
+        backgroundColor: _attachMenu ? k.colors.shell : null,
+        onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
+        icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
+      ),
+    );
   }
 
   /// 入力欄の中のマイク。聞き取り中は色で示し、確定の文面を待つ間は読み込み中にする

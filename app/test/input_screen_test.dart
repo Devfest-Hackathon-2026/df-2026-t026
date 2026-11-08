@@ -675,13 +675,16 @@ void main() {
         (name: 'メモ.txt', type: 'text/plain', bytes: Uint8List(8)),
       ],
     );
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルを添える'));
+    await tester.tap(find.bySemanticsLabel('ファイルを添える'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ファイルを選ぶ'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.bySemanticsLabel('メモ.PNG'), findsOneWidget);
     expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
     expect(find.text('メモ.txt'), findsNothing);
+    expect(find.text('ファイルを選ぶ'), findsNothing);
     expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
     await _waitToast(tester);
 
