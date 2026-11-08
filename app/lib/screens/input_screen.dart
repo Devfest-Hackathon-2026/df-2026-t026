@@ -618,7 +618,7 @@ class _InputScreenState extends State<InputScreen> {
         Text('まだマニュアルがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
+          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。\nマニュアルが無ければ、白紙から始められます。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),

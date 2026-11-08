@@ -80,6 +80,23 @@ test('追記は承認するとそのまま反映され、誰の発言かが行�
   assert.equal(json.lines.find((l: any) => l.text === '- ご飯はおかわり1回まで無料').patchId, r.patch.id);
 });
 
+test('本文を空にすると白紙のマニュアルになり、言われたことから書き足せる', async () => {
+  const created = await call('POST', '/manuals', { title: '自分用メモ', body: '  ' });
+  assert.equal(created.status, 201);
+  assert.deepEqual(created.json.lines, []);
+  const id = created.json.manual.id;
+
+  const { json } = await call('POST', `/manuals/${id}/utterances`, { text: '佐藤さんから、ご飯はおかわり1回まで無料と教わった' });
+  const [p] = json.state.patches;
+  assert.equal(json.state.checks[0].kind, 'addition');
+  const applied = await call('POST', `/manuals/${id}/patches/${p.id}/apply`, {});
+  assert.deepEqual(applied.json.lines, [{ text: '- ご飯はおかわり1回まで無料', patchId: p.id }]);
+});
+
+test('題名がなければマニュアルを作らない', async () => {
+  assert.equal((await call('POST', '/manuals', { title: ' ', body: '' })).status, 400);
+});
+
 test('条件付きの補足は元の記述と併記される', async () => {
   const r = await record('田中さんに、忙しい日は塩は小さじ1/2でいいと言われた');
   assert.equal(r.check.kind, 'qualification');

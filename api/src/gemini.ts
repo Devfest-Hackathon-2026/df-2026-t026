@@ -75,6 +75,7 @@ export const generateJson: GenerateJson = async ({ system, prompt, schema, files
 
 /** 行番号付きで並べる（L1: ...）。Gemini には行を番号で指してもらう */
 export function numbered(lines: string[], note?: (i: number) => string | null): string {
+  if (lines.length === 0) return '（白紙。まだ何も書かれていません）';
   return lines
     .map((text, i) => {
       const n = note?.(i);
@@ -83,8 +84,8 @@ export function numbered(lines: string[], note?: (i: number) => string | null): 
     .join('\n');
 }
 
-/** 行番号（1始まり） */
-export const lineNo = (lines: string[]) => z.number().int().min(1).max(lines.length);
+/** 行番号（1始まり）。白紙なら指せる行が無いので null だけにする（最小1・最大0のスキーマを Gemini に渡さない） */
+export const lineNo = (lines: string[]) => (lines.length ? z.number().int().min(1).max(lines.length) : z.null());
 
 /** 中身のある行か。空行は同じ文字列が他にもあり、行の特定に使えない */
 export const hasText = (line: string | undefined) => !!line?.trim();

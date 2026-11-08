@@ -52,12 +52,13 @@ const routeSystem = `あなたは、新人のメモが職場のどのマニュ�
 マニュアルは番号付きで、題名と全文を渡します。
 manualNos: メモの指示が触れる事柄を扱っているマニュアルの番号をすべて返す。
 - 複数のマニュアルにまたがる指示なら、それぞれの番号を返す
+- 本文が白紙のマニュアルは、題名が扱う事柄に当たるかで判断する
 - どのマニュアルの見出し・項目にも当てはまらない雑談や感想だけなら、空の配列を返す`;
 
 export async function routeWithGemini({ manuals, text }: RouteInput, generate: GenerateJson = generateJson): Promise<number[]> {
   if (manuals.length === 0) return [];
   // 変わらない部分（指示・マニュアル）を前に置き、暗黙のコンテキストキャッシュに乗せる
-  const prompt = `${manuals.map((m, i) => `# マニュアル${i + 1}: ${m.title}\n${m.lines.join('\n')}`).join('\n\n')}
+  const prompt = `${manuals.map((m, i) => `# マニュアル${i + 1}: ${m.title}\n${m.lines.join('\n') || '（白紙）'}`).join('\n\n')}
 
 # 新人のメモ
 ${text}`;

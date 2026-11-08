@@ -6,7 +6,7 @@ import '../theme.dart';
 import 'common.dart';
 import 'sidebar.dart';
 
-/// 今あるマニュアルを貼り付けて登録する。以後の変更は差分として積む
+/// 今あるマニュアルを貼り付けて登録する。無ければ白紙から始める。以後の変更は差分として積む
 class NewManualScreen extends StatefulWidget {
   const NewManualScreen({super.key, required this.api});
   final Api api;
@@ -20,7 +20,8 @@ class _NewManualScreenState extends State<NewManualScreen> {
   final _body = TextEditingController();
   var _busy = false;
 
-  bool get _ready => _title.text.trim().isNotEmpty && _body.text.trim().isNotEmpty;
+  bool get _ready => _title.text.trim().isNotEmpty;
+  bool get _blank => _body.text.trim().isEmpty;
 
   Future<void> _create() async {
     setState(() => _busy = true);
@@ -54,7 +55,8 @@ class _NewManualScreenState extends State<NewManualScreen> {
               SizedBox(height: k.space.xl),
               Text('今のマニュアル', style: k.text.heading),
               SizedBox(height: k.space.xs),
-              Text('そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。', style: k.text.small),
+              Text('そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。\n'
+                  'マニュアルが無ければ空のままで構いません。教わったことを記録して反映するたびに書き足されます。', style: k.text.small),
               SizedBox(height: k.space.sm),
               MoonTextArea(
                 controller: _body,
@@ -69,7 +71,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
                 child: MoonFilledButton(
                   onTap: _ready && !_busy ? _create : null,
                   leading: _busy ? const ButtonLoader() : null,
-                  label: Text(_busy ? '登録中…' : 'この内容で登録する'),
+                  label: Text(_busy ? '登録中…' : (_blank ? '白紙から始める' : 'この内容で登録する')),
                 ),
               ),
             ]),

@@ -61,6 +61,7 @@ export function render(base: string, patches: Patch[]): ManualLine[] {
   const applied = patches
     .filter((p) => p.status === 'applied')
     .sort((a, b) => a.appliedAt!.localeCompare(b.appliedAt!));
-  const lines = base.split('\n').map((text) => ({ text, patchId: null }));
+  // 白紙から始めたマニュアルは、空行1行ではなく行なしにする
+  const lines = (base ? base.split('\n') : []).map((text) => ({ text, patchId: null }));
   return applied.reduce<ManualLine[]>((acc, p) => applyPatch(acc, p), lines);
 }

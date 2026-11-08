@@ -26,6 +26,16 @@ test('反映済みのパッチだけを反映順に当て、行ごとに出ど�
   ]);
 });
 
+test('白紙のマニュアルは行なしから始まり、追記が上から積まれる', () => {
+  assert.deepEqual(render('', []), []);
+  const first = patch({ op: 'insert', line: null, text: '- 塩 小さじ1', appliedAt: '2026-11-03T00:00:00.000Z' });
+  const second = patch({ op: 'insert', line: null, text: '- 味噌 大さじ2', appliedAt: '2026-11-04T00:00:00.000Z' });
+  assert.deepEqual(render('', [second, first]), [
+    { text: '- 塩 小さじ1', patchId: first.id },
+    { text: '- 味噌 大さじ2', patchId: second.id },
+  ]);
+});
+
 test('対象の行がなければ当てない', () => {
   assert.throws(() => render('- 塩 小さじ1', [patch({ op: 'replace', line: '- 砂糖', text: '- 砂糖 少々' })]), PatchError);
 });

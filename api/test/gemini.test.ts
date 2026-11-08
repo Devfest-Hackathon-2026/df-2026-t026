@@ -39,6 +39,21 @@ test('差分化：行番号を行の文字列に直す', async () => {
   assert.match(calls[0].prompt, /L2: - 塩 小さじ1\n/);
 });
 
+test('差分化：白紙のマニュアルには行番号を指させず、末尾への追記だけにする', async () => {
+  const { generate, calls } = stub({
+    speaker: null,
+    saidAt: null,
+    patches: [{ op: 'insert', lineNo: null, text: '- 塩 小さじ1', summary: '塩' }],
+  });
+  const r = await patchifyWithGemini({ lines: [], text: '塩は小さじ1', today: '2026-11-03', speakers: [] }, generate);
+  assert.deepEqual(r.patches.map((p) => [p.op, p.line]), [['insert', null]]);
+  assert.match(calls[0].prompt, /白紙/);
+  // 最小1・最大0のような、満たせない範囲を Gemini に渡さない
+  assert.doesNotMatch(JSON.stringify(toGeminiSchema(calls[0].schema)), /"maximum":0/);
+  const lineNo1 = stub({ speaker: null, saidAt: null, patches: [{ op: 'insert', lineNo: 1, text: 'x', summary: 'x' }] });
+  await assert.rejects(patchifyWithGemini({ lines: [], text: 'x', today: '2026-11-03', speakers: [] }, lineNo1.generate));
+});
+
 test('差分化：見出しや範囲外の行を置き換えようとしたら受け付けない', async () => {
   for (const lineNo of [1, 3, 6]) {
     const { generate } = stub({ speaker: null, saidAt: null, patches: [{ op: 'replace', lineNo, text: 'x', summary: 'x' }] });
@@ -103,6 +118,14 @@ test('Gemini に渡すスキーマに、使えないキーワードを含めな�
   }
 });
 
+test('分類：白紙のマニュアルでも、満たせない行番号の範囲を渡さずに判定する', async () => {
+  const { generate, calls } = stub({ kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null });
+  const r = await checkWithGemini({ ...input, lines: [], patch: { op: 'insert', line: null, text: '- 塩 小さじ1', summary: '' } }, generate);
+  assert.equal(r.kind, 'addition');
+  assert.match(calls[0].prompt, /白紙/);
+  assert.doesNotMatch(JSON.stringify(toGeminiSchema(calls[0].schema)), /"maximum":0/);
+});
+
 test('振り分け：番号をマニュアルの添字に直し、重複を除く', async () => {
   const { generate, calls } = stub({ manualNos: [2, 1, 2] });
   const manuals = [
@@ -113,6 +136,12 @@ test('振り分け：番号をマニュアルの添字に直し、重複を除�
   // 全マニュアルの全文を載せている
   assert.match(calls[0].prompt, /# マニュアル2: ホール\n## 会計\n- レジは現金とカードのみ/);
   await assert.rejects(routeWithGemini({ manuals, text: 'x' }, stub({ manualNos: [3] }).generate));
+});
+
+test('振り分け：白紙のマニュアルは白紙と書いて題名で選ばせる', async () => {
+  const { generate, calls } = stub({ manualNos: [1] });
+  assert.deepEqual(await routeWithGemini({ manuals: [{ title: '自分用メモ', lines: [] }], text: '塩は小さじ1' }, generate), [0]);
+  assert.match(calls[0].prompt, /# マニュアル1: 自分用メモ\n（白紙）/);
 });
 
 test('書き起こし：ファイルを添えて呼ぶ', async () => {

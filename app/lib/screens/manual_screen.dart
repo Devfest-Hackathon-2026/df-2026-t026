@@ -118,6 +118,11 @@ class _ManualScreenState extends State<ManualScreen> {
               ]),
             ),
             SizedBox(height: k.space.xl),
+            if (s.lines.isEmpty)
+              Padding(
+                padding: EdgeInsets.only(left: k.gutter),
+                child: Text('まだ白紙です。入力ページで教わったことを記録して反映すると、ここに書き足されます。', style: k.text.small),
+              ),
             for (final line in s.lines) _line(s, line),
           ]),
         ),

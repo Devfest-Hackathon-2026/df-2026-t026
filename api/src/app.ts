@@ -31,7 +31,8 @@ type Env = { Variables: { userId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
-const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) });
+// マニュアルが無い職場では、本文を空にして白紙から始める
+const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
 // 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
