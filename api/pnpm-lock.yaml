@@ -11,6 +11,9 @@ importers:
       '@google-cloud/firestore':
         specifier: ^9.4.0
         version: 9.4.0
+      '@google-cloud/speech':
+        specifier: ^8.2.1
+        version: 8.2.1
       '@google/genai':
         specifier: ^3.0.0
         version: 3.0.0
@@ -20,6 +23,9 @@ importers:
       hono:
         specifier: ^4.13.17
         version: 4.13.17
+      ws:
+        specifier: ^8.22.1
+        version: 8.22.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -27,11 +33,18 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
 
 packages:
+
+  '@google-cloud/common@8.2.2':
+    resolution: {integrity: sha512-sl6sfukASNpdCHGP8zAHgC+7qx3PBYR0tTEhFbiEPjyZs2QX5Ygl4Yuulql5MoD/VzXe9w55UzNgQQNVEVuVmw==}
+    engines: {node: '>=22'}
 
   '@google-cloud/firestore-api@0.2.0':
     resolution: {integrity: sha512-wfHJPZmLqzpy6FN6U+7HkkP/AKhGsbHSpEy/qL2TyI3/pKRAvpamQxZ2qvps5hMRgAjfuHCim+oeJj9RveCaqg==}
@@ -39,6 +52,18 @@ packages:
 
   '@google-cloud/firestore@9.4.0':
     resolution: {integrity: sha512-4tVhdRFepX5w+fRfl3H6D2+gaGQjmMiA9l+OwIwInfAkCi8iacfRx4jS9SmSfpQNlXequ55DfzFopwyFnIIJ9w==}
+    engines: {node: '>=22'}
+
+  '@google-cloud/projectify@6.2.1':
+    resolution: {integrity: sha512-PV9oy7VpQRXLuqKuU5RSOHFQyWgvw2sT9MoTGykja9j6c9pv5+ttKTJiFsccu500YYIGiz8JCOsb60PfKmiV/w==}
+    engines: {node: '>=22'}
+
+  '@google-cloud/promisify@6.2.1':
+    resolution: {integrity: sha512-/+RvLJ5u+WhGay6Z3aY6OApDQmNqq1427Mmt7Eov9kYp69gdUiGSwFnygeTxfz69XBtYZLAnWikGMIoFXtKt+A==}
+    engines: {node: '>=22'}
+
+  '@google-cloud/speech@8.2.1':
+    resolution: {integrity: sha512-M/cfyrBmECk7txYBbEJsVa37ysp43ep6j4sgYB//tSsOUTWk3pL1OIImCvkdDqoT0OOSYsx1z6ezIgNcxdKbOQ==}
     engines: {node: '>=22'}
 
   '@google/genai@3.0.0':
@@ -107,11 +132,20 @@ packages:
   '@protobufjs/utf8@1.1.2':
     resolution: {integrity: sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==}
 
+  '@types/duplexify@3.6.5':
+    resolution: {integrity: sha512-fB56ACzlW91UdZ5F3VXplVMDngO8QaX5Y2mjvADtN01TT2TMy4WjF0Lg+tFDvt4uMBeTe4SgaD+qCrA7dL5/tA==}
+
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
+  '@types/pumpify@1.4.5':
+    resolution: {integrity: sha512-BGVAQyK5yJdfIII230fVYGY47V63hUNAhryuuS3b4lEN2LNwxUXFKsEf8QLDCjmZuimlj23BHppJgcrGvNtqKg==}
+
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -252,6 +286,10 @@ packages:
   ansi-styles@6.2.3:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
+
+  arrify@2.0.1:
+    resolution: {integrity: sha512-3duEwti880xqi4eAMN8AyR4a0ByT90zoYdLlevfrvU43vb0YZwZVfxOgxWrLXXXpyugL0hNZc9G6BiB5B3nUug==}
+    engines: {node: '>=8'}
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
@@ -408,6 +446,9 @@ packages:
     resolution: {integrity: sha512-vZIcbkvjOR5hHRWERbGkr8fGfF0GGM1ooYkuH448iO3b2AdVEr3AXZSw4Z3Kn+1L5z0CVoVeyV29VGYmFh05kQ==}
     engines: {node: '>=16.9.0'}
 
+  html-entities@2.6.0:
+    resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
+
   http-proxy-agent@7.0.2:
     resolution: {integrity: sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig==}
     engines: {node: '>= 14'}
@@ -501,6 +542,12 @@ packages:
     resolution: {integrity: sha512-dYDWdjSl5RNb7SgPxGQcRU+GtvP7s2fpkrY0r432PcOIaZ0/rBcxEZnQN67iJhFuQiVw754JDoPruPCNdGsbjg==}
     engines: {node: '>=12.0.0'}
 
+  pump@3.0.4:
+    resolution: {integrity: sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA==}
+
+  pumpify@2.0.1:
+    resolution: {integrity: sha512-m7KOje7jZxrmutanlkS1daj1dS6z6BgslzOXmcSEpIlCxM3VJH7lG5QLeck/6hgF6F4crFf01UtQmNsJfweTAw==}
+
   readable-stream@3.6.2:
     resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
     engines: {node: '>= 6'}
@@ -572,6 +619,10 @@ packages:
     resolution: {integrity: sha512-R1Cg4Vu0UULeDfHL/kjABLaTW++9yD/B6n2g48y5dJ04hsEaxcfmAqbNDzNsbqAYJyIpZafjklLG9YxRu9uzOg==}
     engines: {node: '>=18'}
 
+  teeny-request@11.1.1:
+    resolution: {integrity: sha512-I5OLOkPN3QDN2l1H/eGueuKaq32CdAcXt91WOF/bOfadtZD1WQ8/Fk28WsqDcGjIyhAW/GQDagYhVEjhuZUFyQ==}
+    engines: {node: '>=22'}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -632,6 +683,20 @@ packages:
 
 snapshots:
 
+  '@google-cloud/common@8.2.2':
+    dependencies:
+      '@google-cloud/projectify': 6.2.1
+      '@google-cloud/promisify': 6.2.1
+      arrify: 2.0.1
+      duplexify: 4.1.3
+      extend: 3.0.2
+      google-auth-library: 11.3.3
+      html-entities: 2.6.0
+      retry-request: 9.1.0
+      teeny-request: 11.1.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@google-cloud/firestore-api@0.2.0':
     dependencies:
       google-gax: 5.0.8
@@ -646,6 +711,20 @@ snapshots:
       functional-red-black-tree: 1.0.1
       google-gax: 6.16.0
       protobufjs: 7.6.6
+    transitivePeerDependencies:
+      - supports-color
+
+  '@google-cloud/projectify@6.2.1': {}
+
+  '@google-cloud/promisify@6.2.1': {}
+
+  '@google-cloud/speech@8.2.1':
+    dependencies:
+      '@google-cloud/common': 8.2.2
+      '@types/pumpify': 1.4.5
+      google-gax: 6.16.0
+      pumpify: 2.0.1
+      stream-events: 1.0.5
     transitivePeerDependencies:
       - supports-color
 
@@ -712,11 +791,24 @@ snapshots:
 
   '@protobufjs/utf8@1.1.2': {}
 
+  '@types/duplexify@3.6.5':
+    dependencies:
+      '@types/node': 26.6.6
+
   '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
 
+  '@types/pumpify@1.4.5':
+    dependencies:
+      '@types/duplexify': 3.6.5
+      '@types/node': 26.6.6
+
   '@types/retry@0.12.0': {}
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 26.6.6
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -789,6 +881,8 @@ snapshots:
       color-convert: 2.0.1
 
   ansi-styles@6.2.3: {}
+
+  arrify@2.0.1: {}
 
   balanced-match@1.0.2: {}
 
@@ -1008,6 +1102,8 @@ snapshots:
 
   hono@4.13.17: {}
 
+  html-entities@2.6.0: {}
+
   http-proxy-agent@7.0.2:
     dependencies:
       agent-base: 7.1.4
@@ -1113,6 +1209,17 @@ snapshots:
       '@types/node': 26.6.6
       long: 5.3.2
 
+  pump@3.0.4:
+    dependencies:
+      end-of-stream: 1.4.5
+      once: 1.4.0
+
+  pumpify@2.0.1:
+    dependencies:
+      duplexify: 4.1.3
+      inherits: 2.0.4
+      pump: 3.0.4
+
   readable-stream@3.6.2:
     dependencies:
       inherits: 2.0.4
@@ -1181,6 +1288,15 @@ snapshots:
   stubs@3.0.0: {}
 
   teeny-request@10.1.4:
+    dependencies:
+      http-proxy-agent: 7.0.2
+      https-proxy-agent: 7.0.6
+      node-fetch: 3.3.2
+      stream-events: 1.0.5
+    transitivePeerDependencies:
+      - supports-color
+
+  teeny-request@11.1.1:
     dependencies:
       http-proxy-agent: 7.0.2
       https-proxy-agent: 7.0.6
