@@ -99,14 +99,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.sm, 0),
                     child: Row(children: [
                       Expanded(
-                        child: Row(children: [
-                          Text('👀', style: k.text.title),
-                          SizedBox(width: k.space.sm),
-                          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('差分の確認', style: k.text.title),
-                            // 入力ページからは複数のマニュアルの確認が続くので、どの1冊かを添える
-                            Text(s.title, style: k.text.small),
-                          ]),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text('差分の確認', style: k.text.title),
+                          // 入力ページからは複数のマニュアルの確認が続くので、どの1冊かを添える
+                          Text(s.title, style: k.text.small),
                         ]),
                       ),
                       MoonButton.icon(

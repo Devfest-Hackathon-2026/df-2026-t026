@@ -79,14 +79,14 @@ class _CheckScreenState extends State<CheckScreen> {
           body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
-              child: PopBackground(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                  child: Narrow(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+                child: Narrow(
+                  child: PaperSheet(
+                    padding: EdgeInsets.all(k.space.xl),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       PageTitle(
                         chk.isOpen ? 'あとで確認すること' : '確認の記録',
-                        emoji: chk.isOpen ? '📌' : '💮',
                         meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
                       ),
                       SizedBox(height: k.space.xl),
@@ -146,8 +146,8 @@ class _CheckScreenState extends State<CheckScreen> {
             width: k.space.xl,
             height: k.space.xl,
             alignment: Alignment.center,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: k.colors.accent),
-            child: Text(n, style: k.text.label.copyWith(color: k.colors.canvas)),
+            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: k.colors.ink, width: k.hairline)),
+            child: Text(n, style: k.text.label),
           ),
           SizedBox(width: k.space.sm),
         ],
@@ -162,8 +162,8 @@ class _CheckScreenState extends State<CheckScreen> {
     return Padding(
       padding: EdgeInsets.only(bottom: k.space.xs),
       child: MoonMenuItem(
-        backgroundColor: selected ? k.colors.accentSoft : null,
-        borderRadius: k.radius.surface,
+        backgroundColor: selected ? k.colors.shell : null,
+        borderRadius: k.radius.control,
         onTap: () => setState(() => _decidedBy.text = cand.who),
         leading: Avatar(cand.who),
         label: Text(cand.who, style: k.text.body),
@@ -177,15 +177,11 @@ class _CheckScreenState extends State<CheckScreen> {
     final k = context.tokens;
     return Container(
       padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.sm, k.space.md),
-      decoration: BoxDecoration(color: k.colors.stickies.first, borderRadius: k.radius.surface),
+      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.control),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Text('💡', style: k.text.small),
-              SizedBox(width: k.space.xs),
-              Text('聞き方の例', style: k.text.small),
-            ]),
+            Text('聞き方の例', style: k.text.small),
             SizedBox(height: k.space.xs),
             Text(q, style: k.text.body),
           ]),
@@ -269,7 +265,7 @@ class _CheckScreenState extends State<CheckScreen> {
         child: Container(
           padding: EdgeInsets.all(k.space.md),
           decoration: BoxDecoration(
-            color: selected ? k.colors.accentSoft : k.colors.canvas,
+            color: k.colors.canvas,
             border: Border.all(color: selected ? k.colors.accent : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
             borderRadius: k.radius.surface,
           ),
@@ -298,7 +294,7 @@ class _CheckScreenState extends State<CheckScreen> {
     final k = context.tokens;
     return Container(
       padding: EdgeInsets.all(k.space.xl),
-      decoration: BoxDecoration(color: k.colors.addedBg, borderRadius: k.radius.surface),
+      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

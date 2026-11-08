@@ -1,5 +1,3 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -25,142 +23,22 @@ String plain(String line) => line.replaceFirst(RegExp(r'^(## |- )'), '');
   };
 }
 
-/// 状態を表す小さなラベル。白フチと影でステッカーらしく見せる
+/// 状態を表す小さなラベル
 class StatusTag extends StatelessWidget {
-  const StatusTag(this.label, {super.key, required this.bg, required this.fg, this.onTap, this.emoji});
+  const StatusTag(this.label, {super.key, required this.bg, required this.fg, this.onTap});
   final String label;
   final Color bg;
   final Color fg;
   final VoidCallback? onTap;
 
-  /// 状態の印の絵文字（📌・✅ など）。言葉の装飾には使わない
-  final String? emoji;
-
   @override
-  Widget build(BuildContext context) {
-    final k = context.tokens;
-    final tag = Container(
-      padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.xs),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: k.radius.control,
-        border: Border.all(color: k.colors.canvas, width: k.hairline * 2),
-        boxShadow: [
-          BoxShadow(color: k.colors.ink.withValues(alpha: 0.12), blurRadius: k.space.xs, offset: Offset(0, k.space.xs)),
-        ],
-      ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (emoji != null) ...[
-          Text(emoji!, style: k.text.label),
-          SizedBox(width: k.space.xs),
-        ],
-        Text(label, style: k.text.label.copyWith(color: fg)),
-      ]),
-    );
-    if (onTap == null) return tag;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: onTap, child: tag),
-    );
-  }
-}
-
-/// 画面の地。パステルのグラデーションを敷く
-class PopBackground extends StatelessWidget {
-  const PopBackground({super.key, required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.tokens.colors;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: c.shellGrad, begin: Alignment.topLeft, end: Alignment.bottomRight),
-      ),
-      child: child,
-    );
-  }
-}
-
-/// リキッドガラス風のタブ。白いピルが滑って移動する
-class GlassTabs extends StatelessWidget {
-  const GlassTabs({super.key, required this.labels, required this.index, required this.onChanged, this.emojis = const []});
-  final List<String> labels;
-
-  /// タブの印の絵文字（labels と同じ並び。無いタブは null）
-  final List<String?> emojis;
-  final int index;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final k = context.tokens;
-    return ClipRRect(
-      borderRadius: k.radius.control,
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: k.glassBlur, sigmaY: k.glassBlur),
-        child: Container(
-          padding: EdgeInsets.all(k.space.xs),
-          decoration: BoxDecoration(
-            color: k.colors.glass,
-            borderRadius: k.radius.control,
-            border: Border.all(color: k.colors.canvas, width: k.hairline),
-          ),
-          child: LayoutBuilder(builder: (context, box) {
-            final w = box.maxWidth / labels.length;
-            return Stack(children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                left: w * index,
-                top: 0,
-                bottom: 0,
-                width: w,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: k.colors.canvas,
-                    borderRadius: k.radius.control,
-                    boxShadow: [
-                      BoxShadow(
-                          color: k.colors.ink.withValues(alpha: 0.14),
-                          blurRadius: k.space.sm,
-                          offset: Offset(0, k.space.xs)),
-                    ],
-                  ),
-                ),
-              ),
-              Row(children: [
-                for (var i = 0; i < labels.length; i++)
-                  Expanded(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => onChanged(i),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: k.space.sm),
-                          child: Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                            if (i < emojis.length && emojis[i] != null) ...[
-                              Text(emojis[i]!, style: k.text.heading),
-                              SizedBox(width: k.space.xs),
-                            ],
-                            Text(
-                              labels[i],
-                              textAlign: TextAlign.center,
-                              style: k.text.heading.copyWith(color: i == index ? k.colors.ink : k.colors.inkMuted),
-                            ),
-                          ]),
-                        ),
-                      ),
-                    ),
-                  ),
-              ]),
-            ]);
-          }),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => MoonTag(
+        tagSize: MoonTagSize.xs,
+        backgroundColor: bg,
+        borderRadius: context.tokens.radius.round,
+        onTap: onTap,
+        label: Text(label, style: context.tokens.text.label.copyWith(color: fg)),
+      );
 }
 
 /// 言われたことを貼る付箋。色と傾きは seed（名前など）から決める
@@ -179,14 +57,16 @@ class StickyNote extends StatelessWidget {
       angle: (seed.isEven ? 1 : -1) * k.stickyTilt,
       child: Stack(
         clipBehavior: Clip.none,
+        // テープを重ねるための Stack なので、幅の指定は付箋にそのまま渡す
+        fit: StackFit.passthrough,
         children: [
           Container(
             padding: EdgeInsets.fromLTRB(k.space.lg, k.space.lg, k.space.lg, k.space.md),
             decoration: BoxDecoration(
               color: color,
-              borderRadius: k.radius.surface,
+              borderRadius: k.radius.paper,
               boxShadow: [
-                BoxShadow(color: c.ink.withValues(alpha: 0.12), blurRadius: k.space.md, offset: Offset(0, k.space.xs)),
+                BoxShadow(color: c.ink.withValues(alpha: 0.12), blurRadius: k.space.xs, offset: Offset(0, k.hairline * 2)),
               ],
             ),
             child: child,
@@ -221,12 +101,7 @@ class KindTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = kindColors(context, kind);
-    final emoji = switch (kind) {
-      Kind.addition => '➕',
-      Kind.qualification => '🔖',
-      Kind.contradiction => '⚡',
-    };
-    return StatusTag(kind.label, bg: bg, fg: fg, emoji: emoji);
+    return StatusTag(kind.label, bg: bg, fg: fg);
   }
 }
 
@@ -242,13 +117,10 @@ class TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final canPop = Navigator.canPop(context);
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: k.glassBlur, sigmaY: k.glassBlur),
-        child: Container(
+    return Container(
       decoration: BoxDecoration(
-        color: k.colors.glass,
-        border: Border(bottom: BorderSide(color: k.colors.canvas, width: k.hairline)),
+        color: k.colors.shell,
+        border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
       padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
       child: SafeArea(
@@ -273,8 +145,6 @@ class TopBar extends StatelessWidget {
           ),
           ?trailing,
         ]),
-      ),
-        ),
       ),
     );
   }
@@ -303,40 +173,25 @@ class TopBar extends StatelessWidget {
 
 /// 内容の頭に置く題名と、その下のメタ情報
 class PageTitle extends StatelessWidget {
-  const PageTitle(this.title, {super.key, this.meta = const [], this.trailing, this.emoji});
+  const PageTitle(this.title, {super.key, this.meta = const [], this.trailing});
   final String title;
 
   /// 1つずつ別の要素として並べる（・でつながない）
   final List<Widget> meta;
   final Widget? trailing;
 
-  /// 画面の印の絵文字。丸いバッジに入れて題名の横に置く
-  final String? emoji;
-
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if (emoji != null) ...[
-        Container(
-          padding: EdgeInsets.all(k.space.md),
-          decoration: BoxDecoration(color: k.colors.accentSoft, borderRadius: k.radius.surface),
-          child: Text(emoji!, style: k.text.title),
-        ),
-        SizedBox(width: k.space.lg),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Text(title, style: k.text.display)),
+        if (trailing != null) ...[SizedBox(width: k.space.lg), trailing!],
+      ]),
+      if (meta.isNotEmpty) ...[
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.lg, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: meta),
       ],
-      Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(child: Text(title, style: k.text.display)),
-            if (trailing != null) ...[SizedBox(width: k.space.lg), trailing!],
-          ]),
-          if (meta.isNotEmpty) ...[
-            SizedBox(height: k.space.sm),
-            Wrap(spacing: k.space.lg, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: meta),
-          ],
-        ]),
-      ),
     ]);
   }
 }
@@ -509,12 +364,12 @@ class ConflictPair extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    Widget side(String label, String text, TextStyle style, Color header) => Expanded(
+    Widget side(String label, String text, TextStyle style) => Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Container(
-              color: header,
+              color: c.shell,
               padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
-              child: Text(label, style: k.text.small.copyWith(color: k.colors.ink, fontWeight: FontWeight.w700)),
+              child: Text(label, style: k.text.small),
             ),
             Padding(
               padding: EdgeInsets.all(k.space.lg),
@@ -525,37 +380,34 @@ class ConflictPair extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: c.canvas,
+        border: Border.all(color: c.rule, width: k.hairline),
         borderRadius: k.radius.surface,
-        boxShadow: [
-          BoxShadow(color: c.ink.withValues(alpha: 0.08), blurRadius: k.space.lg, offset: Offset(0, k.space.xs)),
-        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: IntrinsicHeight(
         child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          side(leftLabel, left, k.text.title, c.shell),
+          side(leftLabel, left, k.text.title),
           Container(
             width: k.space.xl + k.space.sm,
-            color: settled ? c.addedBg : c.pendingBg,
+            color: settled ? c.shell : c.pendingBg,
             alignment: Alignment.center,
-            child: Container(
-              padding: EdgeInsets.all(k.space.sm),
-              decoration: BoxDecoration(color: c.canvas, shape: BoxShape.circle),
-              child: Text(settled ? '✅' : '⚡', style: k.text.heading),
-            ),
+            child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
           ),
-          side(rightLabel, right, k.text.handLarge, c.stickies.first),
+          side(rightLabel, right, k.text.handLarge),
         ]),
       ),
     );
   }
 }
 
-/// マニュアル本文を載せる白い紙。上の両端をテープで留めた形にする
+/// マニュアル本文や入力欄を載せる白い紙。上の両端をテープで留めた形にする
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding});
+  const PaperSheet({super.key, required this.child, required this.padding, this.taped = true});
   final Widget child;
   final EdgeInsets padding;
+
+  /// 一覧のように何枚も並べるときは、テープを付けると騒がしいので外す
+  final bool taped;
 
   @override
   Widget build(BuildContext context) {
@@ -563,28 +415,31 @@ class PaperSheet extends StatelessWidget {
     final c = k.colors;
     return Stack(
       clipBehavior: Clip.none,
+      // テープを重ねるための Stack なので、幅の指定は紙にそのまま渡す
+      fit: StackFit.passthrough,
       children: [
         Container(
           padding: padding,
           decoration: BoxDecoration(
             color: c.canvas,
-            borderRadius: k.radius.surface,
+            borderRadius: k.radius.paper,
             boxShadow: [
-              BoxShadow(color: c.ink.withValues(alpha: 0.10), blurRadius: k.space.xl, offset: Offset(0, k.space.sm)),
+              BoxShadow(color: c.ink.withValues(alpha: 0.10), blurRadius: k.space.xs, offset: Offset(0, k.hairline)),
             ],
           ),
           child: child,
         ),
-        for (final side in [0, 1])
-          Positioned(
-            top: -k.space.sm,
-            left: side == 0 ? k.space.xxl : null,
-            right: side == 1 ? k.space.xxl : null,
-            child: Transform.rotate(
-              angle: (side == 0 ? -1 : 1) * k.stickyTilt * 3,
-              child: Container(width: k.space.xxl + k.space.xl, height: k.space.md, color: c.tape),
+        if (taped)
+          for (final side in [0, 1])
+            Positioned(
+              top: -k.space.sm,
+              left: side == 0 ? k.space.xxl : null,
+              right: side == 1 ? k.space.xxl : null,
+              child: Transform.rotate(
+                angle: (side == 0 ? -1 : 1) * k.stickyTilt * 3,
+                child: Container(width: k.space.xxl + k.space.xl, height: k.space.md, color: c.tape),
+              ),
             ),
-          ),
       ],
     );
   }

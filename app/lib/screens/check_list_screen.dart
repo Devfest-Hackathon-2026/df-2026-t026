@@ -30,44 +30,34 @@ class CheckListScreen extends StatelessWidget {
           body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
             Expanded(
-              child: PopBackground(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                  child: Narrow(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      PageTitle('確認リスト', emoji: '🗂️', meta: [
-                        Text('マニュアルと食い違っていた指示です。聞けるときに確認して、決まったら記録します', style: k.text.small),
-                      ]),
-                      SizedBox(height: k.space.xxl),
-                      Row(children: [
-                        Text('📌', style: k.text.title),
-                        SizedBox(width: k.space.sm),
-                        Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
-                      ]),
-                      SizedBox(height: k.space.md),
-                      if (s.openChecks.isEmpty)
-                        Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
-                      else
-                        for (final chk in s.openChecks.reversed) ...[
-                          _openRow(context, s, chk, open),
-                          SizedBox(height: k.space.md),
-                        ],
-                      SizedBox(height: k.space.xxl),
-                      Row(children: [
-                        Text('✅', style: k.text.title),
-                        SizedBox(width: k.space.sm),
-                        Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
-                      ]),
-                      SizedBox(height: k.space.md),
-                      if (s.resolvedChecks.isEmpty)
-                        Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
-                      else
-                        for (final chk in s.resolvedChecks.reversed) ...[
-                          _resolvedRow(context, s, chk, open),
-                          SizedBox(height: k.space.md),
-                        ],
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+                child: Narrow(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    PageTitle('確認リスト', meta: [
+                      Text('マニュアルと食い違っていた指示です。聞けるときに確認して、決まったら記録します', style: k.text.small),
                     ]),
-                  ),
+                    SizedBox(height: k.space.xxl),
+                    Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
+                    SizedBox(height: k.space.md),
+                    if (s.openChecks.isEmpty)
+                      Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
+                    else
+                      for (final chk in s.openChecks.reversed) ...[
+                        _openRow(context, s, chk, open),
+                        SizedBox(height: k.space.md),
+                      ],
+                    SizedBox(height: k.space.xxl),
+                    Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
+                    SizedBox(height: k.space.md),
+                    if (s.resolvedChecks.isEmpty)
+                      Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
+                    else
+                      for (final chk in s.resolvedChecks.reversed) ...[
+                        _resolvedRow(context, s, chk, open),
+                        SizedBox(height: k.space.md),
+                      ],
+                  ]),
                 ),
               ),
             ),
@@ -79,20 +69,13 @@ class CheckListScreen extends StatelessWidget {
 
   Widget _row(BuildContext context, {required VoidCallback onTap, required Utterance u, required List<Widget> body}) {
     final k = context.tokens;
-    final c = k.colors;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: onTap,
-        child: Container(
+        child: PaperSheet(
+          taped: false,
           padding: EdgeInsets.all(k.space.lg),
-          decoration: BoxDecoration(
-            color: c.canvas,
-            borderRadius: k.radius.surface,
-            boxShadow: [
-              BoxShadow(color: c.ink.withValues(alpha: 0.08), blurRadius: k.space.md, offset: Offset(0, k.space.xs)),
-            ],
-          ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Speaker(name: u.speaker, day: u.saidAt),
             SizedBox(height: k.space.sm),
