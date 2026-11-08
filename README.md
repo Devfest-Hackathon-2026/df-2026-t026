@@ -62,6 +62,13 @@ API は環境変数で切り替える。認証は ADC（`gcloud auth application
 AI=gemini GOOGLE_CLOUD_PROJECT=diff-note-514023 pnpm dev
 ```
 
+権限は、プロジェクトの管理者が Terraform の `team_members` にメールアドレスを足して付ける（[infra/README.md](infra/README.md)）。付いたら、自分の Google アカウントで次を1回だけする。
+
+```sh
+gcloud auth application-default login
+gcloud auth application-default set-quota-project diff-note-514023
+```
+
 `STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう。保存まで確かめたいときは、下のエミュレータを使う。
 
 ## テスト
