@@ -142,12 +142,13 @@ History buildHistory(ManualState s) {
   rows.addAll(trunk.skip(j).map(GraphRow.new));
 
   final trunkRows = [for (final (i, r) in rows.indexed) if (!r.commit.onBranch) i];
+  // 幹は時間の軸として、いちばん新しい版の先も今まで伸ばし、確認していない枝と並べる
   for (final i in trunkRows) {
     rows[i]
       ..down = i != trunkRows.first
-      ..up = i != trunkRows.last;
+      ..up = true;
   }
-  for (var i = trunkRows.first + 1; i < trunkRows.last; i++) {
+  for (var i = trunkRows.first + 1; i < rows.length; i++) {
     if (rows[i].commit.onBranch) rows[i].through.add(0);
   }
   // 枝ごとに、空いているレーンを使い回す。laneEnds[n] はレーン n+1 を最後に使う行

@@ -90,7 +90,8 @@ void main() {
       // 幹
       expect([for (final r in h.rows) if (!r.commit.onBranch) r.lane], [0, 0, 0]);
       expect((rows['root']!.up, rows['root']!.down), (true, false));
-      expect((rows['p3']!.up, rows['p3']!.down), (false, true));
+      // 幹は、いちばん新しい版の先も今まで伸びる
+      expect((rows['p3']!.up, rows['p3']!.down), (true, true));
       expect(rows['p1']!.through, {0});
       // 田中さんの枝：作った版から分かれ、店長に確認した版に合流する
       expect(rows['root']!.forks, {1});
@@ -104,7 +105,7 @@ void main() {
       expect(rows['p2']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1'});
       expect(rows['p3']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1', 2: 'p4'});
       expect(rows['root']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1'});
-      expect(rows['p4']!.through, isEmpty);
+      expect(rows['p4']!.through, {0});
 
       expect(_texts(rows['root']!.commit, LineChange.added), ['## 味噌汁', '- 塩 小さじ1', '- 味噌 大さじ2']);
       expect(_texts(rows['p3']!.commit, LineChange.removed), ['- 塩 小さじ1']);
