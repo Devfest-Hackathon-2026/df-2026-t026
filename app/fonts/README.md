@@ -8,7 +8,6 @@ Web 版は OS のフォントを使えず、実行時に取りに行くとフォ
 | --- | --- |
 | BIZUDPGothic-Regular.ttf | `9e3470b9baedc83b8f9455d13ba70a720c67dd11a0b0ae0dd8eebf8955bf7085` |
 | BIZUDPGothic-Bold.ttf | `092a23377707a2a7495946d36ba0905291d2c8d17e34db61e34400bdd1b4eeb5` |
-| KleeOne-SemiBold.ttf | `1d3d56cc146e4fb311f95cf6f175f506cba8310e5edd8b8bb05fb301fd2650c3` |
 
 作り直すとき：
 

@@ -173,7 +173,7 @@ class _InputScreenState extends State<InputScreen> {
               SizedBox(height: k.space.xs),
               Text('関係するマニュアルが見つかりませんでした。記録するマニュアルを選んでください', style: k.text.small),
               SizedBox(height: k.space.md),
-              Text('「$text」', style: k.text.hand),
+              Text('「$text」', style: k.text.body),
               SizedBox(height: k.space.lg),
               const Rule(),
               for (final m in manuals) ...[
@@ -352,7 +352,7 @@ class _InputScreenState extends State<InputScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Speaker(name: u.speaker, day: u.saidAt),
                     SizedBox(height: k.space.sm),
-                    Text(u.text, style: k.text.hand),
+                    Text(u.text, style: k.text.body),
                     SizedBox(height: k.space.sm),
                     Text(manual.title, style: k.text.small),
                   ]),

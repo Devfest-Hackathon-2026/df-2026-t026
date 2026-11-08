@@ -203,7 +203,7 @@ class _CheckScreenState extends State<CheckScreen> {
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
     final keep = _choice(_Outcome.keep, 'マニュアルのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
-        _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.hand));
+        _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('確認した相手', style: k.text.small),
       SizedBox(height: k.space.xs),

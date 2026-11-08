@@ -117,7 +117,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         StickyNote(
-                          child: Text('「${_u.text}」', style: k.text.hand),
+                          child: Text('「${_u.text}」', style: k.text.body),
                         ),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),

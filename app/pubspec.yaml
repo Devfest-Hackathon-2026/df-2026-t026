@@ -33,7 +33,3 @@ flutter:
         - asset: fonts/BIZUDPGothic-Regular.ttf
         - asset: fonts/BIZUDPGothic-Bold.ttf
           weight: 700
-    - family: KleeOne
-      fonts:
-        - asset: fonts/KleeOne-SemiBold.ttf
-          weight: 600

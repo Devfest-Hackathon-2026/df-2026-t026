@@ -317,7 +317,6 @@ class PatchDiff extends StatelessWidget {
 
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
-/// マニュアル側は印字、言われた側は手書きの書体にして、文書と口頭の違いを見せる
 class ConflictPair extends StatelessWidget {
   const ConflictPair({
     super.key,
@@ -368,7 +367,7 @@ class ConflictPair extends StatelessWidget {
             alignment: Alignment.center,
             child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
           ),
-          side(rightLabel, right, k.text.handLarge),
+          side(rightLabel, right, k.text.title),
         ]),
       ),
     );

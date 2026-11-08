@@ -95,8 +95,6 @@ class AppText {
     required this.body,
     required this.small,
     required this.label,
-    required this.hand,
-    required this.handLarge,
   });
 
   /// 内容の頭に置く題名
@@ -109,9 +107,6 @@ class AppText {
   /// タグ・確認印・アバターなど、小さく太い文字
   final TextStyle label;
 
-  /// 口頭で言われたこと（手書き）
-  final TextStyle hand;
-  final TextStyle handLarge;
 }
 
 @immutable
@@ -201,7 +196,6 @@ ThemeData appTheme() {
   // 書体は pubspec.yaml で同梱したものだけを使う
   final printed = TextStyle(fontFamily: 'BIZUDPGothic', color: c.ink);
   final printBold = printed.copyWith(fontWeight: FontWeight.w700);
-  final hand = TextStyle(fontFamily: 'KleeOne', color: c.ink, fontWeight: FontWeight.w600);
 
   final text = AppText(
     display: printBold.copyWith(fontSize: 28, height: 1.35),
@@ -210,8 +204,6 @@ ThemeData appTheme() {
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
     label: printBold.copyWith(fontSize: 12, height: 1.2),
-    hand: hand.copyWith(fontSize: 16, height: 1.6),
-    handLarge: hand.copyWith(fontSize: 20, height: 1.5),
   );
 
   final moonColors = MoonColors.light.copyWith(
