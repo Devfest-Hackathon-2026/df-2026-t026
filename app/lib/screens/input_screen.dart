@@ -12,6 +12,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
+import 'sidebar.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
@@ -205,7 +206,7 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: WithSidebar(api: widget.api, place: Place.input, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(
           crumbs: const ['DiffNote（仮）'],
           trailing: MoonOutlinedButton(
@@ -215,7 +216,7 @@ class _InputScreenState extends State<InputScreen> {
           ),
         ),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ])),
+      ]))),
     );
   }
 

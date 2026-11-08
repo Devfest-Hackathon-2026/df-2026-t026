@@ -134,6 +134,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double wideLayout = 900;
   final double panelWidth = 380;
 
+  /// 広い画面で左に常に出すサイドバーの幅
+  final double sidebarWidth = 240;
+
   /// 一覧の数値の列の幅
   final double numberColumn = 112;
 

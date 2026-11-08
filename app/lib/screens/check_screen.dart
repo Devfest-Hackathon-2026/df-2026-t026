@@ -9,6 +9,7 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'sidebar.dart';
 
 enum _Outcome { keep, adopt, custom }
 
@@ -27,7 +28,7 @@ class CheckScreen extends StatelessWidget {
         final s = c.state!;
         final chk = s.checks.firstWhere((x) => x.id == checkId);
         return Scaffold(
-          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
               child: SingleChildScrollView(
@@ -35,7 +36,7 @@ class CheckScreen extends StatelessWidget {
                 child: Narrow(child: CheckDetail(c: c, checkId: checkId)),
               ),
             ),
-          ])),
+          ]))),
         );
       },
     );

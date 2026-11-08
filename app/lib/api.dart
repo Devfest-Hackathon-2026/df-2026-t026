@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
@@ -23,6 +24,9 @@ class Api {
 
   /// API の合言葉。サーバーが合言葉を決めていないとき（ローカル開発）は null のままでよい
   String? passcode;
+
+  /// 記録や確定でデータが変わるたびに増える。どの画面で変えても、サイドバーの件数を合わせるため
+  final changes = ValueNotifier(0);
 
   Future<List<ManualSummary>> listManuals() async =>
       [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
@@ -92,6 +96,7 @@ class Api {
     if (res.statusCode >= 400) {
       throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
+    if (method != 'GET') changes.value++;
     return json;
   }
 }

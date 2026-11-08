@@ -6,6 +6,7 @@ import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'sidebar.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 
@@ -44,10 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアル']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ])),
+      ]))),
     );
   }
 

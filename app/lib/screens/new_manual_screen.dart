@@ -4,6 +4,7 @@ import 'package:moon_design/moon_design.dart';
 import '../api.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'sidebar.dart';
 
 /// 今あるマニュアルを貼り付けて登録する。以後の変更は差分として積む
 class NewManualScreen extends StatefulWidget {
@@ -36,7 +37,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
   Widget build(BuildContext context) {
     final k = context.tokens;
     return Scaffold(
-      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアルを登録']),
         Expanded(
           child: Narrow(
@@ -74,7 +75,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
             ]),
           ),
         ),
-      ])),
+      ]))),
     );
   }
 }

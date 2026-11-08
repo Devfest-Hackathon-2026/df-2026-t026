@@ -5,6 +5,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_screen.dart';
 import 'common.dart';
+import 'sidebar.dart';
 
 /// 確認リストの外（マニュアルの行・記録直後のモーダル）から食い違いを開く。戻ると確認リストに出るよう、リストを挟む
 void openCheckViaList(NavigatorState nav, ManualController c, String checkId) {
@@ -46,7 +47,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
       builder: (context, _) {
         final s = c.state!;
         return Scaffold(
-          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
@@ -61,7 +62,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
                 ]);
               }),
             ),
-          ])),
+          ]))),
         );
       },
     );

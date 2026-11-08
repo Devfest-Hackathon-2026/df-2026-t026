@@ -94,7 +94,8 @@ void main() {
   testWidgets('あとで確認の件数と、全マニュアルの最近の記録を新しい順に出す', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})));
 
-    expect(find.text('言われたことを記録'), findsOneWidget);
+    // 広い画面ではサイドバーにも同じ名前が出るので、題名として出ているかを見る
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
     expect(find.text('あとで確認 1 件'), findsOneWidget);
     // 最近の記録は付箋を横にも並べるので、画面上の高さではなく並び順で比べる
     final texts = tester
@@ -196,5 +197,23 @@ void main() {
 
     expect(find.text('まだマニュアルがありません'), findsOneWidget);
     expect(find.byType(MoonTextArea), findsNothing);
+  });
+
+  testWidgets('広い画面では、左のサイドバーからマニュアルへ直接移れ、あとで確認の件数も並ぶ', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})));
+
+    // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
+    final hall = find.widgetWithText(MoonMenuItem, 'ホール');
+    expect(hall, findsOneWidget);
+    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン').first, matching: find.text('1')), findsOneWidget);
+
+    await tester.tap(hall);
+    await tester.pumpAndSettle();
+    expect(find.text('・レジは現金とカードのみ'), findsOneWidget);
+
+    // サイドバーから移っても画面は積み重ならず、戻ると入力ページに出る
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
   });
 }

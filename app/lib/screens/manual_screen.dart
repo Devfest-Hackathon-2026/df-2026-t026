@@ -7,6 +7,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
+import 'sidebar.dart';
 import 'review_dialog.dart';
 
 /// マニュアル1冊の画面：文書面（現行マニュアル）と、記録した発言のパネル。食い違いは確認リスト（別の画面）にまとめる
@@ -43,7 +44,7 @@ class _ManualScreenState extends State<ManualScreen> {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
         return Scaffold(
-          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
               trailing: s == null
@@ -59,7 +60,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
                   : LayoutBuilder(builder: (context, box) => _layout(s, box.maxWidth)),
             ),
-          ])),
+          ]))),
         );
       },
     );
