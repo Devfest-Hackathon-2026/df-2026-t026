@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import { checkWithGemini } from '../src/conflict/check.ts';
 import { patchifyWithGemini } from '../src/foundation/patchify.ts';
+import { routeWithGemini, transcribeWithGemini } from '../src/intake.ts';
 import { toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
@@ -98,4 +99,23 @@ test('Gemini に渡すスキーマに、使えないキーワードを含めな�
     const json = JSON.stringify(toGeminiSchema(req.schema));
     assert.doesNotMatch(json, /"\$schema"|"pattern"/);
   }
+});
+
+test('振り分け：番号をマニュアルの添字に直し、重複を除く', async () => {
+  const { generate, calls } = stub({ manualNos: [2, 1, 2] });
+  const manuals = [
+    { title: 'キッチン', lines },
+    { title: 'ホール', lines: ['## 会計', '- レジは現金とカードのみ'] },
+  ];
+  assert.deepEqual(await routeWithGemini({ manuals, text: 'レジ締めは店長' }, generate), [0, 1]);
+  // 全マニュアルの全文を載せている
+  assert.match(calls[0].prompt, /# マニュアル2: ホール\n## 会計\n- レジは現金とカードのみ/);
+  await assert.rejects(routeWithGemini({ manuals, text: 'x' }, stub({ manualNos: [3] }).generate));
+});
+
+test('書き起こし：ファイルを添えて呼ぶ', async () => {
+  const { generate, calls } = stub({ text: ' 田中さんから塩は小さじ1/2 ' });
+  const files = [{ mimeType: 'image/png', data: 'AAAA' }];
+  assert.equal(await transcribeWithGemini(files, generate), '田中さんから塩は小さじ1/2');
+  assert.deepEqual(calls[0].files, files);
 });

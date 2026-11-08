@@ -8,7 +8,7 @@ String today() => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
 /// 1冊のマニュアルの状態。状態の正はバックエンドにあり、操作のたびに最新を受け取り直す
 class ManualController extends ChangeNotifier {
-  ManualController(this.api, this.manualId);
+  ManualController(this.api, this.manualId, [this.state]);
 
   final Api api;
   final String manualId;
@@ -23,12 +23,6 @@ class ManualController extends ChangeNotifier {
       loadError = e.message;
     }
     notifyListeners();
-  }
-
-  Future<String> record(String text) async {
-    final (id, s) = await api.record(manualId, text, today());
-    _set(s);
-    return id;
   }
 
   Future<void> editUtterance(String id, {String? speaker, String? saidAt}) async =>

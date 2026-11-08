@@ -1,6 +1,7 @@
 import type { CheckPatch } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Patchify } from './foundation/patchify.ts';
+import type { Route, Transcribe } from './intake.ts';
 
 /*
  * GCP なしで動かすための偽の Gemini。決まった言い回しだけを規則で解釈する。
@@ -63,6 +64,20 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
     },
   };
 };
+
+// GCP なしではファイルや録音の中身を読めないので、デモの決まり文句を返す
+export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
+
+/** 見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくるマニュアルを選ぶ */
+export const fakeRoute: Route = async ({ manuals, text }) =>
+  manuals.flatMap((m, i) =>
+    m.lines.some((l) => {
+      const word = strip(l).split(/[\sはをにがの、（]/)[0];
+      return !!word && text.includes(word);
+    })
+      ? [i]
+      : [],
+  );
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {

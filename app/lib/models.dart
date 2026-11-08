@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
 enum Kind {
   same('同じ内容'),
@@ -36,7 +38,8 @@ class Utterance {
       : id = j['id'],
         text = j['text'],
         speaker = j['speaker'],
-        saidAt = j['saidAt'];
+        saidAt = j['saidAt'],
+        createdAt = j['createdAt'];
 
   final String id;
   final String text;
@@ -44,6 +47,9 @@ class Utterance {
 
   /// YYYY-MM-DD
   final String saidAt;
+
+  /// 記録した日時（ISO 8601）
+  final String createdAt;
 }
 
 class Patch {
@@ -125,6 +131,30 @@ class Check {
   final Resolution? resolution;
 
   bool get isOpen => kind == Kind.contradiction && resolution == null;
+}
+
+/// 入力ページで添えるファイル（PDF／画像）か録音
+class Attachment {
+  Attachment({required this.name, required this.mimeType, required this.bytes});
+  final String name;
+  final String mimeType;
+  final Uint8List bytes;
+}
+
+typedef Recorded = ({String manualId, String utteranceId, ManualState state});
+
+/// 入力ページから記録した結果。関係するマニュアルごとに1件
+class IntakeResult {
+  IntakeResult.fromJson(Map<String, dynamic> j)
+      : text = j['text'],
+        results = [
+          for (final r in j['results'])
+            (manualId: r['manualId'] as String, utteranceId: r['utteranceId'] as String, state: ManualState.fromJson(r['state'])),
+        ];
+
+  /// ファイルや録音を読み取ったあとの、記録した文面
+  final String text;
+  final List<Recorded> results;
 }
 
 class ManualState {

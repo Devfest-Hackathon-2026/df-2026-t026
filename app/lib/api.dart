@@ -32,11 +32,21 @@ class Api {
 
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
-  /// 言われたことを記録し、差分化と分類の結果を受け取る
-  Future<(String, ManualState)> record(String manualId, String text, String today) async {
-    final j = await _send('POST', '/manuals/$manualId/utterances', {'text': text, 'today': today});
-    return (j['utteranceId'] as String, ManualState.fromJson(j['state']));
-  }
+  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
+  Future<IntakeResult> intake({
+    required String text,
+    List<Attachment> files = const [],
+    List<String>? manualIds,
+    required String today,
+  }) async =>
+      IntakeResult.fromJson(await _send('POST', '/utterances', {
+        'text': text,
+        'files': [
+          for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
+        ],
+        'manualIds': ?manualIds,
+        'today': today,
+      }));
 
   Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
