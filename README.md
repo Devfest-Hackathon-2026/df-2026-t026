@@ -69,7 +69,9 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project diff-note-514023
 ```
 
-`STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう。保存まで確かめたいときは、下のエミュレータを使う。
+`STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう（メンバーは読むだけの権限なので、書こうとすると権限エラーになる）。保存まで確かめたいときは、下のエミュレータを使う。
+
+本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users/demo?project=diff-note-514023)で見られる。認証を入れるまでは全員が同じユーザー（`demo`）なので、`users/demo/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に、みんなの記録が並ぶ。
 
 ## テスト
 
