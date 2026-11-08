@@ -276,42 +276,6 @@ void main() {
     expect(find.text('差分の確認'), findsNothing);
   });
 
-  testWidgets('画像はサムネイル、PDF は名前で添え、受け付けない形式は除いて知らせる', (tester) async {
-    // 1×1 の PNG
-    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
-    Map<String, dynamic>? sent;
-    await _pumpInput(
-      tester,
-      _client((body) async {
-        sent = body;
-        return _json({
-          'text': '塩は小さじ1/2',
-          'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
-          ],
-        }, 201);
-      }),
-      picked: [
-        (name: 'メモ.PNG', type: '', bytes: png),
-        (name: '手順.pdf', type: 'application/pdf', bytes: Uint8List(8)),
-        (name: 'メモ.txt', type: 'text/plain', bytes: Uint8List(8)),
-      ],
-    );
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルを添える'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.bySemanticsLabel('メモ.PNG'), findsOneWidget);
-    expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
-    expect(find.text('メモ.txt'), findsNothing);
-    expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
-    await _waitToast(tester);
-
-    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
-    await tester.pumpAndSettle();
-    expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
-  });
-
   testWidgets('マニュアルが無いうちは、登録への案内を出す', (tester) async {
     await _pumpInput(tester, MockClient((_) async => _json([])));
 
@@ -515,6 +479,42 @@ void main() {
     expect(socket.sent.last, 'end');
     await socket.close();
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('画像はサムネイル、PDF は名前で添え、受け付けない形式は除いて知らせる', (tester) async {
+    // 1×1 の PNG
+    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
+    Map<String, dynamic>? sent;
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent = body;
+        return _json({
+          'text': '塩は小さじ1/2',
+          'results': [
+            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+          ],
+        }, 201);
+      }),
+      picked: [
+        (name: 'メモ.PNG', type: '', bytes: png),
+        (name: '手順.pdf', type: 'application/pdf', bytes: Uint8List(8)),
+        (name: 'メモ.txt', type: 'text/plain', bytes: Uint8List(8)),
+      ],
+    );
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルを添える'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.bySemanticsLabel('メモ.PNG'), findsOneWidget);
+    expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
+    expect(find.text('メモ.txt'), findsNothing);
+    expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
+    await _waitToast(tester);
+
+    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.pumpAndSettle();
+    expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
   });
 }
 
