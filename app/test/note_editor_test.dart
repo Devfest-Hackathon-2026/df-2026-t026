@@ -83,11 +83,11 @@ void main() {
   testWidgets('末尾に行を書き足すと、すぐ出て、食い違えば確認リストに入ったと知らせる', (tester) async {
     final server = await _pump(tester);
 
-    await tester.tap(find.widgetWithText(MoonTextButton, '行を書き足す'));
+    await tester.tap(find.widgetWithText(MoonTextButton, '行を足す'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '行を足す'));
+    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(server.sent.single, {'op': 'insert', 'line': null, 'text': '- 塩 小さじ2', 'today': isA<String>()});

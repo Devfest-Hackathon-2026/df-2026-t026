@@ -190,7 +190,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   child: MoonTextButton(
                     buttonSize: MoonButtonSize.sm,
                     onTap: () => _startEdit(s, null, insert: true),
-                    label: const Text('行を書き足す'),
+                    label: const Text('行を足す'),
                   ),
                 ),
               ),
@@ -223,7 +223,7 @@ class _ManualScreenState extends State<ManualScreen> {
             buttonSize: MoonButtonSize.sm,
             onTap: _saving || _draft.text.trim().isEmpty ? null : () => _save(s),
             leading: _saving ? const ButtonLoader() : null,
-            label: Text(e.insert ? '行を足す' : '書き換える'),
+            label: const Text('保存する'),
           ),
           if (!e.insert) ...[
             MoonOutlinedButton(
