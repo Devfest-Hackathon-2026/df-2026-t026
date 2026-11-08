@@ -266,7 +266,7 @@ class _CheckScreenState extends State<CheckScreen> {
           padding: EdgeInsets.all(k.space.md),
           decoration: BoxDecoration(
             color: k.colors.canvas,
-            border: Border.all(color: selected ? k.colors.accent : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
+            border: Border.all(color: selected ? k.colors.ink : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
             borderRadius: k.radius.surface,
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -274,7 +274,7 @@ class _CheckScreenState extends State<CheckScreen> {
               MoonRadio<_Outcome>(
                 value: value,
                 groupValue: _outcome,
-                activeColor: k.colors.accent,
+                activeColor: k.colors.ink,
                 inactiveColor: k.colors.inkMuted,
                 tapAreaSizeValue: k.space.xl,
                 onChanged: (v) => setState(() => _outcome = v!),

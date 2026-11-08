@@ -21,13 +21,12 @@ class AppColors {
     required this.qualified,
     required this.qualifiedBg,
     required this.stamp,
-    required this.accent,
     required this.tape,
-    required this.stickies,
-    required this.avatars,
+    required this.sticky,
+    required this.avatar,
   });
 
-  /// 画面の地。紙や付箋を置く机
+  /// 画面の地。紙や付箋を置く机。クリームやベージュにすると AI が作った画面の既定の色に見える
   final Color shell;
 
   /// 紙・入力欄・モーダル
@@ -51,20 +50,17 @@ class AppColors {
   final Color qualified;
   final Color qualifiedBg;
 
-  /// 確認印（朱肉）
+  /// 確認印（朱肉）。画面で朱を使うのは確認印だけにして、印を目立たせる
   final Color stamp;
-
-  /// 主ボタンと選択中の印。確認印と同じ朱の系統にして、画面の色を増やさない
-  final Color accent;
 
   /// 付箋や紙を留めるマスキングテープ
   final Color tape;
 
-  /// 言われたことの付箋の色。発言者ごとに決める。状態の色（緑・青）と紛れない色だけにする
-  final List<Color> stickies;
+  /// 言われたことの付箋。本物の付箋と同じ黄色1色にする。誰が言ったかはアバターと名前で示す
+  final Color sticky;
 
-  /// 発言者アバターの地。状態の色（緑・黄・赤・青）と紛れない色だけにする
-  final List<Color> avatars;
+  /// 発言者アバターの地。色で人を区別せず、頭文字で示す
+  final Color avatar;
 }
 
 class AppSpace {
@@ -178,36 +174,25 @@ extension AppTokensContext on BuildContext {
 }
 
 const _colors = AppColors(
-  shell: Color(0xFFF3EEE5),
+  shell: Color(0xFFE8E9EB),
   canvas: Color(0xFFFFFFFF),
-  ink: Color(0xFF2F2D29),
-  inkMuted: Color(0xFF6E6B65),
-  rule: Color(0xFFE6E0D6),
-  hover: Color(0x0D2F2D29),
-  added: Color(0xFF3B7457),
-  addedBg: Color(0xFFEAF3EC),
-  removed: Color(0xFFB2443B),
-  removedBg: Color(0xFFFCEBEA),
-  pending: Color(0xFF8A6116),
-  pendingBg: Color(0xFFFBF3DB),
-  qualified: Color(0xFF2C6D94),
-  qualifiedBg: Color(0xFFE7F2F8),
-  stamp: Color(0xFFCF4630),
-  accent: Color(0xFFB8402C),
-  tape: Color(0xB8E6DABF),
-  stickies: [
-    Color(0xFFFFF0B0),
-    Color(0xFFFBDDE2),
-    Color(0xFFFFE2C4),
-    Color(0xFFE9E3F5),
-  ],
-  avatars: [
-    Color(0xFFEDEBE7),
-    Color(0xFFF1E6DF),
-    Color(0xFFFBE8D8),
-    Color(0xFFEEE7F6),
-    Color(0xFFF7E5EE),
-  ],
+  ink: Color(0xFF1F2023),
+  inkMuted: Color(0xFF5E6168),
+  rule: Color(0xFFDADCE0),
+  hover: Color(0x0D1F2023),
+  // 差分の色は、差分表示でなじみのある、はっきりした緑・赤・黄・青にする
+  added: Color(0xFF1A7F37),
+  addedBg: Color(0xFFDAFBE1),
+  removed: Color(0xFFCF222E),
+  removedBg: Color(0xFFFFEBE9),
+  pending: Color(0xFF9A6700),
+  pendingBg: Color(0xFFFFF8C5),
+  qualified: Color(0xFF0969DA),
+  qualifiedBg: Color(0xFFDDF4FF),
+  stamp: Color(0xFFDE3A2E),
+  tape: Color(0xB3E2DCCB),
+  sticky: Color(0xFFFFF07F),
+  avatar: Color(0xFFDADCE0),
 );
 
 ThemeData appTheme() {
@@ -230,7 +215,7 @@ ThemeData appTheme() {
   );
 
   final moonColors = MoonColors.light.copyWith(
-    piccolo: c.accent,
+    piccolo: c.ink,
     hit: c.ink,
     beerus: c.rule,
     goku: c.canvas,
@@ -276,7 +261,7 @@ ThemeData appTheme() {
 
   return ThemeData(
     colorScheme: ColorScheme.light(
-      primary: c.accent,
+      primary: c.ink,
       onPrimary: c.canvas,
       surface: c.canvas,
       onSurface: c.ink,

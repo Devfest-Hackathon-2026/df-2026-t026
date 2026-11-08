@@ -41,7 +41,7 @@ class StatusTag extends StatelessWidget {
       );
 }
 
-/// 言われたことを貼る付箋。色と傾きは seed（名前など）から決める
+/// 言われたことを貼る付箋。傾きは seed（名前など）から決める
 class StickyNote extends StatelessWidget {
   const StickyNote({super.key, required this.seed, required this.child, this.onTap});
   final int seed;
@@ -52,7 +52,6 @@ class StickyNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    final color = c.stickies[seed.abs() % c.stickies.length];
     final note = Transform.rotate(
       angle: (seed.isEven ? 1 : -1) * k.stickyTilt,
       child: Stack(
@@ -63,7 +62,7 @@ class StickyNote extends StatelessWidget {
           Container(
             padding: EdgeInsets.fromLTRB(k.space.lg, k.space.lg, k.space.lg, k.space.md),
             decoration: BoxDecoration(
-              color: color,
+              color: c.sticky,
               borderRadius: k.radius.paper,
               boxShadow: [
                 BoxShadow(color: c.ink.withValues(alpha: 0.12), blurRadius: k.space.xs, offset: Offset(0, k.hairline * 2)),
@@ -209,7 +208,7 @@ class LineText extends StatelessWidget {
   }
 }
 
-/// 名前の頭文字のアバター。色は名前から決める
+/// 名前の頭文字のアバター
 class Avatar extends StatelessWidget {
   const Avatar(this.name, {super.key});
   final String? name;
@@ -218,11 +217,10 @@ class Avatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final n = name == null || name!.isEmpty ? '?' : name!;
-    final colors = k.colors.avatars;
     return MoonAvatar(
       avatarSize: MoonAvatarSize.xs,
       borderRadius: k.radius.round,
-      backgroundColor: colors[n.codeUnits.fold(0, (a, b) => a + b) % colors.length],
+      backgroundColor: k.colors.avatar,
       content: Text(n.characters.first, style: k.text.label),
     );
   }
