@@ -76,8 +76,8 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
   });
 }
 
-Future<void> _pumpInput(WidgetTester tester, http.Client client) async {
-  tester.view.physicalSize = const Size(1200, 1400);
+Future<void> _pumpInput(WidgetTester tester, http.Client client, {Size size = const Size(1200, 1400)}) async {
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: client, baseUrl: 'http://api'))));
@@ -203,6 +203,9 @@ void main() {
   testWidgets('広い画面では、左のサイドバーからマニュアルへ直接移れ、あとで確認の件数も並ぶ', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})));
 
+    // サイドバーと役割が重なるので、上部バーの「マニュアルを確認」は出さない
+    expect(find.widgetWithText(MoonOutlinedButton, 'マニュアルを確認'), findsNothing);
+
     // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
     final hall = find.widgetWithText(MoonMenuItem, 'ホール');
     expect(hall, findsOneWidget);
@@ -236,5 +239,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
+  });
+
+  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「マニュアルを確認」から一覧へ進む', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})), size: const Size(400, 900));
+
+    expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsNothing);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'マニュアルを確認'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('マニュアル')), findsOneWidget);
   });
 }

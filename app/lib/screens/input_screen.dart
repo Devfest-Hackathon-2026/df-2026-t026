@@ -210,11 +210,14 @@ class _InputScreenState extends State<InputScreen> {
       body: WithSidebar(api: widget.api, place: Place.input, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(
           crumbs: const ['DiffNote（仮）'],
-          trailing: MoonOutlinedButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: () => _push(HomeScreen(api: widget.api)),
-            label: const Text('マニュアルを確認'),
-          ),
+          // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
+          trailing: showsSidebar(context)
+              ? null
+              : MoonOutlinedButton(
+                  buttonSize: MoonButtonSize.sm,
+                  onTap: () => _push(HomeScreen(api: widget.api)),
+                  label: const Text('マニュアルを確認'),
+                ),
         ),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
       ]))),

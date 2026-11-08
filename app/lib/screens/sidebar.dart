@@ -11,6 +11,12 @@ import 'manual_screen.dart';
 /// サイドバーで、いまいる画面
 enum Place { input, manuals }
 
+/// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
+bool showsSidebar(BuildContext context) {
+  final k = context.tokens;
+  return MediaQuery.sizeOf(context).width >= k.wideLayout + k.sidebarWidth;
+}
+
 /// 広い画面では、左にサイドバーを常に出して画面のあいだを直接移れるようにする。狭い画面では child だけ（押して進んで戻る）
 class WithSidebar extends StatelessWidget {
   const WithSidebar({super.key, required this.api, required this.child, this.place, this.manualId});
@@ -23,9 +29,8 @@ class WithSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!showsSidebar(context)) return child;
     final k = context.tokens;
-    // サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
-    if (MediaQuery.sizeOf(context).width < k.wideLayout + k.sidebarWidth) return child;
     return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SizedBox(width: k.sidebarWidth, child: _Sidebar(api: api, place: place, manualId: manualId)),
       Container(width: k.hairline, color: k.colors.rule),
