@@ -75,82 +75,78 @@ class _HomeScreenState extends State<HomeScreen> {
     final manuals = snap.data!;
 
     final k = context.tokens;
-    // 狭い画面では表の列をやめ、記録数と状態を名前の下に並べる
-    final table = MediaQuery.sizeOf(context).width >= k.wideLayout;
-    return Container(
-      color: k.colors.canvas,
+    return PopBackground(
       child: Narrow(
         maxWidth: k.pageWidth,
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
           PageTitle(
             'マニュアル',
+            emoji: '📚',
             meta: [Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small)],
             trailing: manuals.isEmpty ? null : _createButton(),
           ),
           SizedBox(height: k.space.xl),
-          if (manuals.isEmpty) _empty() else ...[
-            if (table) _headerRow(),
-            const Rule(),
-            for (final m in manuals) ...[_row(m, table: table), const Rule()],
-          ],
+          if (manuals.isEmpty)
+            _empty()
+          else
+            for (var i = 0; i < manuals.length; i++) ...[
+              _tile(manuals[i], i),
+              SizedBox(height: k.space.md),
+            ],
         ]),
       ),
     );
   }
 
-  Widget _headerRow() {
+  /// マニュアル1冊分のタイル。色は順番でパステルを回す
+  Widget _tile(ManualSummary m, int index) {
     final k = context.tokens;
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
-      child: Row(children: [
-        Expanded(child: Text('名前', style: k.text.small)),
-        SizedBox(width: k.numberColumn, child: Text('記録', style: k.text.small)),
-        SizedBox(width: k.numberColumn, child: Text('状態', style: k.text.small)),
-        SizedBox(width: k.gutter),
-      ]),
-    );
-  }
-
-  Widget _row(ManualSummary m, {required bool table}) {
-    final k = context.tokens;
-    final status = m.openCount > 0
-        ? StatusTag('あとで確認 ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
-        : Text('なし', style: k.text.small);
-    return MoonMenuItem(
-      onTap: () => _open(m.id),
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-      horizontalGap: 0,
-      label: table
-          ? Row(children: [
-              Expanded(child: Text(m.title, style: k.text.heading)),
-              SizedBox(width: k.numberColumn, child: Text('${m.utteranceCount} 件', style: k.text.body)),
-              SizedBox(width: k.numberColumn, child: Align(alignment: Alignment.centerLeft, child: status)),
-            ])
-          : Text(m.title, style: k.text.heading),
-      content: table
-          ? null
-          : Padding(
-              padding: EdgeInsets.only(top: k.space.xs),
-              child: Wrap(spacing: k.space.md, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                Text('記録 ${m.utteranceCount} 件', style: k.text.small),
-                if (m.openCount > 0) status,
+    final c = k.colors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _open(m.id),
+        child: Container(
+          padding: EdgeInsets.all(k.space.lg),
+          decoration: BoxDecoration(
+            color: c.tiles[index % c.tiles.length],
+            borderRadius: k.radius.tile,
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(m.title, style: k.text.title),
+                SizedBox(height: k.space.sm),
+                Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  StatusTag('記録 ${m.utteranceCount} 件', bg: c.canvas, fg: c.ink, emoji: '💬'),
+                  if (m.openCount > 0)
+                    StatusTag('あとで確認 ${m.openCount} 件', bg: c.pendingBg, fg: c.pending, emoji: '📌'),
+                ]),
               ]),
             ),
-      trailing: SizedBox(width: k.gutter, child: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted)),
+            SizedBox(width: k.space.md),
+            Container(
+              padding: EdgeInsets.all(k.space.sm),
+              decoration: BoxDecoration(color: c.canvas, shape: BoxShape.circle),
+              child: Icon(LucideIcons.chevronRight, color: c.ink),
+            ),
+          ]),
+        ),
+      ),
     );
   }
 
   /// 最初の1冊を登録するまでの案内
   Widget _empty() {
     final k = context.tokens;
-    return Container(
-      padding: EdgeInsets.all(k.space.xxl),
-      decoration: BoxDecoration(
-        color: k.colors.shell,
-        borderRadius: k.radius.surface,
-      ),
+    return StickyNote(
+      seed: 0,
       child: Column(children: [
-        Text('まだマニュアルがありません', style: k.text.heading),
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('📖', style: k.text.heading),
+          SizedBox(width: k.space.sm),
+          Text('まだマニュアルがありません', style: k.text.heading),
+        ]),
         SizedBox(height: k.space.sm),
         Text(
           '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
