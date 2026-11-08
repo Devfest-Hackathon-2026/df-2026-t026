@@ -55,6 +55,10 @@ class Api {
         'today': today,
       }));
 
+  /// リワインドで切り出した WAV を書き起こす。記録はしない
+  Future<String> listen(Uint8List wav) async =>
+      (await _send('POST', '/listen', {'data': base64Encode(wav)}))['text'] as String;
+
   /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
   /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない
   WebSocketChannel dictation() {
@@ -67,10 +71,12 @@ class Api {
     ));
   }
 
-  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
+  /// text を変えると、その文面で差分と分類を作り直す
+  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt, String? text}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
         'speaker': ?speaker,
         'saidAt': ?saidAt,
+        'text': ?text,
       }));
 
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>

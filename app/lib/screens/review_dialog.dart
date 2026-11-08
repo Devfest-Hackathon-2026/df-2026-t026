@@ -10,6 +10,9 @@ import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 
+/// 発言者の候補に並べる数
+const _maxSpeakers = 6;
+
 // 外側を押して閉じると発言者と日付の変更が保存されないので、閉じるボタンだけで閉じる
 Future<void> showReview(BuildContext context, ManualController c, String utteranceId) => showMoonModal<void>(
       context: context,
@@ -28,13 +31,58 @@ class ReviewDialog extends StatefulWidget {
 }
 
 class _ReviewDialogState extends State<ReviewDialog> {
-  late final Utterance _u = widget.c.state!.utterance(widget.utteranceId);
+  /// 書き起こしを直すと差分が作り直されるので、いつも最新の状態から引く
+  Utterance get _u => widget.c.state!.utterance(widget.utteranceId);
   late final _speaker = TextEditingController(text: _u.speaker ?? '');
   late String _saidAt = _u.saidAt;
   final _editing = <String, TextEditingController>{};
   var _busy = false;
 
+  /// 書き起こしを直している間の入力欄
+  TextEditingController? _fix;
+
   bool get _hasSpeaker => _speaker.text.trim().isNotEmpty;
+
+  /// 反映・確定したものは本文や確認の記録に残っているので、書き起こしは直させない
+  bool _fixable(ManualState s) =>
+      s.patchesOf(_u.id).every((p) => p.status != 'applied') &&
+      s.checks.where((c) => c.utteranceId == _u.id).every((c) => c.resolution == null);
+
+  /// 発言者の候補。このマニュアルで言ったことのある人を、最近の順に
+  List<String> _knownSpeakers(ManualState s) {
+    final recent = s.utterances.where((u) => u.id != _u.id).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return {for (final u in recent) ?u.speaker}.take(_maxSpeakers).toList();
+  }
+
+  /// 直した書き起こしで差分を作り直す。発言者と日付は、ここで変えたものだけを送り、ほかは読み直した結果に任せる
+  Future<void> _fixText() async {
+    final text = _fix!.text.trim();
+    if (text.isEmpty) return;
+    final before = _u;
+    final speaker = _speaker.text.trim();
+    final speakerKept = speaker == (before.speaker ?? '');
+    final dayKept = _saidAt == before.saidAt;
+    setState(() => _busy = true);
+    try {
+      await widget.c.editUtterance(
+        before.id,
+        text: text,
+        speaker: speakerKept || speaker.isEmpty ? null : speaker,
+        saidAt: dayKept ? null : _saidAt,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (speakerKept) _speaker.text = _u.speaker ?? '';
+        if (dayKept) _saidAt = _u.saidAt;
+        _fix = null;
+        _editing.clear();
+      });
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   /// 発言者と日付の変更を先に保存する。反映や確認はこの2つが揃っている前提
   Future<void> _saveMeta() async {
@@ -116,9 +164,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        StickyNote(
-                          child: Text('「${_u.text}」', style: k.text.body),
-                        ),
+                        ..._said(s),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
@@ -127,6 +173,19 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           onChanged: (_) => setState(() {}),
                           errorText: _hasSpeaker ? null : '反映する前に入れてください',
                         ),
+                        if (_knownSpeakers(s) case final known when known.isNotEmpty) ...[
+                          SizedBox(height: k.space.xs),
+                          Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
+                            for (final name in known)
+                              MoonChip(
+                                chipSize: MoonChipSize.sm,
+                                isActive: _speaker.text.trim() == name,
+                                semanticLabel: '発言者を$nameにする',
+                                label: Text(name),
+                                onTap: () => setState(() => _speaker.text = name),
+                              ),
+                          ]),
+                        ],
                         SizedBox(height: k.space.sm),
                         MoonOutlinedButton(
                           onTap: _pickDate,
@@ -152,6 +211,37 @@ class _ReviewDialogState extends State<ReviewDialog> {
         );
       },
     );
+  }
+
+  /// 言われたこと（書き起こし）。聞き間違いがあれば、ここで直して差分を作り直せる
+  List<Widget> _said(ManualState s) {
+    final k = context.tokens;
+    final fix = _fix;
+    if (fix == null) {
+      return [
+        StickyNote(child: Text('「${_u.text}」', style: k.text.body)),
+        if (_fixable(s)) ...[
+          SizedBox(height: k.space.xs),
+          MoonTextButton(
+            onTap: _busy ? null : () => setState(() => _fix = TextEditingController(text: _u.text)),
+            label: const Text('書き起こしを直す'),
+          ),
+        ],
+      ];
+    }
+    return [
+      MoonTextInput(controller: fix, maxLines: 4, minLines: 1, hintText: '言われたこと'),
+      SizedBox(height: k.space.sm),
+      Row(children: [
+        MoonTextButton(onTap: _busy ? null : () => setState(() => _fix = null), label: const Text('直すのをやめる')),
+        const Spacer(),
+        MoonFilledButton(
+          onTap: _busy ? null : _fixText,
+          leading: _busy ? const ButtonLoader() : null,
+          label: const Text('直して差分を作り直す'),
+        ),
+      ]),
+    ];
   }
 
   Widget _patch(ManualState s, Patch p) {
