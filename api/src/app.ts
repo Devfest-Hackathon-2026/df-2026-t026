@@ -6,21 +6,20 @@ import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
-import { checkInput, type Check, type CheckPatch } from './conflict/check.ts';
-import { applyPatch, PatchError, render, type Manual, type Patch, type PatchDraft, type Utterance } from './foundation/manual.ts';
-import type { Patchify } from './foundation/patchify.ts';
-import { readFiles, type Route, type Transcribe } from './intake.ts';
+import type { Assess, AssessResult } from './assess.ts';
+import { manualContext, type Check } from './conflict/check.ts';
+import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
+import { readFiles, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
   store: Store;
-  patchify: Patchify;
-  check: CheckPatch;
+  /** 振り分け・差分化・分類（ADR 0006） */
+  assess: Assess;
   transcribe: Transcribe;
   listen: Listen;
   dictate: Dictate;
-  route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
   /** API を使うための合言葉（X-Passcode ヘッダーで受ける）。未指定なら確かめない（ローカル開発用） */
@@ -76,7 +75,7 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, patchify, check, transcribe, listen, dictate, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, transcribe, listen, dictate, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
@@ -119,6 +118,8 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
     return Promise.all(manuals.map((m) => load(userId, m.id)));
   }
 
+  type State = Awaited<ReturnType<typeof load>>;
+
   /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
   const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
 
@@ -155,31 +156,35 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
 
-  type State = Awaited<ReturnType<typeof load>>;
-
-  const draftOf = (s: State, text: string, today: string) => {
-    const speakers = [...new Set(s.utterances.map((u) => u.speaker).filter((x): x is string => !!x))];
-    return patchify({ lines: s.lines.map((l) => l.text), text, today, speakers });
-  };
-
-  // 取り込み → 差分化（土台） → 分類（衝突検知）
-  async function record(userId: string, manualId: string, text: string, today: string) {
-    const s = await load(userId, manualId);
-    const draft = await draftOf(s, text, today);
-    const utterance: Utterance = {
-      id: randomUUID(),
-      text,
-      speaker: draft.speaker,
-      saidAt: draft.saidAt ?? today,
-      createdAt: now(),
-    };
-    await propose(userId, manualId, s, utterance, draft.patches);
-    return { utteranceId: utterance.id, state: await load(userId, manualId) };
+  // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
+  // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
+  async function record(userId: string, states: State[], text: string, today: string, keepAll: boolean) {
+    if (states.length === 0) return [];
+    const draft = await assess({ manuals: states.map(contextOf), text, today, speakers: speakersOf(states) });
+    const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
+    return Promise.all(
+      targets.map(async (s) => {
+        const utterance: Utterance = {
+          id: randomUUID(),
+          text,
+          speaker: draft.speaker,
+          saidAt: draft.saidAt ?? today,
+          createdAt: now(),
+        };
+        const items = draft.items.filter((x) => x.manual === states.indexOf(s));
+        await propose(userId, s.manual.id, utterance, items);
+        return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
+      }),
+    );
   }
 
-  /** 発言を保存し、差分の候補ごとに分類して保存する。s にはこの発言の差分と分類を含めない */
-  async function propose(userId: string, manualId: string, s: State, utterance: Utterance, drafts: PatchDraft[]) {
-    const patches: Patch[] = drafts.map((p) => ({
+  const contextOf = (s: State) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) });
+  const speakersOf = (states: State[]) =>
+    [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
+
+  /** 発言と、その差分の候補・分類を保存する */
+  async function propose(userId: string, manualId: string, utterance: Utterance, items: AssessResult['items']) {
+    const patches: Patch[] = items.map(({ patch: p }) => ({
       ...p,
       id: randomUUID(),
       utteranceId: utterance.id,
@@ -187,47 +192,42 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
       createdAt: now(),
       appliedAt: null,
     }));
+    const checks: Check[] = patches.map((p, i) => ({
+      ...items[i].check,
+      id: randomUUID(),
+      patchId: p.id,
+      utteranceId: utterance.id,
+      resolution: null,
+      createdAt: now(),
+    }));
     await store.put(userId, manualId, 'utterances', utterance);
     await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
-
-    const checks = await Promise.all(
-      patches.map(async (p): Promise<Check> => ({
-        ...(await check(checkInput(s.lines, s.patches, s.utterances, s.checks, utterance, p))),
-        id: randomUUID(),
-        patchId: p.id,
-        utteranceId: utterance.id,
-        resolution: null,
-        createdAt: now(),
-      })),
-    );
     await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
+    const { userId } = c.var;
     const body = NewUtterance.parse(await c.req.json());
-    return c.json(await record(c.var.userId, c.req.param('id'), body.text, body.today ?? todayInJapan()), 201);
+    const [r] = await record(userId, [await load(userId, c.req.param('id'))], body.text, body.today ?? todayInJapan(), true);
+    return c.json({ utteranceId: r.utteranceId, state: r.state }, 201);
   });
 
-  // 入力ページから。ファイル・録音をテキストにし、関係するマニュアルごとに記録する（ADR 0005）
+  // 入力ページから。ファイル・録音をテキストにし、関係するマニュアルごとに記録する（ADR 0005・0006）
   app.post('/utterances', async (c) => {
     const { userId } = c.var;
     const body = NewIntake.parse(await c.req.json());
-    // 全マニュアルは、録音のフレーズヒントと振り分けにだけ使う
+    // 記録先が選ばれていなければ全マニュアルを渡し、Gemini に振り分けてもらう
+    const states = body.manualIds
+      ? await Promise.all(body.manualIds.map((id) => load(userId, id)))
+      : await loadAll(userId);
     const hasAudio = body.files.some((f) => f.mimeType === 'audio/wav');
-    const states = hasAudio || !body.manualIds ? await loadAll(userId) : [];
-    const heard = await readFiles(body.files, { transcribe, listen, phrases: hasAudio ? phrasesOf(states) : [] });
+    // 録音のフレーズヒントには、記録先に関係なく全マニュアルの語句を使う
+    const hints = hasAudio ? phrasesOf(body.manualIds ? await loadAll(userId) : states) : [];
+    const heard = await readFiles(body.files, { transcribe, listen, phrases: hints });
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
-    let manualIds = body.manualIds;
-    if (!manualIds) {
-      const picked = await route({ manuals: states.map((s) => ({ title: s.manual.title, lines: s.lines.map((l) => l.text) })), text });
-      manualIds = picked.map((i) => states[i].manual.id);
-    }
-    const today = body.today ?? todayInJapan();
-    const results = await Promise.all(
-      manualIds.map(async (manualId) => ({ manualId, ...(await record(userId, manualId, text, today)) })),
-    );
+    const results = await record(userId, states, text, body.today ?? todayInJapan(), !!body.manualIds);
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });
@@ -311,7 +311,8 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
     };
     // 「昨日」などは記録した日を基準に読む
     const recordedOn = new Date(u.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
-    const draft = await draftOf(rest, text, recordedOn);
+    // 記録先は決まっているので、そのマニュアルだけを渡して読み直す（Gemini は1回、ADR 0006）
+    const draft = await assess({ manuals: [contextOf(rest)], text, today: recordedOn, speakers: speakersOf([rest]) });
     await Promise.all([
       ...patches.map((p) => store.remove(userId, manualId, 'patches', p.id)),
       ...checks.map((x) => store.remove(userId, manualId, 'checks', x.id)),
@@ -323,7 +324,7 @@ export function createApp({ store, patchify, check, transcribe, listen, dictate,
       speaker: meta.speaker ?? draft.speaker ?? u.speaker,
       saidAt: meta.saidAt ?? draft.saidAt ?? u.saidAt,
     };
-    await propose(userId, manualId, rest, fixed, draft.patches);
+    await propose(userId, manualId, fixed, draft.items);
     return c.json(await load(userId, manualId));
   });
 

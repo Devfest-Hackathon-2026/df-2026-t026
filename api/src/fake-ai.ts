@@ -1,7 +1,7 @@
-import type { CheckPatch } from './conflict/check.ts';
+import type { Assess } from './assess.ts';
+import type { CheckResult } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
-import type { Patchify } from './foundation/patchify.ts';
-import type { Route, Transcribe } from './intake.ts';
+import type { Transcribe } from './intake.ts';
 import type { Dictate, Listen } from './stt.ts';
 
 /*
@@ -17,7 +17,7 @@ const AMOUNT = /(?:小さじ|大さじ)?[\d/.]+\s*(?:g|分|個|杯|円|cc|ml)?/;
 
 const strip = (line: string) => line.replace(/^(?:- |## )/, '');
 
-export const fakePatchify: Patchify = async ({ lines, text, today }) => {
+function fakePatchify(lines: string[], text: string, today: string): { speaker: string | null; saidAt: string; patches: PatchDraft[] } {
   const speaker = text.match(SPEAKER)?.[1] ?? null;
   const saidAt = text.startsWith('昨日') ? shiftDays(today, -1) : today;
   const statement = text.replace(SPEAKER, '').replace(REPORTED, '').trim();
@@ -37,12 +37,33 @@ export const fakePatchify: Patchify = async ({ lines, text, today }) => {
     patch = { op: 'insert', line: sectionEnd(lines, key), text: `- ${statement}`, summary: `${key}について追記` };
   }
   return { speaker, saidAt, patches: [patch] };
+}
+
+export const fakeAssess: Assess = async ({ manuals, text, today }) => {
+  // 振り分け：見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくれば関係あり。1冊だけ渡されたら（記録先を選んだとき）その1冊
+  const relevant = (lines: string[]) =>
+    manuals.length === 1 ||
+    lines.some((l) => {
+      const word = strip(l).split(/[\sはをにがの、（]/)[0];
+      return !!word && text.includes(word);
+    });
+  const texts = manuals.map((m) => m.lines.map((l) => l.text));
+  const first = fakePatchify(texts[0] ?? [], text, today);
+  return {
+    speaker: first.speaker,
+    saidAt: first.saidAt,
+    items: texts.flatMap((lines, manual) =>
+      relevant(lines)
+        ? fakePatchify(lines, text, today).patches.map((patch) => ({ manual, patch, check: fakeCheck(lines, patch, first.speaker) }))
+        : [],
+    ),
+  };
 };
 
-export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
-  const same = lines.find((l) => l.text === patch.text);
+function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): CheckResult {
+  const same = lines.find((l) => l === patch.text);
   if (same) {
-    return { kind: 'same', conflictLine: null, sameLine: same.text, reason: `マニュアルの「${strip(same.text)}」と同じ内容です`, ask: null };
+    return { kind: 'same', conflictLine: null, sameLine: same, reason: `マニュアルの「${strip(same)}」と同じ内容です`, ask: null };
   }
   if (patch.op === 'insert') {
     return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
@@ -51,8 +72,8 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
     return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
   }
   const candidates = [{ who: '店長', why: 'お店のやり方を決める立場なので' }];
-  if (utterance.speaker && utterance.speaker !== '店長') {
-    candidates.push({ who: utterance.speaker, why: '言った本人なので、どういうつもりだったかを聞ける' });
+  if (speaker && speaker !== '店長') {
+    candidates.push({ who: speaker, why: '言った本人なので、どういうつもりだったかを聞ける' });
   }
   return {
     kind: 'contradiction',
@@ -64,7 +85,7 @@ export const fakeCheck: CheckPatch = async ({ lines, patch, utterance }) => {
       question: `「${strip(patch.line!)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
     },
   };
-};
+}
 
 // GCP なしではファイルや録音の中身を読めないので、デモの決まり文句を返す
 export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
@@ -82,17 +103,6 @@ export const fakeDictate: Dictate = async (_, on) => {
     end: () => on.done(said.slice(0, Math.ceil(bytes / 8000)).join('')),
   };
 };
-
-/** 見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくるマニュアルを選ぶ */
-export const fakeRoute: Route = async ({ manuals, text }) =>
-  manuals.flatMap((m, i) =>
-    m.lines.some((l) => {
-      const word = strip(l).split(/[\sはをにがの、（]/)[0];
-      return !!word && text.includes(word);
-    })
-      ? [i]
-      : [],
-  );
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {
