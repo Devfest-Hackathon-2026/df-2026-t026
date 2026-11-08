@@ -25,8 +25,8 @@ class ManualController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> editUtterance(String id, {String? speaker, String? saidAt}) async =>
-      _set(await api.editUtterance(manualId, id, speaker: speaker, saidAt: saidAt));
+  Future<void> editUtterance(String id, {String? speaker, String? saidAt, String? text}) async =>
+      _set(await api.editUtterance(manualId, id, speaker: speaker, saidAt: saidAt, text: text));
 
   Future<void> applyPatch(String id, {String? text}) async => _set(await api.applyPatch(manualId, id, text: text));
 

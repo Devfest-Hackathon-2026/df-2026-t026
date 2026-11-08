@@ -10,6 +10,7 @@ export interface Store {
   putManual(userId: string, manual: Manual): Promise<void>;
   list<T>(userId: string, manualId: string, collection: string): Promise<T[]>;
   put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T): Promise<void>;
+  remove(userId: string, manualId: string, collection: string, id: string): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
@@ -39,5 +40,9 @@ export class MemoryStore implements Store {
     const key = `${userId}/${manualId}/${collection}`;
     if (!this.docs.has(key)) this.docs.set(key, new Map());
     this.docs.get(key)!.set(doc.id, structuredClone(doc));
+  }
+
+  async remove(userId: string, manualId: string, collection: string, id: string) {
+    this.docs.get(`${userId}/${manualId}/${collection}`)?.delete(id);
   }
 }
