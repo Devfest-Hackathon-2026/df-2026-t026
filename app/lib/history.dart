@@ -49,6 +49,9 @@ class GraphRow {
 
   /// 下から伸びてきて、この版に合流するレーン
   final merges = <int>{};
+
+  /// この行で枝のレーンを使っている記録。枝の線を、その記録の状態の色で描くため
+  final branches = <int, Commit>{};
 }
 
 class History {
@@ -155,6 +158,9 @@ History buildHistory(ManualState s) {
     rows[f].forks.add(lane);
     for (var i = f + 1; i < end; i++) {
       if (i != d) rows[i].through.add(lane);
+    }
+    for (var i = f; i <= end; i++) {
+      rows[i].branches[lane] = r.commit;
     }
     r
       ..lane = lane

@@ -100,6 +100,10 @@ void main() {
       // 佐藤さんの枝：確認した版から分かれ、まだ合流していない
       expect(rows['p3']!.forks, {2});
       expect((rows['p4']!.lane, rows['p4']!.up, rows['p4']!.down), (2, false, true));
+      // 枝の線を、その記録の状態の色で描けるよう、行ごとにレーンを使う記録を持つ
+      expect(rows['p2']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1'});
+      expect(rows['p3']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1', 2: 'p4'});
+      expect(rows['root']!.branches.map((l, c) => MapEntry(l, c.id)), {1: 'p1'});
       expect(rows['p4']!.through, isEmpty);
 
       expect(_texts(rows['root']!.commit, LineChange.added), ['## 味噌汁', '- 塩 小さじ1', '- 味噌 大さじ2']);

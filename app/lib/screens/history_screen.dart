@@ -112,10 +112,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   lane: k.graphLane,
                   dot: k.graphDot,
                   stroke: k.graphStroke,
-                  trunk: k.colors.ink,
-                  branch: k.colors.inkMuted,
-                  // 版は塗り、あとで確認の記録は黄で塗り、それ以外の記録は白抜きにする
-                  dotFill: !x.onBranch ? k.colors.ink : ((x.check?.isOpen ?? false) ? k.colors.pending : k.colors.canvas),
+                  trunk: k.colors.graphTrunk,
+                  branch: k.colors.graphBranch,
+                  pending: k.colors.graphPending,
+                  paper: k.colors.canvas,
                 ),
               ),
             ),
@@ -330,7 +330,8 @@ String _status(Commit x) {
   return p.status == 'discarded' ? '反映しない' : '未反映';
 }
 
-/// 1行分のグラフ。幹は濃い線、枝は薄い線で、分かれる所と合流する所は曲げてつなぐ
+/// 1行分のグラフ。Miro のコネクタと図形のように、線は細く明るい色にし、点は白抜きに色の枠を付ける。
+/// 幹は緑、枝はその記録があとで確認なら黄、ほかは灰色。分かれる所と合流する所は曲げてつなぐ
 class _GraphPainter extends CustomPainter {
   _GraphPainter({
     required this.row,
@@ -339,7 +340,8 @@ class _GraphPainter extends CustomPainter {
     required this.stroke,
     required this.trunk,
     required this.branch,
-    required this.dotFill,
+    required this.pending,
+    required this.paper,
   });
   final GraphRow row;
   final double lane;
@@ -347,13 +349,15 @@ class _GraphPainter extends CustomPainter {
   final double stroke;
   final Color trunk;
   final Color branch;
-  final Color dotFill;
+  final Color pending;
+  final Color paper;
 
   @override
   void paint(Canvas canvas, Size size) {
     double x(int l) => lane * l + lane / 2;
+    Color color(int l) => l == 0 ? trunk : ((row.branches[l]?.check?.isOpen ?? false) ? pending : branch);
     Paint pen(int l) => Paint()
-      ..color = l == 0 ? trunk : branch
+      ..color = color(l)
       ..strokeWidth = stroke
       ..style = PaintingStyle.stroke;
     final at = Offset(x(row.lane), size.height / 2);
@@ -368,11 +372,11 @@ class _GraphPainter extends CustomPainter {
     for (final l in row.merges) {
       canvas.drawPath(Path()..moveTo(x(l), size.height)..quadraticBezierTo(x(l), at.dy, at.dx, at.dy), pen(l));
     }
-    canvas.drawCircle(at, dot / 2, Paint()..color = dotFill);
-    // 縁は線と同じ色・太さにして、白抜きの点も線から浮かないようにする
+    // あとで確認の記録だけ黄で塗り、ほかは白抜きにする。縁は線と同じ色・太さにして線から浮かないようにする
+    canvas.drawCircle(at, dot / 2, Paint()..color = color(row.lane) == pending ? pending : paper);
     canvas.drawCircle(at, (dot - stroke) / 2, pen(row.lane));
   }
 
   @override
-  bool shouldRepaint(_GraphPainter old) => old.row != row || old.dotFill != dotFill;
+  bool shouldRepaint(_GraphPainter old) => old.row != row;
 }
