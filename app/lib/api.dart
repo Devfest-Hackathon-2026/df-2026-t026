@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -47,6 +48,10 @@ class Api {
         'manualIds': ?manualIds,
         'today': today,
       }));
+
+  /// テキスト欄の音声入力。録音（WAV）を書き起こした文面だけを返し、記録はしない
+  Future<String> transcribe(Uint8List wav) async =>
+      (await _send('POST', '/transcribe', {'data': base64Encode(wav)}))['text'] as String;
 
   Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {

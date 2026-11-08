@@ -42,7 +42,12 @@
 
 ## 実装で決めたこと
 
-- 入力ページは `POST /utterances` を呼ぶ。前段（`api/src/intake.ts`）で、ファイル・録音の書き起こし（`transcribe`）と、全マニュアルの全文を載せた振り分け（`route`）を行い、選ばれたマニュアルごとに既存の `patchify` → `check` を通す。
+- 入力ページは `POST /utterances` を呼ぶ。前段（`api/src/intake.ts`）で、録音は Speech-to-Text（`listen`）、PDF・画像は Gemini（`transcribe`）で書き起こし、全マニュアルの全文を載せた振り分け（`route`）を行って、選ばれたマニュアルごとに既存の `patchify` → `check` を通す。
+- テキスト欄の音声入力は `POST /transcribe` を呼ぶ。書き起こした文面だけを返し、記録はしない。
+- Speech-to-Text は `chirp_2`（`us-central1`）で呼ぶ。`chirp_2` は `global` では使えないため。フレーズヒントは登録済みの全マニュアルの見出しと各項目の頭の語にする。
+- 同期の書き起こしは60秒までなので、音声入力はアプリで60秒で止め、バックエンドでも WAV の末尾60秒だけを渡す。
+- 常時待ち受けの声の判定（`EnergyVad`）は、20ms ごとの音量（RMS）だけで行う。声の合計が200ms に満たないかたまりは物音とみなして除く。
+- 常時待ち受けを前回 ON のまま開いたときは、ブラウザは操作の前にマイクを開けないので、画面の最初の操作で待ち受けを再開する。
 - 振り分けでどのマニュアルにも当たらなければ何も保存せず、読み取った文面を返す。利用者が記録先を選ぶと、その文面と `manualIds` で送り直す（ファイル・録音は読み直さない）。
 - 複数のマニュアルに当たったときは、差分の確認モーダルをマニュアルごとに順に出す。入力ページの「あとで確認」は、確認リストがマニュアルごとなので、件数とともに1冊ずつ並べる。
 - 受け付ける形式は PDF・PNG・JPEG・WebP・HEIC・WAV（録音）で、合わせて 10MB まで（Gemini に1回で渡せる大きさに収めるため）。
@@ -50,4 +55,5 @@
 ## 追加したライブラリ
 
 - [file_picker](https://pub.dev/packages/file_picker)（13.3.2、MIT）：Web でファイルを選び、中身を読むため。
-- [record](https://pub.dev/packages/record)（7.1.2、BSD-3-Clause）：Web でマイクから録音するため。Gemini が読める WAV（16kHz・モノラル）を Web で直接作れる。
+- [record](https://pub.dev/packages/record)（7.1.2、BSD-3-Clause）：Web でマイクから録音するため。16kHz・モノラル・16bit の PCM をストリームで受け取れるので、常時待ち受けのリングバッファと音声入力の WAV をアプリで作れる。
+- [@google-cloud/speech](https://www.npmjs.com/package/@google-cloud/speech)（8.2.1、Apache-2.0）：Cloud Speech-to-Text v2 を ADC（Cloud Run ではサービスアカウント）で呼ぶため。Google 公式のクライアント。
