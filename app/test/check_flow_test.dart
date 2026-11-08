@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
@@ -68,34 +69,55 @@ Map<String, dynamic> _state({required bool resolved}) => {
       ],
     };
 
-void main() {
-  testWidgets('矛盾を確認して確定すると、確認の記録として見せられる', (tester) async {
-    tester.view.physicalSize = const Size(1400, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+/// どのパスにも state を返す。resolve を受けたら確定後の state にする
+MockClient _client(void Function(Map<String, dynamic>) onResolve) {
+  var resolved = false;
+  return MockClient((req) async {
+    if (req.url.path.endsWith('/resolve')) {
+      resolved = true;
+      onResolve(jsonDecode(req.body));
+    }
+    return http.Response.bytes(utf8.encode(jsonEncode(_state(resolved: resolved))), 200);
+  });
+}
 
+Future<void> _pumpManual(WidgetTester tester, http.Client client, Size size) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    theme: appTheme(),
+    home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
+  ));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('食い違いは確認リストに入り、確認できてから記録すると確認の記録として見せられる', (tester) async {
     Map<String, dynamic>? resolveBody;
-    final client = MockClient((req) async {
-      final resolved = resolveBody != null || req.url.path.endsWith('/resolve');
-      if (req.url.path.endsWith('/resolve')) resolveBody = jsonDecode(req.body);
-      return http.Response.bytes(utf8.encode(jsonEncode(_state(resolved: resolved))), 200);
-    });
-    await tester.pumpWidget(MaterialApp(
-      theme: appTheme(),
-      home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
-    ));
+    await _pumpManual(tester, _client((b) => resolveBody = b), const Size(1400, 1000));
+
+    // マニュアル画面では解決を求めず、行の印と確認リストへの入口だけを出す
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
     await tester.pumpAndSettle();
 
-    // 確認待ちがあれば、パネルは確認待ちを開いた状態で出る
-    expect(find.text('塩 小さじ1 ／ 塩 小さじ1/2'), findsOneWidget);
+    expect(find.text('あとで確認（1）'), findsOneWidget);
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
 
-    expect(find.text('確認が必要です'), findsOneWidget);
+    expect(find.text('あとで確認すること'), findsOneWidget);
     expect(find.text('お店のやり方を決める立場なので'), findsOneWidget);
     expect(find.textContaining('どちらに合わせればよいですか'), findsOneWidget);
 
+    // 確定の入力欄は、確認できたと利用者が言うまで出さない
     final note = find.widgetWithText(MoonTextInput, '例: 1/2で統一');
+    expect(note, findsNothing);
+    final start = find.widgetWithText(MoonOutlinedButton, '確認できたので記録する');
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');
     final confirm = find.widgetWithText(MoonFilledButton, '確定する');
@@ -111,30 +133,33 @@ void main() {
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 
-  // 狭い画面ではタブ1段に切り替わり、確認画面の選択肢は縦に積む。はみ出すとテストが失敗する
-  testWidgets('狭い画面でも、確認待ちのタブから確認画面を開いて確定できる', (tester) async {
-    tester.view.physicalSize = const Size(400, 860);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+  testWidgets('食い違っている行に相手の発言を並べ、押すと確認リストが開く', (tester) async {
+    await _pumpManual(tester, _client((_) {}), const Size(1400, 1000));
 
-    Map<String, dynamic>? resolveBody;
-    final client = MockClient((req) async {
-      final resolved = resolveBody != null || req.url.path.endsWith('/resolve');
-      if (req.url.path.endsWith('/resolve')) resolveBody = jsonDecode(req.body);
-      return http.Response.bytes(utf8.encode(jsonEncode(_state(resolved: resolved))), 200);
-    });
-    await tester.pumpWidget(MaterialApp(
-      theme: appTheme(),
-      home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
-    ));
+    expect(find.text('田中さん（11/3）：'), findsOneWidget);
+    expect(find.text('食い違い'), findsOneWidget);
+    await tester.tap(find.text('・塩 小さじ1'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('確認待ち 1'));
+    expect(find.text('確認リスト'), findsWidgets);
+    expect(find.text('あとで確認（1）'), findsOneWidget);
+  });
+
+  // 狭い画面では選択肢を縦に積む。はみ出すとテストが失敗する
+  testWidgets('狭い画面でも、確認リストから開いて確定できる', (tester) async {
+    Map<String, dynamic>? resolveBody;
+    await _pumpManual(tester, _client((b) => resolveBody = b), const Size(400, 860));
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
-    expect(find.text('確認が必要です'), findsOneWidget);
+    expect(find.text('あとで確認すること'), findsOneWidget);
 
+    final start = find.widgetWithText(MoonOutlinedButton, '確認できたので記録する');
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
     final confirm = find.widgetWithText(MoonFilledButton, '確定する');
     await tester.ensureVisible(confirm);
     await tester.pumpAndSettle();
@@ -144,5 +169,32 @@ void main() {
     expect(resolveBody, containsPair('text', '- 塩 小さじ1/2'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+  });
+
+  testWidgets('食い違いを記録しても確認へ急がせず、閉じるときに発言者の修正を保存する', (tester) async {
+    Map<String, dynamic>? editBody;
+    final client = MockClient((req) async {
+      final state = _state(resolved: false);
+      if (req.method == 'POST' && req.url.path.endsWith('/utterances')) {
+        return http.Response.bytes(utf8.encode(jsonEncode({'utteranceId': 'u1', 'state': state})), 200);
+      }
+      if (req.method == 'PATCH') editBody = jsonDecode(req.body);
+      return http.Response.bytes(utf8.encode(jsonEncode(state)), 200);
+    });
+    await _pumpManual(tester, client, const Size(1400, 1000));
+
+    await tester.enterText(find.widgetWithText(MoonTextInput, '例: 田中さんから、塩は小さじ1/2でいいと言われた'), '塩は1/2');
+    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('確認リストに入れました。聞けるときに確認して、決まったら記録します'), findsOneWidget);
+    expect(find.widgetWithText(MoonFilledButton, '誰に確認するか見る'), findsNothing);
+
+    await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
+    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.pumpAndSettle();
+
+    expect(editBody, containsPair('speaker', '田中さん（ホール）'));
+    expect(find.text('差分の確認'), findsNothing);
   });
 }

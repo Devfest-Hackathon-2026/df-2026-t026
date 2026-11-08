@@ -7,11 +7,13 @@ import '../api.dart';
 import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
-import 'check_screen.dart';
+import 'check_list_screen.dart';
 import 'common.dart';
 
+// 外側を押して閉じると発言者と日付の変更が保存されないので、閉じるボタンだけで閉じる
 Future<void> showReview(BuildContext context, ManualController c, String utteranceId) => showMoonModal<void>(
       context: context,
+      barrierDismissible: false,
       builder: (_) => ReviewDialog(c: c, utteranceId: utteranceId),
     );
 
@@ -53,6 +55,17 @@ class _ReviewDialogState extends State<ReviewDialog> {
     }
   }
 
+  /// 閉じる前に発言者と日付を保存する。保存に失敗しても閉じられなくならないよう、エラーを出してから閉じる
+  Future<void> _close() async {
+    setState(() => _busy = true);
+    try {
+      await _saveMeta();
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
   // Moon に日付選択が無いので、ここだけ Material の showDatePicker を使う（.claude/rules/flutter-ui.md）
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -89,7 +102,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       MoonButton.icon(
                         semanticLabel: '閉じる',
                         icon: Icon(LucideIcons.x, color: k.colors.ink),
-                        onTap: () => Navigator.pop(context),
+                        onTap: _busy ? null : _close,
                       ),
                     ]),
                   ),
@@ -165,20 +178,21 @@ class _ReviewDialogState extends State<ReviewDialog> {
         Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}に確認して確定済み',
             style: k.text.body.copyWith(color: k.colors.added))
       else ...[
-        Text('どちらが正しいかはアプリでは決めません。確認してから確定します。', style: k.text.body),
+        // 記録した時点では解決を求めない。確認リストに入ったことだけを伝える
+        Text('確認リストに入れました。聞けるときに確認して、決まったら記録します', style: k.text.body),
         SizedBox(height: k.space.md),
         Align(
-          alignment: Alignment.centerRight,
-          child: MoonFilledButton(
+          alignment: Alignment.centerLeft,
+          child: MoonOutlinedButton(
             onTap: _busy
                 ? null
                 : () => _run(() async {
                       if (!mounted) return;
                       final nav = Navigator.of(context);
                       nav.pop();
-                      await nav.push(MaterialPageRoute(builder: (_) => CheckScreen(c: widget.c, checkId: chk.id)));
+                      await nav.push(MaterialPageRoute(builder: (_) => CheckListScreen(c: widget.c)));
                     }),
-            label: const Text('誰に確認するか見る'),
+            label: const Text('確認リストを見る'),
           ),
         ),
       ],
