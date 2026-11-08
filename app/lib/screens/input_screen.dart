@@ -97,6 +97,9 @@ class _InputScreenState extends State<InputScreen> {
   CaptureRecorder? _listener;
   var _starting = false;
 
+  /// マイクを開けなかった。押すたびに開き直して同じ失敗を繰り返さないよう、もう一度試すボタンだけで開き直す
+  var _micDenied = false;
+
   /// 切り出しボタンを押してから、話し終わりを待って切り出すまで
   var _capturing = false;
 
@@ -203,7 +206,10 @@ class _InputScreenState extends State<InputScreen> {
 
   /// リワインドに切り替えたら待ち受けを始め、整理・入力に切り替えたら止める
   Future<void> _selectTab(int tab) async {
-    setState(() => _tab = tab);
+    setState(() {
+      _tab = tab;
+      _micDenied = false;
+    });
     final on = tab == _rewind;
     unawaited(SharedPreferences.getInstance().then((p) => p.setBool(listeningKey, on)));
     if (on) {
@@ -218,16 +224,23 @@ class _InputScreenState extends State<InputScreen> {
 
   Future<void> _startListening() async {
     if (_listener != null || _starting) return;
-    _starting = true;
+    setState(() {
+      _starting = true;
+      _micDenied = false;
+    });
     final c = await CaptureRecorder.start(widget.newRecorder(), onStopped: _onListenerStopped);
-    _starting = false;
+    if (!mounted) {
+      await c?.stop();
+      return;
+    }
+    setState(() => _starting = false);
     // マイクを開いている間に整理・入力へ切り替えられたら閉じる
-    if (!mounted || !_wantListening) {
+    if (!_wantListening) {
       await c?.stop();
       return;
     }
     if (c == null) {
-      showError(context, _noMic);
+      setState(() => _micDenied = true);
       return;
     }
     setState(() => _listener = c);
@@ -472,9 +485,10 @@ class _InputScreenState extends State<InputScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Listener(
-        onPointerDown: (_) {
-          if (_wantListening && _listener == null) _startListening();
-        },
+        // 指を離した操作（タブの切り替えなど）が済んでから確かめる。「整理・入力」を押したときにマイクを開かないため
+        onPointerUp: (_) => scheduleMicrotask(() {
+          if (mounted && _wantListening && _listener == null && !_micDenied) _startListening();
+        }),
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
             crumbs: const ['DiffNote（仮）'],
@@ -545,7 +559,20 @@ class _InputScreenState extends State<InputScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text('常時待ち受け', style: k.text.heading),
         SizedBox(height: k.space.sm),
-        if (c == null)
+        if (_starting)
+          Row(children: [
+            MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s),
+            SizedBox(width: k.space.sm),
+            Text('マイクを準備しています', style: k.text.small),
+          ])
+        else if (_micDenied) ...[
+          Text(_noMic, style: k.text.body),
+          SizedBox(height: k.space.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoonOutlinedButton(onTap: _startListening, label: const Text('待ち受けを始める')),
+          ),
+        ] else if (c == null)
           Text('画面のどこかを押すと、待ち受けを再開します', style: k.text.small)
         else ...[
           Text('端末内で直前60秒を保持中（送信していません）', style: k.text.small),
@@ -732,7 +759,8 @@ class _InputScreenState extends State<InputScreen> {
 
     return MoonDropdown(
       show: _attachMenu,
-      dropdownAnchorPosition: MoonDropdownAnchorPosition.topLeft,
+      // 上に開くと書いている文字に重なるので、下に開く
+      dropdownAnchorPosition: MoonDropdownAnchorPosition.bottomLeft,
       backgroundColor: k.colors.canvas,
       borderColor: k.colors.rule,
       onTapOutside: () => setState(() => _attachMenu = false),
