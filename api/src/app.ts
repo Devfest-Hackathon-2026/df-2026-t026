@@ -8,14 +8,16 @@ import { z } from 'zod';
 import { checkInput, type Check, type CheckPatch } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import type { Patchify } from './foundation/patchify.ts';
-import type { Route, Transcribe } from './intake.ts';
+import { readFiles, type Route, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
+import { phraseHints, type Listen } from './stt.ts';
 
 export interface Deps {
   store: Store;
   patchify: Patchify;
   check: CheckPatch;
   transcribe: Transcribe;
+  listen: Listen;
   route: Route;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
@@ -29,7 +31,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定して
 
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().min(1) });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
-// Gemini が読める形式のうち、入力ページで受け付けるもの（PDF・画像・録音）
+// 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
   mimeType: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'audio/wav']),
   data: z.base64(),
@@ -49,7 +51,8 @@ const NewIntake = z
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
-const EditUtterance = z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
+const Dictation = z.object({ data: z.base64().max(MAX_ATTACHMENT_CHARS) });
+const EditUtterance =z.object({ speaker: z.string().trim().min(1).optional(), saidAt: date.optional() });
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
@@ -63,7 +66,7 @@ const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'A
 
 const digest = (s: string) => createHash('sha256').update(s).digest();
 
-export function createApp({ store, patchify, check, transcribe, route, allowOrigin, passcode }: Deps) {
+export function createApp({ store, patchify, check, transcribe, listen, route, allowOrigin, passcode }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
@@ -99,6 +102,14 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
     checks.sort(byCreated);
     return { manual, lines: render(manual.base, patches), utterances, patches, checks };
   }
+
+  async function loadAll(userId: string) {
+    const manuals = await store.listManuals(userId);
+    return Promise.all(manuals.map((m) => load(userId, m.id)));
+  }
+
+  /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
+  const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
 
   function find<T extends { id: string }>(items: T[], id: string, label: string): T {
     const item = items.find((x) => x.id === id);
@@ -180,16 +191,17 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
   app.post('/utterances', async (c) => {
     const { userId } = c.var;
     const body = NewIntake.parse(await c.req.json());
-    const heard = body.files.length > 0 ? await transcribe(body.files) : '';
+    // 全マニュアルは、録音のフレーズヒントと振り分けにだけ使う
+    const hasAudio = body.files.some((f) => f.mimeType === 'audio/wav');
+    const states = hasAudio || !body.manualIds ? await loadAll(userId) : [];
+    const heard = await readFiles(body.files, { transcribe, listen, phrases: hasAudio ? phrasesOf(states) : [] });
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
     let manualIds = body.manualIds;
     if (!manualIds) {
-      const manuals = await store.listManuals(userId);
-      const states = await Promise.all(manuals.map((m) => load(userId, m.id)));
       const picked = await route({ manuals: states.map((s) => ({ title: s.manual.title, lines: s.lines.map((l) => l.text) })), text });
-      manualIds = picked.map((i) => manuals[i].id);
+      manualIds = picked.map((i) => states[i].manual.id);
     }
     const today = body.today ?? todayInJapan();
     const results = await Promise.all(
@@ -197,6 +209,13 @@ export function createApp({ store, patchify, check, transcribe, route, allowOrig
     );
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
+  });
+
+  // テキスト欄の音声入力。書き起こすだけで記録はしない（利用者が手直ししてから送る）
+  app.post('/transcribe', async (c) => {
+    const body = Dictation.parse(await c.req.json());
+    const text = await listen({ mimeType: 'audio/wav', data: body.data }, phrasesOf(await loadAll(c.var.userId)));
+    return c.json({ text });
   });
 
   app.patch('/manuals/:id/utterances/:uid', async (c) => {

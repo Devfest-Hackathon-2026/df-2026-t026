@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeCheck, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -14,7 +14,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, route: fakeRoute };
+const ai = { patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, listen: fakeListen, route: fakeRoute };
 
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
@@ -173,10 +173,52 @@ test('入力ページから：関係するマニュアルが無ければ保存�
 
 test('入力ページから：ファイルや録音はテキストにしてから差分化する', async () => {
   const data = Buffer.from('RIFF').toString('base64');
-  const { status, json } = await call('POST', '/utterances', { files: [{ mimeType: 'audio/wav', data }] });
+  const { status, json } = await call('POST', '/utterances', { files: [{ mimeType: 'application/pdf', data }] });
   assert.equal(status, 201);
   assert.equal(json.text, '田中さんから塩は小さじ1/2でいいと言われた');
   assert.equal(json.results[0].state.utterances[0].text, json.text);
+});
+
+test('入力ページから：録音は Speech-to-Text、PDF・画像は Gemini で書き起こす', async () => {
+  const heard: { mimeType: string; phrases: string[] }[] = [];
+  const read: string[] = [];
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  const split = createApp({
+    store,
+    ...ai,
+    listen: async (f, phrases) => (heard.push({ mimeType: f.mimeType, phrases }), '録音の文'),
+    transcribe: async (files) => (read.push(...files.map((f) => f.mimeType)), 'メモの文'),
+  });
+  const data = Buffer.from('x').toString('base64');
+  const res = await split.request('/utterances', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      files: [
+        { mimeType: 'audio/wav', data },
+        { mimeType: 'image/png', data },
+      ],
+      manualIds: ['demo-kitchen'],
+    }),
+  });
+  assert.equal(((await res.json()) as any).text, '録音の文\nメモの文');
+  assert.deepEqual(read, ['image/png']);
+  assert.equal(heard.length, 1);
+  // 録音のフレーズヒントには、登録した全マニュアルの見出しと項目の頭の語を渡す
+  assert.ok(heard[0].phrases.includes('味噌汁'));
+  assert.ok(heard[0].phrases.includes('塩'));
+  assert.ok(heard[0].phrases.includes('領収書'));
+});
+
+test('音声入力：書き起こした文面だけを返し、記録はしない', async () => {
+  const data = Buffer.from('RIFF').toString('base64');
+  const { status, json } = await call('POST', '/transcribe', { data });
+  assert.equal(status, 200);
+  assert.equal(json.text, '佐藤さんから、ご飯はおかわり1回まで無料と教わった');
+  const manual = await call('GET', '/manuals/demo-kitchen');
+  assert.equal(manual.json.utterances.length, 0);
+  assert.equal((await call('POST', '/transcribe', { data: 'not base64!' })).status, 400);
 });
 
 test('入力ページから：中身が無い、受け付けない形式のファイルなら 400 を返す', async () => {

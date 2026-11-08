@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import { fakeCheck, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeCheck, fakeListen, fakePatchify, fakeRoute, fakeTranscribe } from '../src/fake-ai.ts';
 import { FirestoreStore } from '../src/firestore-store.ts';
 import { seed } from '../src/seed.ts';
 
@@ -14,7 +14,7 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   await fetch(`http://${host}/emulator/v1/projects/${project}/databases/(default)/documents`, { method: 'DELETE' });
   const store = new FirestoreStore();
   await seed(store, 'demo');
-  const app = createApp({ store, patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, route: fakeRoute });
+  const app = createApp({ store, patchify: fakePatchify, check: fakeCheck, transcribe: fakeTranscribe, listen: fakeListen, route: fakeRoute });
   const call = async (method: string, path: string, body: unknown) =>
     (await app.request(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json() as Promise<any>;
 

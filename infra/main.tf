@@ -11,6 +11,7 @@ resource "google_project_service" "this" {
     "iamcredentials.googleapis.com",
     "run.googleapis.com",
     "serviceusage.googleapis.com",
+    "speech.googleapis.com",
     "sts.googleapis.com",
   ])
   service            = each.value
@@ -41,7 +42,7 @@ resource "google_service_account" "api" {
 }
 
 resource "google_project_iam_member" "api" {
-  for_each = toset(["roles/datastore.user", "roles/aiplatform.user"])
+  for_each = toset(["roles/datastore.user", "roles/aiplatform.user", "roles/speech.client"])
   project  = var.project_id
   role     = each.value
   member   = "serviceAccount:${google_service_account.api.email}"
@@ -177,11 +178,11 @@ resource "google_service_account_iam_member" "deployer_act_as_api" {
 
 # ---------- ローカルで本物の Gemini を試すメンバー ----------
 
-# 各自の Google アカウント（ADC）で Vertex AI を呼ぶための権限。serviceUsageConsumer は ADC の
+# 各自の Google アカウント（ADC）で Vertex AI と Speech-to-Text を呼ぶための権限。serviceUsageConsumer は ADC の
 # クォータ用プロジェクトにこのプロジェクトを指定するために要る。Firestore の権限は付けない（本番のデータを守る）
 resource "google_project_iam_member" "team" {
   for_each = {
-    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer"]) :
+    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/speech.client", "roles/serviceusage.serviceUsageConsumer"]) :
     "${pair[0]} ${pair[1]}" => { email = pair[0], role = pair[1] }
   }
   project = var.project_id
