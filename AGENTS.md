@@ -7,6 +7,7 @@
 - `infra/` Terraform、CI/CD は GitHub Actions。GCP リソースを手で作らない
 - モノレポ。`eval/` に衝突検知の評価セット、`docs/` に企画資料
 - `app/` の画面は moon_design と lucide で作り、`.claude/rules/flutter-ui.md` に従う（ADR 0004）
+- `app/` のボタンを足す・名前を変えるときは、先に `docs/spec/button-labels.md` に名前を書いてから実装し、同じ PR で一覧も更新する
 
 ## 作業の仕方
 - 最初に `git status --short` と対象の実装・テストを確認し既存のユーザー変更を保ってください。

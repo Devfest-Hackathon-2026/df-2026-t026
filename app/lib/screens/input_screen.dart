@@ -447,10 +447,10 @@ class _InputScreenState extends State<InputScreen> {
                 ],
                 SizedBox(height: k.space.lg),
                 Row(children: [
-                  MoonOutlinedButton(label: const Text('記録しない'), onTap: () => Navigator.pop(ctx)),
+                  MoonOutlinedButton(label: const Text('やめる'), onTap: () => Navigator.pop(ctx)),
                   const Spacer(),
                   MoonFilledButton(
-                    label: const Text('記録する'),
+                    label: const Text('選んだノートと照らし合わせる'),
                     onTap: picked.isEmpty
                         ? null
                         : () => Navigator.pop(ctx, [for (final m in manuals) if (picked.contains(m.id)) m.id]),
@@ -488,7 +488,7 @@ class _InputScreenState extends State<InputScreen> {
                   : MoonOutlinedButton(
                       buttonSize: MoonButtonSize.sm,
                       onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('ノートを確認'),
+                      label: const Text('ノートを見る'),
                     ),
             ),
             Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
@@ -601,7 +601,7 @@ class _InputScreenState extends State<InputScreen> {
             isFullWidth: true,
             onTap: _capturing ? null : _capture,
             leading: _capturing ? const ButtonLoader() : null,
-            label: Text(_capturing ? '話し終わりを待っています…' : '直前の発話を残す'),
+            label: Text(_capturing ? '話し終わるのを待っています…' : 'いま言われたことをメモする'),
           ),
         ],
       ]),
@@ -725,16 +725,14 @@ class _InputScreenState extends State<InputScreen> {
             if (_dictation != null) StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
           ]),
           SizedBox(height: k.space.lg),
-          Row(children: [
+          // 2列の狭い側ではボタンと案内が1行に収まらないので、案内を折り返す
+          Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
             MoonFilledButton(
               onTap: _ready && !_busy && !_dictating ? submit : null,
               leading: _busy ? const ButtonLoader() : null,
-              label: Text(_busy ? '差分を作成中…' : '差分を作る'),
+              label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
             ),
-            if (wide) ...[
-              SizedBox(width: k.space.md),
-              Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
-            ],
+            if (wide) Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
           ]),
         ]),
       ),
@@ -777,7 +775,7 @@ class _InputScreenState extends State<InputScreen> {
     final listening = _dictation != null;
     return MoonButton.icon(
       buttonSize: MoonButtonSize.sm,
-      semanticLabel: listening ? '音声入力を止める' : '音声入力',
+      semanticLabel: listening ? '声での入力をやめる' : '声で入力する',
       backgroundColor: listening ? k.colors.pendingBg : null,
       onTap: _busy || (_dictating && !listening) ? null : _toggleDictation,
       icon: _dictating && !listening
