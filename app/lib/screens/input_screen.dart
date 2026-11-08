@@ -14,6 +14,7 @@ import '../audio/capture_recorder.dart';
 import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../web/screen.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'home_screen.dart';
@@ -79,9 +80,13 @@ class _InputScreenState extends State<InputScreen> {
   /// 音声入力を始めたときの入力欄。届いた文面はこの後ろに足す
   var _beforeDictation = '';
 
+  late final void Function() _stopWatchingScreen;
+
   @override
   void initState() {
     super.initState();
+    // 画面に戻ったら、待ち受けのマイクが止められていないかを確かめる
+    _stopWatchingScreen = onScreenShown(() => _listener?.checkAlive());
     SharedPreferences.getInstance().then((p) {
       if (mounted && p.getBool(listeningKey) == true) setState(() => _wantListening = true);
     });
@@ -90,6 +95,8 @@ class _InputScreenState extends State<InputScreen> {
   @override
   void dispose() {
     _text.dispose();
+    _stopWatchingScreen();
+    if (_listener != null) keepScreenOn(false);
     _listener?.stop();
     _dictation?.stop();
     _dictationSocket?.sink.close();
@@ -147,6 +154,7 @@ class _InputScreenState extends State<InputScreen> {
     } else {
       final c = _listener;
       setState(() => _listener = null);
+      keepScreenOn(false);
       await c?.stop();
     }
   }
@@ -154,7 +162,7 @@ class _InputScreenState extends State<InputScreen> {
   Future<void> _startListening() async {
     if (_listener != null || _starting) return;
     _starting = true;
-    final c = await CaptureRecorder.start(widget.newRecorder());
+    final c = await CaptureRecorder.start(widget.newRecorder(), onStopped: _onListenerStopped);
     _starting = false;
     // マイクを開いている間に OFF にされたら閉じる
     if (!mounted || !_wantListening) {
@@ -167,6 +175,17 @@ class _InputScreenState extends State<InputScreen> {
       return;
     }
     setState(() => _listener = c);
+    keepScreenOn(true);
+  }
+
+  /// 画面が消えている間などにマイクが止まったら知らせる。ON は覚えたままにし、次の操作で再開する
+  void _onListenerStopped() {
+    final c = _listener;
+    if (!mounted || c == null) return;
+    setState(() => _listener = null);
+    keepScreenOn(false);
+    c.stop();
+    showError(context, '待ち受けが止まっていました。画面のどこかを押すと再開します');
   }
 
   /// 言われた後に押す。話し終わりを待って直前の発話だけを切り出し、そのまま記録する
@@ -411,6 +430,7 @@ class _InputScreenState extends State<InputScreen> {
           )
         else ...[
           Text('端末内で直前60秒を保持中（送信していません）', style: k.text.small),
+          Text('押したときだけ、その発話を文字に起こすために送ります。音声は保存しません', style: k.text.small),
           SizedBox(height: k.space.xs),
           ValueListenableBuilder(
             valueListenable: c.level,

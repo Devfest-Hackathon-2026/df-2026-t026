@@ -98,11 +98,11 @@ class _FakeMic implements AudioRecorder {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// 16kHz・16bit の PCM。声は一定の大きさの音、無音は 0
-Uint8List _pcm(int ms, {required bool voice}) {
+/// 16kHz・16bit の PCM。声は一定の大きさの音、無音は 0。level を渡すとその大きさの音にする
+Uint8List _pcm(int ms, {bool voice = false, int? level}) {
   final d = ByteData(16 * ms * 2);
   for (var i = 0; i < 16 * ms; i++) {
-    d.setInt16(i * 2, voice ? 3000 : 0, Endian.little);
+    d.setInt16(i * 2, level ?? (voice ? 3000 : 0), Endian.little);
   }
   return d.buffer.asUint8List();
 }
@@ -328,6 +328,53 @@ void main() {
     // 1秒の発話に前後300msの余白を足した長さ（16kHz・16bit）だけを切り出す
     expect(base64Decode(file['data']).length, 44 + 1600 * 16 * 2);
     expect(find.text('差分の確認'), findsOneWidget);
+  });
+
+  testWidgets('騒音が続く所でも、騒音を声とみなさずに発話だけを切り出す', (tester) async {
+    final mic = StreamController<Uint8List>();
+    Map<String, dynamic>? sent;
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent = body;
+        return _json({
+          'text': '塩は小さじ1/2',
+          'results': [
+            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+          ],
+        }, 201);
+      }),
+      mic: mic,
+    );
+    await tester.tap(find.byType(MoonSwitch));
+    await tester.pumpAndSettle();
+
+    // 換気扇の音（RMS 1500）の中で1秒話す
+    mic
+      ..add(_pcm(3000, level: 1500))
+      ..add(_pcm(1000, level: 8000))
+      ..add(_pcm(1200, level: 1500));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直前の発話を記録する'));
+    await tester.pumpAndSettle();
+
+    final file = (sent!['files'] as List).single;
+    // 1秒の発話に前後300msの余白を足した長さだけで、騒音の部分は切り出さない
+    expect(base64Decode(file['data']).length, 44 + 1600 * 16 * 2);
+  });
+
+  testWidgets('待ち受けのマイクが止まったら知らせ、再開のしかたを出す', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
+    await tester.tap(find.byType(MoonSwitch));
+    await tester.pumpAndSettle();
+
+    await mic.close();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('待ち受けが止まっていました。画面のどこかを押すと再開します'), findsOneWidget);
+    expect(find.text('画面のどこかを押すと、待ち受けを再開します'), findsOneWidget);
+    await _waitToast(tester);
   });
 
   testWidgets('声が入っていなければ、切り出しても送らずに知らせる', (tester) async {
