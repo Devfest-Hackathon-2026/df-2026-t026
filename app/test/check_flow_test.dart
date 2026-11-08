@@ -86,7 +86,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('確認待ち（1）'), findsOneWidget);
+    // 確認待ちがあれば、パネルは確認待ちを開いた状態で出る
+    expect(find.text('塩 小さじ1 ／ 塩 小さじ1/2'), findsOneWidget);
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
 
@@ -107,6 +108,41 @@ void main() {
     expect(resolveBody, containsPair('note', '1/2で統一'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     expect(find.text('確定した内容：塩 小さじ1/2'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+  });
+
+  // 狭い画面ではタブ1段に切り替わり、確認画面の選択肢は縦に積む。はみ出すとテストが失敗する
+  testWidgets('狭い画面でも、確認待ちのタブから確認画面を開いて確定できる', (tester) async {
+    tester.view.physicalSize = const Size(400, 860);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    Map<String, dynamic>? resolveBody;
+    final client = MockClient((req) async {
+      final resolved = resolveBody != null || req.url.path.endsWith('/resolve');
+      if (req.url.path.endsWith('/resolve')) resolveBody = jsonDecode(req.body);
+      return http.Response.bytes(utf8.encode(jsonEncode(_state(resolved: resolved))), 200);
+    });
+    await tester.pumpWidget(MaterialApp(
+      theme: appTheme(),
+      home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('確認待ち 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
+    await tester.pumpAndSettle();
+    expect(find.text('確認が必要です'), findsOneWidget);
+
+    final confirm = find.widgetWithText(MoonFilledButton, '確定する');
+    await tester.ensureVisible(confirm);
+    await tester.pumpAndSettle();
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(resolveBody, containsPair('text', '- 塩 小さじ1/2'));
+    expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 }

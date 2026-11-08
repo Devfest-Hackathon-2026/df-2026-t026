@@ -23,6 +23,24 @@ String plain(String line) => line.replaceFirst(RegExp(r'^(## |- )'), '');
   };
 }
 
+/// 状態を表す小さなラベル
+class StatusTag extends StatelessWidget {
+  const StatusTag(this.label, {super.key, required this.bg, required this.fg, this.onTap});
+  final String label;
+  final Color bg;
+  final Color fg;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => MoonTag(
+        tagSize: MoonTagSize.xs,
+        backgroundColor: bg,
+        borderRadius: context.tokens.radius.control,
+        onTap: onTap,
+        label: Text(label, style: context.tokens.text.label.copyWith(color: fg)),
+      );
+}
+
 class KindTag extends StatelessWidget {
   const KindTag(this.kind, {super.key});
   final Kind kind;
@@ -30,50 +48,98 @@ class KindTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = kindColors(context, kind);
-    return MoonTag(
-      tagSize: MoonTagSize.xs,
-      backgroundColor: bg,
-      borderRadius: context.tokens.radius.control,
-      label: Text(kind.label, style: context.tokens.text.label.copyWith(color: fg)),
-    );
+    return StatusTag(kind.label, bg: bg, fg: fg);
   }
 }
 
-/// 戻るボタンと題名。AppBar の代わり
-class PageHeader extends StatelessWidget {
-  const PageHeader({super.key, required this.title, this.trailing, this.wide = false});
-  final String title;
-  final Widget? trailing;
+/// 上部バー。戻るボタンと、いまの場所を示すパンくず
+class TopBar extends StatelessWidget {
+  const TopBar({super.key, required this.crumbs, this.trailing});
 
-  /// 本文が画面幅いっぱいのとき true。false なら本文（Narrow）と端を揃える
-  final bool wide;
+  /// 画面の積み重ねと同じ順。最後がいまの画面
+  final List<String> crumbs;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     final canPop = Navigator.canPop(context);
-    final row = Row(children: [
-      if (canPop) ...[
-        MoonButton.icon(
-          semanticLabel: '戻る',
-          icon: Icon(LucideIcons.arrowLeft, color: k.colors.ink),
-          onTap: () => Navigator.maybePop(context),
-        ),
-        SizedBox(width: k.space.xs),
-      ],
-      Expanded(child: Text(title, style: k.text.title, overflow: TextOverflow.ellipsis)),
-      ?trailing,
-    ]);
     return Container(
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline))),
-      padding: EdgeInsets.symmetric(vertical: k.space.md),
+      decoration: BoxDecoration(
+        color: k.colors.shell,
+        border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
+      ),
+      padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
       child: SafeArea(
         bottom: false,
-        child: wide
-            ? Padding(padding: EdgeInsets.symmetric(horizontal: k.space.sm), child: row)
-            : Narrow(child: Padding(padding: EdgeInsets.symmetric(horizontal: k.space.xl), child: row)),
+        child: Row(children: [
+          if (canPop) ...[
+            MoonButton.icon(
+              semanticLabel: '戻る',
+              icon: Icon(LucideIcons.arrowLeft, color: k.colors.ink),
+              onTap: () => Navigator.maybePop(context),
+            ),
+            SizedBox(width: k.space.xs),
+          ] else
+            SizedBox(width: k.space.sm),
+          Expanded(
+            child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+              for (var i = 0; i < crumbs.length; i++) ...[
+                if (i > 0) Text(' / ', style: k.text.small),
+                _crumb(context, i),
+              ],
+            ]),
+          ),
+          ?trailing,
+        ]),
       ),
     );
+  }
+
+  Widget _crumb(BuildContext context, int i) {
+    final k = context.tokens;
+    final last = i == crumbs.length - 1;
+    final text = Text(
+      crumbs[i],
+      overflow: TextOverflow.ellipsis,
+      style: last ? k.text.heading : k.text.body.copyWith(color: k.colors.inkMuted),
+    );
+    if (last) return text;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          var n = crumbs.length - 1 - i;
+          Navigator.popUntil(context, (_) => n-- == 0);
+        },
+        child: text,
+      ),
+    );
+  }
+}
+
+/// 内容の頭に置く題名と、その下のメタ情報
+class PageTitle extends StatelessWidget {
+  const PageTitle(this.title, {super.key, this.meta = const [], this.trailing});
+  final String title;
+
+  /// 1つずつ別の要素として並べる（・でつながない）
+  final List<Widget> meta;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Text(title, style: k.text.display)),
+        if (trailing != null) ...[SizedBox(width: k.space.lg), trailing!],
+      ]),
+      if (meta.isNotEmpty) ...[
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.lg, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: meta),
+      ],
+    ]);
   }
 }
 
@@ -85,28 +151,49 @@ class LineText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens.text;
-    if (line.startsWith('## ')) return Text(line.substring(3), style: t.heading);
+    if (line.startsWith('## ')) return Text(line.substring(3), style: t.title);
     return Text(line.startsWith('- ') ? '・${line.substring(2)}' : line, style: t.body);
   }
 }
 
-/// 口頭で言われたことの発言者と日付。マスキングテープのラベルに見立てる
-class SpeakerTape extends StatelessWidget {
-  const SpeakerTape({super.key, required this.speaker, required this.day, this.onTap});
-  final String? speaker;
+/// 名前の頭文字のアバター。色は名前から決める
+class Avatar extends StatelessWidget {
+  const Avatar(this.name, {super.key});
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    final n = name == null || name!.isEmpty ? '?' : name!;
+    final colors = k.colors.avatars;
+    return MoonAvatar(
+      avatarSize: MoonAvatarSize.xs,
+      borderRadius: k.radius.round,
+      backgroundColor: colors[n.codeUnits.fold(0, (a, b) => a + b) % colors.length],
+      content: Text(n.characters.first, style: k.text.label),
+    );
+  }
+}
+
+/// 誰が・いつ言ったか
+class Speaker extends StatelessWidget {
+  const Speaker({super.key, required this.name, required this.day, this.onTap});
+  final String? name;
   final String day;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    return MoonTag(
-      tagSize: MoonTagSize.xs,
-      backgroundColor: k.colors.tape,
-      borderRadius: k.radius.tape,
-      onTap: onTap,
-      label: Text('${speaker ?? '発言者未入力'} ${fmtDay(day)}', style: k.text.hand.copyWith(fontSize: k.text.small.fontSize)),
-    );
+    final row = Row(mainAxisSize: MainAxisSize.min, children: [
+      Avatar(name),
+      SizedBox(width: k.space.sm),
+      Text(name ?? '発言者未入力', style: k.text.small.copyWith(color: k.colors.ink)),
+      SizedBox(width: k.space.sm),
+      Text(fmtDay(day), style: k.text.small),
+    ]);
+    if (onTap == null) return row;
+    return MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(onTap: onTap, child: row));
   }
 }
 
@@ -174,7 +261,7 @@ class PatchDiff extends StatelessWidget {
     final c = k.colors;
     return Container(
       decoration: BoxDecoration(
-        color: c.sheet,
+        color: c.canvas,
         border: Border.all(color: c.rule, width: k.hairline),
         borderRadius: k.radius.control,
       ),
@@ -197,7 +284,8 @@ class PatchDiff extends StatelessWidget {
       );
 }
 
-/// 衝突を並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
+/// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
+/// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
 /// マニュアル側は印字、言われた側は手書きの書体にして、文書と口頭の違いを見せる
 class ConflictPair extends StatelessWidget {
   const ConflictPair({
@@ -213,7 +301,7 @@ class ConflictPair extends StatelessWidget {
   final String rightLabel;
   final String right;
 
-  /// 確認して確定済み。確認待ち（付箋）の色をやめる
+  /// 確認して確定済み。確認待ちの黄をやめる
   final bool settled;
 
   @override
@@ -221,19 +309,22 @@ class ConflictPair extends StatelessWidget {
     final k = context.tokens;
     final c = k.colors;
     Widget side(String label, String text, TextStyle style) => Expanded(
-          child: Padding(
-            padding: EdgeInsets.all(k.space.lg),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: k.text.small),
-              SizedBox(height: k.space.sm),
-              Text(plain(text), style: style),
-            ]),
-          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              color: c.shell,
+              padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+              child: Text(label, style: k.text.small),
+            ),
+            Padding(
+              padding: EdgeInsets.all(k.space.lg),
+              child: Text(plain(text), style: style),
+            ),
+          ]),
         );
     return Container(
       decoration: BoxDecoration(
-        color: c.sheet,
-        border: Border.all(color: settled ? c.rule : c.pending, width: k.hairline),
+        color: c.canvas,
+        border: Border.all(color: c.rule, width: k.hairline),
         borderRadius: k.radius.surface,
       ),
       clipBehavior: Clip.antiAlias,
@@ -242,7 +333,7 @@ class ConflictPair extends StatelessWidget {
           side(leftLabel, left, k.text.title),
           Container(
             width: k.space.xl + k.space.sm,
-            color: settled ? c.paper : c.pendingBg,
+            color: settled ? c.shell : c.pendingBg,
             alignment: Alignment.center,
             child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
           ),
@@ -253,43 +344,29 @@ class ConflictPair extends StatelessWidget {
   }
 }
 
-/// 一覧の区切りの見出し
-class SectionHeading extends StatelessWidget {
-  const SectionHeading(this.text, {super.key});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final k = context.tokens;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.sm),
-      child: Text(text, style: k.text.heading),
-    );
-  }
-}
-
 /// 罫線
 class Rule extends StatelessWidget {
-  const Rule({super.key, this.indent = 0});
-  final double indent;
+  const Rule({super.key});
 
   @override
-  Widget build(BuildContext context) => Container(
-        margin: EdgeInsetsDirectional.only(start: indent),
-        height: context.tokens.hairline,
-        color: context.tokens.colors.rule,
-      );
+  Widget build(BuildContext context) => Container(height: context.tokens.hairline, color: context.tokens.colors.rule);
 }
 
 /// 幅を抑えて中央に置く
 class Narrow extends StatelessWidget {
-  const Narrow({super.key, required this.child});
+  const Narrow({super.key, required this.child, this.maxWidth});
   final Widget child;
+
+  /// 省略時は本文の幅（readableWidth）
+  final double? maxWidth;
 
   @override
   Widget build(BuildContext context) => Align(
         alignment: Alignment.topCenter,
-        child: ConstrainedBox(constraints: BoxConstraints(maxWidth: context.tokens.readableWidth), child: child),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth ?? context.tokens.readableWidth),
+          child: child,
+        ),
       );
 }
 
@@ -318,7 +395,6 @@ class LoadFailed extends StatelessWidget {
           Text('読み込めませんでした：$message', style: k.text.body, textAlign: TextAlign.center),
           SizedBox(height: k.space.lg),
           MoonOutlinedButton(
-            leading: const Icon(LucideIcons.refreshCw),
             label: const Text('もう一度読み込む'),
             onTap: onRetry,
           ),
@@ -336,7 +412,7 @@ class ButtonLoader extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox.square(
         dimension: context.tokens.space.lg,
         child: MoonCircularLoader(
-          color: context.tokens.colors.sheet,
+          color: context.tokens.colors.canvas,
           circularLoaderSize: MoonCircularLoaderSize.x2s,
         ),
       );
@@ -348,8 +424,8 @@ void showToast(BuildContext context, String message, {bool error = false}) {
     context,
     backgroundColor: k.colors.ink,
     toastShadows: const [],
-    leading: Icon(error ? LucideIcons.circleAlert : LucideIcons.check, color: k.colors.sheet),
-    label: Text(message, style: k.text.body.copyWith(color: k.colors.sheet)),
+    leading: Icon(error ? LucideIcons.circleAlert : LucideIcons.check, color: k.colors.canvas),
+    label: Text(message, style: k.text.body.copyWith(color: k.colors.canvas)),
   );
 }
 

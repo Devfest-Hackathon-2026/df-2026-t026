@@ -52,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _createButton() => MoonFilledButton(
-        leading: const Icon(LucideIcons.plus),
         label: const Text('マニュアルを登録'),
         onTap: _create,
       );
@@ -60,16 +59,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder(
-        future: _manuals,
-        builder: (context, snap) {
-          final manuals = snap.data;
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            PageHeader(title: 'DiffNote（仮）', trailing: manuals?.isNotEmpty ?? false ? _createButton() : null),
-            Expanded(child: _body(snap)),
-          ]);
-        },
-      ),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const TopBar(crumbs: ['DiffNote（仮）']),
+        Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+      ]),
     );
   }
 
@@ -80,65 +73,93 @@ class _HomeScreenState extends State<HomeScreen> {
     if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
     if (!snap.hasData) return const Loading();
     final manuals = snap.data!;
-    if (manuals.isEmpty) return _empty();
 
     final k = context.tokens;
-    return Narrow(
-      child: ListView(padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.xl), children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-          child: Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small),
-        ),
-        SizedBox(height: k.space.lg),
-        const Rule(),
-        for (final m in manuals) ...[_row(m), const Rule()],
+    // 狭い画面では表の列をやめ、記録数と状態を名前の下に並べる
+    final table = MediaQuery.sizeOf(context).width >= k.wideLayout;
+    return Container(
+      color: k.colors.canvas,
+      child: Narrow(
+        maxWidth: k.pageWidth,
+        child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+          PageTitle(
+            'マニュアル',
+            meta: [Text('教わったことを、言った人と日付つきでマニュアルに積み上げる', style: k.text.small)],
+            trailing: manuals.isEmpty ? null : _createButton(),
+          ),
+          SizedBox(height: k.space.xl),
+          if (manuals.isEmpty) _empty() else ...[
+            if (table) _headerRow(),
+            const Rule(),
+            for (final m in manuals) ...[_row(m, table: table), const Rule()],
+          ],
+        ]),
+      ),
+    );
+  }
+
+  Widget _headerRow() {
+    final k = context.tokens;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
+      child: Row(children: [
+        Expanded(child: Text('名前', style: k.text.small)),
+        SizedBox(width: k.numberColumn, child: Text('記録', style: k.text.small)),
+        SizedBox(width: k.numberColumn, child: Text('状態', style: k.text.small)),
+        SizedBox(width: k.gutter),
       ]),
     );
   }
 
-  Widget _row(ManualSummary m) {
+  Widget _row(ManualSummary m, {required bool table}) {
     final k = context.tokens;
+    final status = m.openCount > 0
+        ? StatusTag('確認待ち ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
+        : Text('確認待ちなし', style: k.text.small);
     return MoonMenuItem(
       onTap: () => _open(m.id),
       menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-      label: Text(m.title, style: k.text.heading),
-      content: Padding(
-        padding: EdgeInsets.only(top: k.space.xs),
-        child: Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Text('記録 ${m.utteranceCount} 件', style: k.text.small),
-          if (m.openCount > 0)
-            MoonTag(
-              tagSize: MoonTagSize.xs,
-              backgroundColor: k.colors.pendingBg,
-              borderRadius: k.radius.control,
-              label: Text('確認待ち ${m.openCount} 件', style: k.text.label.copyWith(color: k.colors.pending)),
+      horizontalGap: 0,
+      label: table
+          ? Row(children: [
+              Expanded(child: Text(m.title, style: k.text.heading)),
+              SizedBox(width: k.numberColumn, child: Text('${m.utteranceCount} 件', style: k.text.body)),
+              SizedBox(width: k.numberColumn, child: Align(alignment: Alignment.centerLeft, child: status)),
+            ])
+          : Text(m.title, style: k.text.heading),
+      content: table
+          ? null
+          : Padding(
+              padding: EdgeInsets.only(top: k.space.xs),
+              child: Wrap(spacing: k.space.md, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                Text('記録 ${m.utteranceCount} 件', style: k.text.small),
+                status,
+              ]),
             ),
-        ]),
-      ),
-      trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
+      trailing: SizedBox(width: k.gutter, child: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted)),
     );
   }
 
   /// 最初の1冊を登録するまでの案内
   Widget _empty() {
     final k = context.tokens;
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.all(k.space.xl),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(LucideIcons.notebookPen, color: k.colors.inkMuted),
-          SizedBox(height: k.space.md),
-          Text('まだマニュアルがありません', style: k.text.heading),
-          SizedBox(height: k.space.sm),
-          Text(
-            '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
-            style: k.text.small,
-            textAlign: TextAlign.center,
-          ),
-          SizedBox(height: k.space.xl),
-          _createButton(),
-        ]),
+    return Container(
+      padding: EdgeInsets.all(k.space.xxl),
+      decoration: BoxDecoration(
+        color: k.colors.shell,
+        borderRadius: k.radius.surface,
       ),
+      child: Column(children: [
+        Text('まだマニュアルがありません', style: k.text.heading),
+        SizedBox(height: k.space.sm),
+        Text(
+          '今あるマニュアルを貼り付けて登録すると、\n口頭で教わったことをそこに積み上げていけます。',
+          style: k.text.small,
+          textAlign: TextAlign.center,
+        ),
+        SizedBox(height: k.space.xl),
+        _createButton(),
+      ]),
     );
   }
 }

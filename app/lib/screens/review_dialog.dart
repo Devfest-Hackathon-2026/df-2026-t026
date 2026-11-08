@@ -75,7 +75,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
         return Padding(
           padding: EdgeInsets.all(k.space.lg),
           child: MoonModal(
-            backgroundColor: k.colors.sheet,
+            backgroundColor: k.colors.canvas,
             // Moon の入力欄は Material の祖先を要求する
             child: Material(
               type: MaterialType.transparency,
