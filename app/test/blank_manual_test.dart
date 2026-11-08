@@ -49,7 +49,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(sent, {'title': '自分用メモ', 'body': ''});
     expect(find.byType(ManualScreen), findsOneWidget);
-    expect(find.widgetWithText(MoonTextButton, '行を書き足す'), findsOneWidget);
+    expect(find.widgetWithText(MoonTextButton, '行を足す'), findsOneWidget);
   });
 
   testWidgets('白紙のノートは、直接書くか記録すると書き足されることを案内する', (tester) async {

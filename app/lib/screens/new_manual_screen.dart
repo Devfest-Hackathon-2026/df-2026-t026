@@ -76,7 +76,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
                 child: MoonFilledButton(
                   onTap: _ready && !_busy ? _create : null,
                   leading: _busy ? const ButtonLoader() : null,
-                  label: Text(_busy ? '登録中…' : (_blank ? '白紙から始める' : 'この内容で作る')),
+                  label: Text(_busy ? '作っています…' : (_blank ? '白紙から始める' : 'この内容で作る')),
                 ),
               ),
             ]),

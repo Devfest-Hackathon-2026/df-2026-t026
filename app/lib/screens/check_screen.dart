@@ -133,7 +133,7 @@ class _CheckDetailState extends State<CheckDetail> {
               for (final cand in chk.candidates) _candidate(cand),
               if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
               SizedBox(height: k.space.xxl),
-              _step('3', '確認できたら記録する'),
+              _step('3', '聞いた結果を記録する'),
               if (_recording)
                 _form(chk, p, u)
               else ...[
@@ -143,7 +143,7 @@ class _CheckDetailState extends State<CheckDetail> {
                   alignment: Alignment.centerLeft,
                   child: MoonOutlinedButton(
                     onTap: () => setState(() => _recording = true),
-                    label: const Text('確認できたので記録する'),
+                    label: const Text('聞いた結果を記録する'),
                   ),
                 ),
               ],
@@ -206,7 +206,7 @@ class _CheckDetailState extends State<CheckDetail> {
           ]),
         ),
         MoonButton.icon(
-          semanticLabel: 'コピー',
+          semanticLabel: '聞き方をコピーする',
           icon: Icon(LucideIcons.copy, color: k.colors.ink),
           onTap: () async {
             await Clipboard.setData(ClipboardData(text: q));
@@ -232,7 +232,7 @@ class _CheckDetailState extends State<CheckDetail> {
         MoonOutlinedButton(
           onTap: _pickDate,
           leading: const Icon(LucideIcons.calendar),
-          label: Text('${fmtDay(_decidedAt)} に確認'),
+          label: Text('${fmtDay(_decidedAt)} に聞いた'),
         ),
       ]),
       SizedBox(height: k.space.xl),
@@ -266,7 +266,7 @@ class _CheckDetailState extends State<CheckDetail> {
         child: MoonFilledButton(
           onTap: ready && !_busy ? () => _resolve(chk, p) : null,
           leading: _busy ? const ButtonLoader() : null,
-          label: const Text('確定する'),
+          label: const Text('確認済みにする'),
         ),
       ),
     ]);
