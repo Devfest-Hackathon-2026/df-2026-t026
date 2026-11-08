@@ -171,6 +171,15 @@ class _ManualScreenState extends State<ManualScreen> {
         )
       else if (said != null)
         Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
+      for (final c in s.sameChecksFor(line))
+        Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Speaker(
+            name: s.utterance(c.utteranceId).speaker,
+            day: s.utterance(c.utteranceId).saidAt,
+            onTap: () => _showUtterance(s.utterance(c.utteranceId)),
+          ),
+          Text('も同じ', style: k.text.small),
+        ]),
       // 食い違っていることをその場で見せる：「マニュアルの行 ／ 誰（日付）：言われたこと」
       for (final o in open)
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -330,6 +339,7 @@ class _ManualScreenState extends State<ManualScreen> {
       final chk = s.checkOf(p.id);
       if (chk?.resolution != null) return '確認済み';
       if (chk?.isOpen ?? false) return 'あとで確認';
+      if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
       return switch (p.status) { 'applied' => '反映済み', 'discarded' => '反映しない', _ => '未反映' };
     }).toList();
   }

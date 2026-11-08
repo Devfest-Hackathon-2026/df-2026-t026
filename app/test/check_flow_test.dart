@@ -69,6 +69,42 @@ Map<String, dynamic> _state({required bool resolved}) => {
       ],
     };
 
+/// 「佐藤さんから塩は小さじ1と言われた」が、マニュアルと同じ内容と判定された state
+Map<String, dynamic> _sameState({required String status}) => {
+      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+      'lines': [
+        {'text': '## 味噌汁', 'patchId': null},
+        {'text': '- 塩 小さじ1', 'patchId': null},
+      ],
+      'utterances': [
+        {'id': 'u1', 'text': '佐藤さんから塩は小さじ1と言われた', 'speaker': '佐藤さん', 'saidAt': '2026-11-09'},
+      ],
+      'patches': [
+        {
+          'id': 'p1',
+          'utteranceId': 'u1',
+          'op': 'replace',
+          'line': '- 塩 小さじ1',
+          'text': '- 塩 小さじ1',
+          'summary': '塩: 小さじ1',
+          'status': status,
+        },
+      ],
+      'checks': [
+        {
+          'id': 'c1',
+          'patchId': 'p1',
+          'utteranceId': 'u1',
+          'kind': 'same',
+          'conflictLine': null,
+          'sameLine': '- 塩 小さじ1',
+          'reason': 'マニュアルの「塩 小さじ1」と同じ内容です',
+          'ask': null,
+          'resolution': null,
+        },
+      ],
+    };
+
 /// どのパスにも state を返す。resolve を受けたら確定後の state にする
 MockClient _client(void Function(Map<String, dynamic>) onResolve) {
   var resolved = false;
@@ -196,5 +232,33 @@ void main() {
 
     expect(editBody, containsPair('speaker', '田中さん（ホール）'));
     expect(find.text('差分の確認'), findsNothing);
+  });
+
+  testWidgets('マニュアルと同じ内容は本文を変えず、記録だけ残して行の裏付けとして見せる', (tester) async {
+    var discarded = false;
+    final client = MockClient((req) async {
+      if (req.url.path.endsWith('/discard')) discarded = true;
+      final state = _sameState(status: discarded ? 'discarded' : 'proposed');
+      if (req.method == 'POST' && req.url.path.endsWith('/utterances')) {
+        return http.Response.bytes(utf8.encode(jsonEncode({'utteranceId': 'u1', 'state': state})), 200);
+      }
+      return http.Response.bytes(utf8.encode(jsonEncode(state)), 200);
+    });
+    await _pumpManual(tester, client, const Size(1400, 1000));
+
+    // 同じことを言った人を、その行の横に出す
+    expect(find.text('も同じ'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(MoonTextInput, '例: 田中さんから、塩は小さじ1/2でいいと言われた'), '塩は小さじ1');
+    await tester.tap(find.widgetWithText(MoonFilledButton, '差分を作る'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('同じ内容'), findsWidgets);
+    expect(find.textContaining('と同じ内容です。本文は変えずに'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録だけ残す'));
+    await tester.pumpAndSettle();
+
+    expect(discarded, isTrue);
+    expect(find.text('記録だけ残しました'), findsOneWidget);
   });
 }
