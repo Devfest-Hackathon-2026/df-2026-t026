@@ -164,11 +164,9 @@ Future<void> _pumpInput(WidgetTester tester, http.Client client,
   await tester.pumpAndSettle();
 }
 
-/// リワインドのタブを開き、常時待ち受けを ON にする
+/// リワインドのタブを開く。開くと常時待ち受けが始まる
 Future<void> _startRewind(WidgetTester tester) async {
   await tester.tap(find.text('リワインド'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byType(MoonSwitch));
   await tester.pumpAndSettle();
 }
 
@@ -367,17 +365,24 @@ void main() {
     expect(find.byType(MoonTextArea), findsNothing);
   });
 
-  testWidgets('常時待ち受けを ON にすると、送っていないことの案内と音量を出し、選んだことを覚える', (tester) async {
-    await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
-    // 前回 OFF なら「整理・入力」から始まる
+  testWidgets('リワインドに切り替えると待ち受けを始めて送っていないことの案内と音量を出し、整理・入力に切り替えると止める', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
+    // 前回リワインドを開いていなければ「整理・入力」から始まる
     expect(find.byType(MoonTextArea), findsOneWidget);
-    expect(find.byType(MoonSwitch), findsNothing);
+    expect(mic.hasListener, isFalse);
 
     await _startRewind(tester);
 
+    expect(mic.hasListener, isTrue);
     expect(find.text('端末内で直前60秒を保持中（送信していません）'), findsOneWidget);
     expect(find.byType(MoonLinearProgress), findsOneWidget);
     expect((await SharedPreferences.getInstance()).getBool(listeningKey), isTrue);
+
+    await tester.tap(find.text('整理・入力'));
+    await tester.pumpAndSettle();
+    expect(mic.hasListener, isFalse);
+    expect((await SharedPreferences.getInstance()).getBool(listeningKey), isFalse);
   });
 
   testWidgets('切り出すと、押した時刻の発話だけを書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {

@@ -28,7 +28,7 @@ import 'review_dialog.dart';
 /// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
 const passcodeKey = 'passcode';
 
-/// 常時待ち受けを ON にしたかをブラウザ（shared_preferences）に覚えておくときのキー
+/// リワインドを開いていた（待ち受けていた）かをブラウザ（shared_preferences）に覚えておくときのキー
 const listeningKey = 'listening';
 
 /// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
@@ -90,9 +90,9 @@ class _InputScreenState extends State<InputScreen> {
   final _files = <Attachment>[];
   var _busy = false;
 
-  /// 利用者が選んだ常時待ち受けの ON／OFF。ブラウザはマイクを操作のあとでないと開けないので、
-  /// 前回 ON のまま開いたときは最初の操作で待ち受けを再開する
-  var _wantListening = false;
+  /// 常時待ち受けはリワインドを開いている間だけ。ブラウザはマイクを操作のあとでないと開けないので、
+  /// リワインドから開いたときは最初の操作で待ち受けを再開する
+  bool get _wantListening => _tab == _rewind;
   CaptureRecorder? _listener;
   var _starting = false;
 
@@ -109,7 +109,7 @@ class _InputScreenState extends State<InputScreen> {
 
   var _tab = _organize;
 
-  /// 最初のタブは前回の待ち受けで決める。決まったら切り替えを作り直す
+  /// 最初のタブは前回開いていたタブで決める。決まったら切り替えを作り直す
   var _tabRestored = false;
 
   /// 音声入力の録音。話し終わると null になり、確定の文面が届いてソケットが閉じるのを待つ
@@ -132,7 +132,6 @@ class _InputScreenState extends State<InputScreen> {
       if (!mounted) return;
       final listening = p.getBool(listeningKey) == true;
       setState(() {
-        _wantListening = listening;
         _tab = listening ? _rewind : _organize;
         _tabRestored = true;
         _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]);
@@ -201,8 +200,10 @@ class _InputScreenState extends State<InputScreen> {
     setState(() => _files.addAll(added));
   }
 
-  Future<void> _setListening(bool on) async {
-    setState(() => _wantListening = on);
+  /// リワインドに切り替えたら待ち受けを始め、整理・入力に切り替えたら止める
+  Future<void> _selectTab(int tab) async {
+    setState(() => _tab = tab);
+    final on = tab == _rewind;
     unawaited(SharedPreferences.getInstance().then((p) => p.setBool(listeningKey, on)));
     if (on) {
       await _startListening();
@@ -219,14 +220,13 @@ class _InputScreenState extends State<InputScreen> {
     _starting = true;
     final c = await CaptureRecorder.start(widget.newRecorder(), onStopped: _onListenerStopped);
     _starting = false;
-    // マイクを開いている間に OFF にされたら閉じる
+    // マイクを開いている間に整理・入力へ切り替えられたら閉じる
     if (!mounted || !_wantListening) {
       await c?.stop();
       return;
     }
     if (c == null) {
-      await _setListening(false);
-      if (mounted) showError(context, _noMic);
+      showError(context, _noMic);
       return;
     }
     setState(() => _listener = c);
@@ -508,10 +508,12 @@ class _InputScreenState extends State<InputScreen> {
           Align(
             alignment: Alignment.centerLeft,
             child: MoonSegmentedControl(
-              // 前回の待ち受けを読み込めたら、そのタブで作り直す
+              // 前回のタブを読み込めたら、そのタブで作り直す
               key: ValueKey(_tabRestored),
               initialIndex: _tab,
-              onSegmentChanged: (i) => setState(() => _tab = i),
+              // 切り出しの途中で待ち受けを止めない
+              isDisabled: _capturing,
+              onSegmentChanged: _selectTab,
               segments: const [Segment(label: Text('リワインド')), Segment(label: Text('整理・入力'))],
             ),
           ),
@@ -540,21 +542,10 @@ class _InputScreenState extends State<InputScreen> {
     return PaperSheet(
       padding: EdgeInsets.all(k.space.lg),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          MoonSwitch(
-            value: _wantListening,
-            semanticLabel: '常時待ち受け',
-            onChanged: _capturing ? null : _setListening,
-          ),
-          SizedBox(width: k.space.sm),
-          Text('常時待ち受け', style: k.text.heading),
-        ]),
+        Text('常時待ち受け', style: k.text.heading),
         SizedBox(height: k.space.sm),
         if (c == null)
-          Text(
-            _wantListening ? '画面のどこかを押すと、待ち受けを再開します' : 'ON にすると、言われた後に押すだけで直前の発話をメモに残せます',
-            style: k.text.small,
-          )
+          Text('画面のどこかを押すと、待ち受けを再開します', style: k.text.small)
         else ...[
           Text('端末内で直前60秒を保持中（送信していません）', style: k.text.small),
           Text('押したときだけ、その発話を文字に起こすために送ります。音声は保存しません', style: k.text.small),
