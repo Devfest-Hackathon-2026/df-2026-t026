@@ -117,6 +117,34 @@ test('発言者が分からないうちは反映できない', async () => {
   assert.equal(ok.status, 200);
 });
 
+test('書き起こしを直すと、その文面で差分と分類を作り直し、入れた発言者は残す', async () => {
+  // 「小さじ1/2」を「小さじ1」と聞き間違えた
+  const r = await record('塩は小さじ1でいい');
+  assert.equal(r.check.kind, 'same');
+  const { status, json } = await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, {
+    text: '塩は小さじ1/2でいい',
+    speaker: '田中さん',
+  });
+  assert.equal(status, 200);
+  const u = json.utterances.find((x: any) => x.id === r.utterance.id);
+  assert.equal(u.text, '塩は小さじ1/2でいい');
+  assert.equal(u.speaker, '田中さん');
+  const patches = json.patches.filter((p: any) => p.utteranceId === u.id);
+  const checks = json.checks.filter((x: any) => x.utteranceId === u.id);
+  assert.equal(patches.length, 1);
+  assert.notEqual(patches[0].id, r.patch.id);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].kind, 'contradiction');
+  assert.equal(checks[0].patchId, patches[0].id);
+});
+
+test('反映した差分のある記録は、書き起こしを直せない', async () => {
+  const r = await record('佐藤さんから、ご飯はおかわり1回まで無料と教わった');
+  await call('POST', `/manuals/demo-kitchen/patches/${r.patch.id}/apply`, {});
+  const { status } = await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, { text: 'ご飯はおかわり2回まで無料' });
+  assert.equal(status, 409);
+});
+
 test('CORS は指定したオリジンだけを許可する', async () => {
   const store = new MemoryStore();
   const restricted = createApp({ store, ...ai, allowOrigin: 'https://a.web.app,https://a.firebaseapp.com' });

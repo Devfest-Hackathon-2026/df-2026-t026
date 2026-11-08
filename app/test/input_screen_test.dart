@@ -271,6 +271,63 @@ void main() {
     expect(find.text('差分の確認'), findsNothing);
   });
 
+  testWidgets('差分の確認で書き起こしを直すと、直した文面を送って差分を作り直す', (tester) async {
+    Map<String, dynamic>? editBody;
+    await _pumpInput(
+      tester,
+      _client(
+        (body) async => _json({
+          'text': body['text'],
+          'results': [
+            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+          ],
+        }, 201),
+        onOther: (req) {
+          if (req.method == 'PATCH') editBody = jsonDecode(req.body);
+        },
+      ),
+    );
+    await _record(tester, '塩は小さじ1/2');
+
+    await tester.tap(find.widgetWithText(MoonTextButton, '書き起こしを直す'));
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(MoonTextInput, '塩は小さじ1/2'), '塩は大さじ1/2');
+    await tester.tap(find.widgetWithText(MoonFilledButton, '直して差分を作り直す'));
+    await tester.pumpAndSettle();
+
+    // 発言者と日付は変えていないので送らず、読み直した結果に任せる
+    expect(editBody, {'text': '塩は大さじ1/2'});
+    expect(find.text('直して差分を作り直す'), findsNothing);
+  });
+
+  testWidgets('差分の確認で、これまでの発言者を押すと発言者に入る', (tester) async {
+    final kitchen = _state('m1');
+    (kitchen['utterances'] as List).insert(0, {..._utterance('u0', 'お玉は洗って戻す', '2026-11-01T10:00:00Z'), 'speaker': '佐藤さん'});
+    Map<String, dynamic>? editBody;
+    await _pumpInput(
+      tester,
+      _client(
+        (body) async => _json({
+          'text': body['text'],
+          'results': [
+            {'manualId': 'm1', 'utteranceId': 'u1', 'state': kitchen},
+          ],
+        }, 201),
+        onOther: (req) {
+          if (req.method == 'PATCH') editBody = jsonDecode(req.body);
+        },
+      ),
+    );
+    await _record(tester, '塩は小さじ1/2');
+
+    await tester.tap(find.widgetWithText(MoonChip, '佐藤さん'));
+    await tester.pump();
+    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.pumpAndSettle();
+
+    expect(editBody, containsPair('speaker', '佐藤さん'));
+  });
+
   testWidgets('マニュアルが無いうちは、登録への案内を出す', (tester) async {
     await _pumpInput(tester, MockClient((_) async => _json([])));
 

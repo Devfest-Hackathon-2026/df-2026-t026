@@ -63,10 +63,12 @@ class Api {
     ));
   }
 
-  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt}) async =>
+  /// text を変えると、その文面で差分と分類を作り直す
+  Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt, String? text}) async =>
       ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
         'speaker': ?speaker,
         'saidAt': ?saidAt,
+        'text': ?text,
       }));
 
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
