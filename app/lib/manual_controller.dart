@@ -54,7 +54,17 @@ class ManualController extends ChangeNotifier {
   }) async =>
       _set(await api.resolve(manualId, checkId, decidedBy: decidedBy, decidedAt: decidedAt, text: text, note: note));
 
+  /// 直接編集の確かめは画面を閉じた後に返ることがあるので、閉じた後は受け取らない
+  var _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   void _set(ManualState s) {
+    if (_disposed) return;
     state = s;
     notifyListeners();
   }

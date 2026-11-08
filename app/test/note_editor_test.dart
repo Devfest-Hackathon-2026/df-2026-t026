@@ -97,6 +97,12 @@ void main() {
     // 直接書いた行は、口頭の記録として数えない
     expect(find.text('記録 0 件'), findsOneWidget);
     await tester.pumpAndSettle(const Duration(seconds: 10));
+
+    // 食い違っている行を押すと、口頭の指示と同じ確認リストに「自分」が書いた行として並ぶ
+    await tester.tap(find.text('食い違い'));
+    await tester.pumpAndSettle();
+    expect(find.text('塩 小さじ1 ／ 塩 小さじ2'), findsOneWidget);
+    expect(find.text('自分'), findsWidgets);
   });
 
   testWidgets('行を押すとその場で書き換え・消しができる', (tester) async {
