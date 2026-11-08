@@ -215,7 +215,7 @@ class _CommitDetail extends StatelessWidget {
             child: MoonOutlinedButton(
               buttonSize: MoonButtonSize.sm,
               onTap: () => openCheckViaList(Navigator.of(context), c, x.check!.id),
-              label: const Text('確認リストで開く'),
+              label: const Text('確認リストを見る'),
             ),
           ),
         ],

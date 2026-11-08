@@ -250,7 +250,7 @@ void main() {
 
       expect(find.text('ノートに入れていない差分'), findsOneWidget);
       expect(find.text('・だしは昆布'), findsOneWidget);
-      expect(find.text('確認リストで開く'), findsOneWidget);
+      expect(find.text('確認リストを見る'), findsOneWidget);
 
       await tester.tap(find.textContaining('ノートを作った'));
       await tester.pumpAndSettle();
