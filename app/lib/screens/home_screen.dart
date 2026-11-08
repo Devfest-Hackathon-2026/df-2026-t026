@@ -114,8 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _row(ManualSummary m, {required bool table}) {
     final k = context.tokens;
     final status = m.openCount > 0
-        ? StatusTag('確認待ち ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
-        : Text('確認待ちなし', style: k.text.small);
+        ? StatusTag('あとで確認 ${m.openCount} 件', bg: k.colors.pendingBg, fg: k.colors.pending)
+        : Text('なし', style: k.text.small);
     return MoonMenuItem(
       onTap: () => _open(m.id),
       menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
@@ -133,7 +133,7 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: EdgeInsets.only(top: k.space.xs),
               child: Wrap(spacing: k.space.md, crossAxisAlignment: WrapCrossAlignment.center, children: [
                 Text('記録 ${m.utteranceCount} 件', style: k.text.small),
-                status,
+                if (m.openCount > 0) status,
               ]),
             ),
       trailing: SizedBox(width: k.gutter, child: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted)),

@@ -301,7 +301,7 @@ class ConflictPair extends StatelessWidget {
   final String rightLabel;
   final String right;
 
-  /// 確認して確定済み。確認待ちの黄をやめる
+  /// 確認して確定済み。あとで確認の黄をやめる
   final bool settled;
 
   @override

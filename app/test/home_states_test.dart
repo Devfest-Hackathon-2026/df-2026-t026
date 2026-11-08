@@ -39,6 +39,6 @@ void main() {
     await tester.tap(find.widgetWithText(MoonOutlinedButton, 'もう一度読み込む'));
     await tester.pumpAndSettle();
     expect(find.text('キッチン'), findsOneWidget);
-    expect(find.text('確認待ち 1 件'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
   });
 }

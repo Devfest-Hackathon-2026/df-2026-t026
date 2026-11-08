@@ -40,7 +40,7 @@ class AppColors {
   final Color removed;
   final Color removedBg;
 
-  /// 確認待ち
+  /// あとで確認（食い違い）
   final Color pending;
   final Color pendingBg;
 

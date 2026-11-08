@@ -31,6 +31,9 @@ class _CheckScreenState extends State<CheckScreen> {
   var _outcome = _Outcome.adopt;
   var _busy = false;
 
+  /// 確定の入力欄を開いたか。急がせないよう、利用者が「確認できたので記録する」を押すまで閉じておく
+  var _recording = false;
+
   Future<void> _resolve(Check chk, Patch p) async {
     final text = switch (_outcome) {
       _Outcome.keep => chk.conflictLine!,
@@ -74,7 +77,7 @@ class _CheckScreenState extends State<CheckScreen> {
         final who = '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）';
         return Scaffold(
           body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, chk.isOpen ? '確認' : '確認の記録']),
+            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
               child: Container(
                 color: k.colors.canvas,
@@ -83,7 +86,7 @@ class _CheckScreenState extends State<CheckScreen> {
                   child: Narrow(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       PageTitle(
-                        chk.isOpen ? '確認が必要です' : '確認の記録',
+                        chk.isOpen ? 'あとで確認すること' : '確認の記録',
                         meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
                       ),
                       SizedBox(height: k.space.xl),
@@ -99,13 +102,27 @@ class _CheckScreenState extends State<CheckScreen> {
                       SizedBox(height: k.space.md),
                       Text(chk.reason, style: k.text.body),
                       if (chk.isOpen) ...[
+                        SizedBox(height: k.space.xs),
+                        Text('どちらに合わせるかは、聞けたときに決めます', style: k.text.small),
                         SizedBox(height: k.space.xxl),
                         _step('2', '誰に確認する？'),
                         for (final cand in chk.candidates) _candidate(cand),
                         if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
                         SizedBox(height: k.space.xxl),
-                        _step('3', '確認した結果を記録する'),
-                        _form(chk, p, u),
+                        _step('3', '確認できたら記録する'),
+                        if (_recording)
+                          _form(chk, p, u)
+                        else ...[
+                          Text('聞いて決まったら、ここに残します。後で別の人に聞かれたときの記録になります', style: k.text.small),
+                          SizedBox(height: k.space.md),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: MoonOutlinedButton(
+                              onTap: () => setState(() => _recording = true),
+                              label: const Text('確認できたので記録する'),
+                            ),
+                          ),
+                        ],
                       ],
                     ]),
                   ),
