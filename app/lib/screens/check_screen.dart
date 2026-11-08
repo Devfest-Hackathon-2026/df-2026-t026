@@ -76,7 +76,7 @@ class _CheckScreenState extends State<CheckScreen> {
         final u = s.utterance(chk.utteranceId);
         final who = '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）';
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
               child: SingleChildScrollView(
@@ -129,7 +129,7 @@ class _CheckScreenState extends State<CheckScreen> {
                 ),
               ),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -266,7 +266,7 @@ class _CheckScreenState extends State<CheckScreen> {
           padding: EdgeInsets.all(k.space.md),
           decoration: BoxDecoration(
             color: k.colors.canvas,
-            border: Border.all(color: selected ? k.colors.ink : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
+            border: Border.all(color: selected ? k.colors.action : k.colors.rule, width: selected ? k.hairline * 2 : k.hairline),
             borderRadius: k.radius.surface,
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -274,7 +274,7 @@ class _CheckScreenState extends State<CheckScreen> {
               MoonRadio<_Outcome>(
                 value: value,
                 groupValue: _outcome,
-                activeColor: k.colors.ink,
+                activeColor: k.colors.action,
                 inactiveColor: k.colors.inkMuted,
                 tapAreaSizeValue: k.space.xl,
                 onChanged: (v) => setState(() => _outcome = v!),

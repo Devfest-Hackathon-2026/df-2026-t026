@@ -205,7 +205,7 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(
           crumbs: const ['DiffNote（仮）'],
           trailing: MoonOutlinedButton(
@@ -215,7 +215,7 @@ class _InputScreenState extends State<InputScreen> {
           ),
         ),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ]),
+      ])),
     );
   }
 
@@ -243,7 +243,7 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 書く欄。メモ用紙のように、テープで留めた紙に載せる
+  /// 書く欄。白い面に載せる
   Widget _composer(List<ManualState> manuals) {
     final k = context.tokens;
     return PaperSheet(
@@ -305,22 +305,26 @@ class _InputScreenState extends State<InputScreen> {
       SizedBox(height: k.space.sm),
       if (open.isEmpty)
         Text('マニュアルと食い違う指示は、いまはありません', style: k.text.small)
-      else ...[
-        const Rule(),
-        for (final s in open) ...[
-          MoonMenuItem(
-            onTap: () => _push(CheckListScreen(c: ManualController(widget.api, s.id, s))),
-            menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-            label: Text(s.title, style: k.text.heading),
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-              StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-              SizedBox(width: k.space.sm),
-              Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
-            ]),
-          ),
-          const Rule(),
-        ],
-      ],
+      else
+        // 罫線が方眼とぶつからないよう、白い面に載せる
+        PaperSheet(
+          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            for (final (i, s) in open.indexed) ...[
+              if (i > 0) const Rule(),
+              MoonMenuItem(
+                onTap: () => _push(CheckListScreen(c: ManualController(widget.api, s.id, s))),
+                menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
+                label: Text(s.title, style: k.text.heading),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+                  SizedBox(width: k.space.sm),
+                  Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
+                ]),
+              ),
+            ],
+          ]),
+        ),
     ];
   }
 
@@ -344,7 +348,6 @@ class _InputScreenState extends State<InputScreen> {
               SizedBox(
                 width: k.stickyWidth,
                 child: StickyNote(
-                  seed: (u.speaker ?? u.id).codeUnits.fold(0, (a, b) => a + b),
                   onTap: () => _push(ManualScreen(api: widget.api, manualId: manual.id)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Speaker(name: u.speaker, day: u.saidAt),

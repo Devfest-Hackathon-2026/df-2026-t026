@@ -41,10 +41,9 @@ class StatusTag extends StatelessWidget {
       );
 }
 
-/// 言われたことを貼る付箋。傾きは seed（名前など）から決める
+/// 言われたことを貼る付箋。ホワイトボードの付箋のように、傾けずに置き、下側にだけ影を付ける
 class StickyNote extends StatelessWidget {
-  const StickyNote({super.key, required this.seed, required this.child, this.onTap});
-  final int seed;
+  const StickyNote({super.key, required this.child, this.onTap});
   final Widget child;
   final VoidCallback? onTap;
 
@@ -52,38 +51,16 @@ class StickyNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    final note = Transform.rotate(
-      angle: (seed.isEven ? 1 : -1) * k.stickyTilt,
-      child: Stack(
-        clipBehavior: Clip.none,
-        // テープを重ねるための Stack なので、幅の指定は付箋にそのまま渡す
-        fit: StackFit.passthrough,
-        children: [
-          Container(
-            padding: EdgeInsets.fromLTRB(k.space.lg, k.space.lg, k.space.lg, k.space.md),
-            decoration: BoxDecoration(
-              color: c.sticky,
-              borderRadius: k.radius.paper,
-              boxShadow: [
-                BoxShadow(color: c.ink.withValues(alpha: 0.12), blurRadius: k.space.xs, offset: Offset(0, k.hairline * 2)),
-              ],
-            ),
-            child: child,
-          ),
-          // マスキングテープ
-          Positioned(
-            top: -k.space.sm,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Transform.rotate(
-                angle: -k.stickyTilt * 2,
-                child: Container(width: k.space.xxl + k.space.xl, height: k.space.md, color: c.tape),
-              ),
-            ),
-          ),
+    final note = Container(
+      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.lg, k.space.lg, k.space.md),
+      decoration: BoxDecoration(
+        color: c.sticky,
+        borderRadius: k.radius.paper,
+        boxShadow: [
+          BoxShadow(color: c.ink.withValues(alpha: 0.16), blurRadius: k.space.sm, offset: Offset(0, k.space.xs)),
         ],
       ),
+      child: child,
     );
     if (onTap == null) return note;
     return MouseRegion(
@@ -118,7 +95,7 @@ class TopBar extends StatelessWidget {
     final canPop = Navigator.canPop(context);
     return Container(
       decoration: BoxDecoration(
-        color: k.colors.shell,
+        color: k.colors.canvas,
         border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
       padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
@@ -398,49 +375,59 @@ class ConflictPair extends StatelessWidget {
   }
 }
 
-/// マニュアル本文や入力欄を載せる白い紙。上の両端をテープで留めた形にする
+/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding, this.taped = true});
+  const PaperSheet({super.key, required this.child, required this.padding});
   final Widget child;
   final EdgeInsets padding;
-
-  /// 一覧のように何枚も並べるときは、テープを付けると騒がしいので外す
-  final bool taped;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final c = k.colors;
-    return Stack(
-      clipBehavior: Clip.none,
-      // テープを重ねるための Stack なので、幅の指定は紙にそのまま渡す
-      fit: StackFit.passthrough,
-      children: [
-        Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: c.canvas,
-            borderRadius: k.radius.paper,
-            boxShadow: [
-              BoxShadow(color: c.ink.withValues(alpha: 0.10), blurRadius: k.space.xs, offset: Offset(0, k.hairline)),
-            ],
-          ),
-          child: child,
-        ),
-        if (taped)
-          for (final side in [0, 1])
-            Positioned(
-              top: -k.space.sm,
-              left: side == 0 ? k.space.xxl : null,
-              right: side == 1 ? k.space.xxl : null,
-              child: Transform.rotate(
-                angle: (side == 0 ? -1 : 1) * k.stickyTilt * 3,
-                child: Container(width: k.space.xxl + k.space.xl, height: k.space.md, color: c.tape),
-              ),
-            ),
-      ],
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(color: k.colors.canvas, borderRadius: k.radius.paper),
+      child: child,
     );
   }
+}
+
+/// 画面の地。ホワイトボードのような方眼を敷く
+class GridBackground extends StatelessWidget {
+  const GridBackground({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return CustomPaint(
+      painter: _GridPainter(color: k.colors.grid, step: k.space.xl, width: k.hairline),
+      child: child,
+    );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  _GridPainter({required this.color, required this.step, required this.width});
+  final Color color;
+  final double step;
+  final double width;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = color
+      ..strokeWidth = width;
+    for (var x = 0.0; x <= size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), line);
+    }
+    for (var y = 0.0; y <= size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), line);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => old.color != color || old.step != step || old.width != width;
 }
 
 /// 罫線

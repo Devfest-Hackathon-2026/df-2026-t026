@@ -27,7 +27,7 @@ class CheckListScreen extends StatelessWidget {
         void open(Check chk) =>
             Navigator.push(context, MaterialPageRoute(builder: (_) => CheckScreen(c: c, checkId: chk.id)));
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
             Expanded(
               child: SingleChildScrollView(
@@ -61,7 +61,7 @@ class CheckListScreen extends StatelessWidget {
                 ),
               ),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -74,7 +74,6 @@ class CheckListScreen extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: PaperSheet(
-          taped: false,
           padding: EdgeInsets.all(k.space.lg),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Speaker(name: u.speaker, day: u.saidAt),

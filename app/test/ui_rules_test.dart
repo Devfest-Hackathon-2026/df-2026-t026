@@ -15,7 +15,7 @@ final _rules = {
       RegExp(r'EdgeInsets(Directional)?\.\w+\([^)]*[1-9]|SizedBox\((width|height): *[1-9]|Radius\.circular\(|fontSize: *\d'),
 };
 
-/// 影は、机に置いた紙と付箋（common.dart の PaperSheet・StickyNote）にだけ付けてよい
+/// 影は付箋（common.dart の StickyNote）にだけ付けてよい
 final _shadow = RegExp(r'\bBoxShadow\b');
 const _shadowAllowed = 'lib/screens/common.dart';
 

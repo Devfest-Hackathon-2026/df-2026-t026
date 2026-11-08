@@ -21,15 +21,16 @@ class AppColors {
     required this.qualified,
     required this.qualifiedBg,
     required this.stamp,
-    required this.tape,
+    required this.action,
+    required this.grid,
     required this.sticky,
     required this.avatar,
   });
 
-  /// 画面の地。紙や付箋を置く机。クリームやベージュにすると AI が作った画面の既定の色に見える
+  /// 画面の地。ホワイトボードのような明るい灰色。クリームやベージュにすると AI が作った画面の既定の色に見える
   final Color shell;
 
-  /// 紙・入力欄・モーダル
+  /// 白い面（フレーム）・入力欄・モーダル
   final Color canvas;
   final Color ink;
   final Color inkMuted;
@@ -53,8 +54,11 @@ class AppColors {
   /// 確認印（朱肉）。画面で朱を使うのは確認印だけにして、印を目立たせる
   final Color stamp;
 
-  /// 付箋や紙を留めるマスキングテープ
-  final Color tape;
+  /// 主ボタンと選択中の印。状態の色（特に条件付きの青緑）と紛れない青にする
+  final Color action;
+
+  /// 地の方眼の線
+  final Color grid;
 
   /// 言われたことの付箋。本物の付箋と同じ黄色1色にする。誰が言ったかはアバターと名前で示す
   final Color sticky;
@@ -159,9 +163,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampTilt = -0.08;
   final double stampDiameter = 84;
 
-  /// 付箋の傾き（ラジアン）。貼った感を出すため、少しだけ傾ける
-  final double stickyTilt = 0.012;
-
   @override
   AppTokens copyWith() => this;
 
@@ -174,12 +175,12 @@ extension AppTokensContext on BuildContext {
 }
 
 const _colors = AppColors(
-  shell: Color(0xFFE8E9EB),
+  shell: Color(0xFFF2F2F4),
   canvas: Color(0xFFFFFFFF),
-  ink: Color(0xFF1F2023),
-  inkMuted: Color(0xFF5E6168),
-  rule: Color(0xFFDADCE0),
-  hover: Color(0x0D1F2023),
+  ink: Color(0xFF17173D),
+  inkMuted: Color(0xFF5D5D78),
+  rule: Color(0xFFE0E0E8),
+  hover: Color(0x0D17173D),
   // 差分の色は、差分表示でなじみのある、はっきりした緑・赤・黄・青にする
   added: Color(0xFF1A7F37),
   addedBg: Color(0xFFDAFBE1),
@@ -187,12 +188,13 @@ const _colors = AppColors(
   removedBg: Color(0xFFFFEBE9),
   pending: Color(0xFF9A6700),
   pendingBg: Color(0xFFFFF8C5),
-  qualified: Color(0xFF0969DA),
-  qualifiedBg: Color(0xFFDDF4FF),
+  qualified: Color(0xFF0E7A86),
+  qualifiedBg: Color(0xFFDDF3F5),
   stamp: Color(0xFFDE3A2E),
-  tape: Color(0xB3E2DCCB),
-  sticky: Color(0xFFFFF07F),
-  avatar: Color(0xFFDADCE0),
+  action: Color(0xFF2459F5),
+  grid: Color(0xFFE4E4EA),
+  sticky: Color(0xFFFFF6A6),
+  avatar: Color(0xFFE0E0E8),
 );
 
 ThemeData appTheme() {
@@ -215,7 +217,7 @@ ThemeData appTheme() {
   );
 
   final moonColors = MoonColors.light.copyWith(
-    piccolo: c.ink,
+    piccolo: c.action,
     hit: c.ink,
     beerus: c.rule,
     goku: c.canvas,
@@ -261,7 +263,7 @@ ThemeData appTheme() {
 
   return ThemeData(
     colorScheme: ColorScheme.light(
-      primary: c.ink,
+      primary: c.action,
       onPrimary: c.canvas,
       surface: c.canvas,
       onSurface: c.ink,

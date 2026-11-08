@@ -44,10 +44,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアル']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-      ]),
+      ])),
     );
   }
 
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// マニュアル1冊を、机に置いた紙1枚として見せる
+  /// マニュアル1冊を、白い面1枚として見せる
   Widget _sheet(ManualSummary m) {
     final k = context.tokens;
     final c = k.colors;
@@ -86,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> {
       child: GestureDetector(
         onTap: () => _open(m.id),
         child: PaperSheet(
-          taped: false,
           padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.lg),
           child: Row(children: [
             Expanded(

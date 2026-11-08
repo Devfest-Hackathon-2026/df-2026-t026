@@ -43,7 +43,7 @@ class _ManualScreenState extends State<ManualScreen> {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
         return Scaffold(
-          body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
               trailing: s == null
@@ -59,7 +59,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
                   : LayoutBuilder(builder: (context, box) => _layout(s, box.maxWidth)),
             ),
-          ]),
+          ])),
         );
       },
     );
@@ -75,7 +75,12 @@ class _ManualScreenState extends State<ManualScreen> {
       ]);
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Padding(
+      // 方眼がタブの文字の後ろに出ないよう、白い帯に載せる
+      Container(
+        decoration: BoxDecoration(
+          color: k.colors.canvas,
+          border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
+        ),
         padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
         child: MoonTabBar(
           tabBarSize: MoonTabBarSize.sm,
@@ -91,7 +96,7 @@ class _ManualScreenState extends State<ManualScreen> {
     ]);
   }
 
-  /// 文書面：題名・メタ情報・本文。白い紙にテープで留めた形で見せる
+  /// 文書面：題名・メタ情報・本文。白い面に載せる
   Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null).length;
@@ -238,9 +243,7 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 発言：誰が・いつ → 言われたこと（手書き）→ 状態。付箋で見せる
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
-    final seed = (u.speaker ?? u.id).codeUnits.fold(0, (a, b) => a + b);
     return StickyNote(
-      seed: seed,
       onTap: () => showReview(context, c, u.id),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),

@@ -36,7 +36,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
   Widget build(BuildContext context) {
     final k = context.tokens;
     return Scaffold(
-      body: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['DiffNote（仮）', 'マニュアルを登録']),
         Expanded(
           child: Narrow(
@@ -74,7 +74,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
             ]),
           ),
         ),
-      ]),
+      ])),
     );
   }
 }
