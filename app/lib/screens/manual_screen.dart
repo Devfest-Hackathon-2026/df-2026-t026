@@ -75,9 +75,11 @@ class _ManualScreenState extends State<ManualScreen> {
                     ),
             ),
             Expanded(
-              child: s == null
-                  ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
-                  : LayoutBuilder(builder: (context, box) => _layout(s, box.maxWidth)),
+              child: PopBackground(
+                child: s == null
+                    ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
+                    : LayoutBuilder(builder: (context, box) => _layout(s, box.maxWidth)),
+              ),
             ),
           ]),
         );
@@ -102,15 +104,12 @@ class _ManualScreenState extends State<ManualScreen> {
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(
-        padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.sm),
-        child: MoonTabBar(
-          tabBarSize: MoonTabBarSize.sm,
-          initialIndex: _tab,
-          onTabChanged: (i) => setState(() => _tab = i),
-          tabs: [
-            const MoonTab(label: Text('マニュアル')),
-            MoonTab(label: Text('発言 ${s.utterances.length}')),
-          ],
+        padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
+        child: GlassTabs(
+          labels: ['マニュアル', '発言 ${s.utterances.length}'],
+          emojis: const ['📖', '💬'],
+          index: _tab,
+          onChanged: (i) => setState(() => _tab = i),
         ),
       ),
       Expanded(child: _tab == 0 ? _document(s) : _utterances(s, withHeader: false)),
@@ -118,15 +117,15 @@ class _ManualScreenState extends State<ManualScreen> {
     ]);
   }
 
-  /// 文書面：題名・メタ情報・本文
+  /// 文書面：題名・メタ情報・本文。白い紙にテープで留めた形で見せる
   Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null).length;
-    return Container(
-      color: k.colors.canvas,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
-        child: Narrow(
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl),
+      child: Narrow(
+        child: PaperSheet(
+          padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
@@ -135,7 +134,7 @@ class _ManualScreenState extends State<ManualScreen> {
                 Text('口頭で変わった行 $changed 行', style: k.text.small),
                 if (s.openChecks.isNotEmpty)
                   StatusTag('あとで確認 ${s.openChecks.length} 件',
-                      bg: k.colors.pendingBg, fg: k.colors.pending, onTap: _openList),
+                      bg: k.colors.pendingBg, fg: k.colors.pending, onTap: _openList, emoji: '📌'),
               ]),
             ),
             SizedBox(height: k.space.xl),
@@ -178,7 +177,7 @@ class _ManualScreenState extends State<ManualScreen> {
           Text('${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：',
               style: k.text.small),
           Text(plain(s.patch(o.patchId).text), style: k.text.hand),
-          StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending),
+          StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending, emoji: '⚡'),
         ]),
     ];
     final row = IntrinsicHeight(
@@ -249,12 +248,16 @@ class _ManualScreenState extends State<ManualScreen> {
     );
     return Container(
       decoration: BoxDecoration(
-        color: k.colors.shell,
-        border: Border(top: BorderSide(color: k.colors.rule, width: k.hairline)),
+        color: k.colors.glass,
+        border: Border(top: BorderSide(color: k.colors.canvas, width: k.hairline)),
       ),
       padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('言われたことを記録', style: k.text.small),
+        Row(children: [
+          Text('💬', style: k.text.small),
+          SizedBox(width: k.space.xs),
+          Text('言われたことを記録', style: k.text.small),
+        ]),
         SizedBox(height: k.space.sm),
         if (stacked) ...[
           input,
@@ -269,45 +272,51 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
-    return Container(
-      color: k.colors.shell,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (withHeader)
-          Padding(
-            padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
-            child: Text('記録した発言（${s.utterances.length}）', style: k.text.title),
-          ),
-        Expanded(
-          child: s.utterances.isEmpty
-              ? Padding(
-                  padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-                  child: Text('言われたことを下の欄に書くと、ここに並びます', style: k.text.small),
-                )
-              : ListView(children: [
-                  for (final u in s.utterances.reversed) ...[_utteranceEntry(s, u), const Rule()],
-                ]),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (withHeader)
+        Padding(
+          padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
+          child: Row(children: [
+            Text('💬', style: k.text.title),
+            SizedBox(width: k.space.sm),
+            Text('記録した発言（${s.utterances.length}）', style: k.text.title),
+          ]),
         ),
-      ]),
-    );
+      Expanded(
+        child: s.utterances.isEmpty
+            ? Padding(
+                padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
+                child: Text('言われたことを下の欄に書くと、ここに付箋で並びます', style: k.text.small),
+              )
+            : ListView(
+                padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
+                children: [
+                  for (final u in s.utterances.reversed) ...[
+                    _utteranceEntry(s, u),
+                    SizedBox(height: k.space.lg),
+                  ],
+                ],
+              ),
+      ),
+    ]);
   }
 
-  /// 発言：誰が・いつ → 言われたこと（手書き）→ 状態
+  /// 発言：誰が・いつ → 言われたこと（手書き）→ 状態。付箋で見せる
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
-    return MoonMenuItem(
+    final seed = (u.speaker ?? u.id).codeUnits.fold(0, (a, b) => a + b);
+    return StickyNote(
+      seed: seed,
       onTap: () => showReview(context, c, u.id),
-      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-      label: Speaker(name: u.speaker, day: u.saidAt),
-      content: Padding(
-        padding: EdgeInsets.only(top: k.space.sm),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(u.text, style: k.text.hand),
-          SizedBox(height: k.space.sm),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            for (final st in _statuses(s, u)) _statusTag(st),
-          ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Speaker(name: u.speaker, day: u.saidAt),
+        SizedBox(height: k.space.sm),
+        Text(u.text, style: k.text.hand),
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
+          for (final st in _statuses(s, u)) _statusTag(st),
         ]),
-      ),
+      ]),
     );
   }
 
@@ -319,7 +328,13 @@ class _ManualScreenState extends State<ManualScreen> {
       '確認の答え' => (c.canvas, c.stamp),
       _ => (c.rule, c.ink),
     };
-    return StatusTag(status, bg: bg, fg: fg);
+    final emoji = switch (status) {
+      'あとで確認' => '📌',
+      '確認済み' || '反映済み' => '✅',
+      '確認の答え' => '💮',
+      _ => null,
+    };
+    return StatusTag(status, bg: bg, fg: fg, emoji: emoji);
   }
 
   List<String> _statuses(ManualState s, Utterance u) {
