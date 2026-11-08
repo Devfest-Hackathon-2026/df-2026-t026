@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -12,11 +13,11 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
-import 'sidebar.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'review_dialog.dart';
+import 'sidebar.dart';
 
 /// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
 const passcodeKey = 'passcode';
@@ -229,71 +230,103 @@ class _InputScreenState extends State<InputScreen> {
     final manuals = snap.data!;
 
     final k = context.tokens;
-    return Narrow(
-      child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-        PageTitle('言われたことを記録', meta: [Text('どのマニュアルのことかは選ばなくてかまいません', style: k.text.small)]),
-        SizedBox(height: k.space.xl),
-        if (manuals.isEmpty) _empty() else ...[
-          _composer(manuals),
-          SizedBox(height: k.space.xxl),
-          ..._openChecks(manuals),
-          SizedBox(height: k.space.xxl),
-          ..._recent(manuals),
-        ],
-      ]),
-    );
+    return LayoutBuilder(builder: (context, box) {
+      // 広い画面では、書く欄とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
+      final wide = box.maxWidth >= k.wideLayout;
+      return Narrow(
+        maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
+        child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+          PageTitle('言われたことを記録', meta: [Text('どのマニュアルのことかは選ばなくてかまいません', style: k.text.small)]),
+          SizedBox(height: k.space.xl),
+          if (manuals.isEmpty)
+            _empty()
+          else if (wide)
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _composer(manuals, wide: true),
+                  SizedBox(height: k.space.xxl),
+                  ..._openChecks(manuals),
+                ]),
+              ),
+              SizedBox(width: k.space.xxl),
+              SizedBox(
+                width: k.panelWidth,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _recent(manuals, noteWidth: k.panelWidth)),
+              ),
+            ])
+          else ...[
+            _composer(manuals),
+            SizedBox(height: k.space.xxl),
+            ..._openChecks(manuals),
+            SizedBox(height: k.space.xxl),
+            ..._recent(manuals),
+          ],
+        ]),
+      );
+    });
   }
 
-  /// 書く欄。白い面に載せる
-  Widget _composer(List<ManualState> manuals) {
+  /// 書く欄。白い面に載せる。Ctrl/⌘+Enter でも送れる（Slack やレビューのコメントを貼って、そのまま送る使い方のため）
+  Widget _composer(List<ManualState> manuals, {bool wide = false}) {
     final k = context.tokens;
-    return PaperSheet(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        MoonTextArea(
-          controller: _text,
-          height: k.composerHeight,
-          expands: true,
-          textStyle: k.text.body,
-          hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-          onChanged: (_) => setState(() {}),
-        ),
-        if (_files.isNotEmpty) ...[
-          SizedBox(height: k.space.sm),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            for (final f in _files)
-              MoonTag(
-                tagSize: MoonTagSize.sm,
-                backgroundColor: k.colors.shell,
-                label: Text(f.name, style: k.text.small),
-                trailing: MoonButton.icon(
-                  buttonSize: MoonButtonSize.xs,
-                  semanticLabel: '${f.name}を外す',
-                  icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
-                  onTap: _busy ? null : () => setState(() => _files.remove(f)),
+    void submit() => _submit(manuals);
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): submit,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): submit,
+      },
+      child: PaperSheet(
+        padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.lg),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          MoonTextArea(
+            controller: _text,
+            height: k.composerHeight,
+            expands: true,
+            textStyle: k.text.body,
+            hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
+            onChanged: (_) => setState(() {}),
+          ),
+          if (_files.isNotEmpty) ...[
+            SizedBox(height: k.space.sm),
+            Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
+              for (final f in _files)
+                MoonTag(
+                  tagSize: MoonTagSize.sm,
+                  backgroundColor: k.colors.shell,
+                  label: Text(f.name, style: k.text.small),
+                  trailing: MoonButton.icon(
+                    buttonSize: MoonButtonSize.xs,
+                    semanticLabel: '${f.name}を外す',
+                    icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+                    onTap: _busy ? null : () => setState(() => _files.remove(f)),
+                  ),
                 ),
-              ),
+            ]),
+          ],
+          SizedBox(height: k.space.md),
+          Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            MoonOutlinedButton(onTap: _busy || _recording ? null : _pickFiles, label: const Text('ファイルを添える')),
+            MoonOutlinedButton(
+              onTap: _busy ? null : _toggleRecording,
+              label: Text(_recording ? '録音を止める' : '録音する'),
+            ),
+            if (_recording) StatusTag('録音中', bg: k.colors.pendingBg, fg: k.colors.pending),
           ]),
-        ],
-        SizedBox(height: k.space.md),
-        Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          MoonOutlinedButton(onTap: _busy || _recording ? null : _pickFiles, label: const Text('ファイルを添える')),
-          MoonOutlinedButton(
-            onTap: _busy ? null : _toggleRecording,
-            label: Text(_recording ? '録音を止める' : '録音する'),
-          ),
-          if (_recording) StatusTag('録音中', bg: k.colors.pendingBg, fg: k.colors.pending),
+          SizedBox(height: k.space.lg),
+          Row(children: [
+            MoonFilledButton(
+              onTap: _ready && !_busy && !_recording ? submit : null,
+              leading: _busy ? const ButtonLoader() : null,
+              label: Text(_busy ? '差分を作成中…' : '差分を作る'),
+            ),
+            if (wide) ...[
+              SizedBox(width: k.space.md),
+              Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
+            ],
+          ]),
         ]),
-        SizedBox(height: k.space.lg),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: MoonFilledButton(
-            onTap: _ready && !_busy && !_recording ? () => _submit(manuals) : null,
-            leading: _busy ? const ButtonLoader() : null,
-            label: Text(_busy ? '差分を作成中…' : '差分を作る'),
-          ),
-        ),
-      ]),
+      ),
     );
   }
 
@@ -330,7 +363,8 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   /// 全マニュアルの記録を新しい順に、言われたことの付箋で並べる。押すとそのマニュアルを開く
-  List<Widget> _recent(List<ManualState> manuals) {
+  /// noteWidth は付箋1枚の幅。広い画面の右の列では、列の幅いっぱいに縦に積む
+  List<Widget> _recent(List<ManualState> manuals, {double? noteWidth}) {
     final k = context.tokens;
     final recent = [
       for (final s in manuals)
@@ -347,7 +381,7 @@ class _InputScreenState extends State<InputScreen> {
           child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
             for (final (:manual, :u) in recent.take(_recentCount))
               SizedBox(
-                width: k.stickyWidth,
+                width: noteWidth ?? k.stickyWidth,
                 child: StickyNote(
                   onTap: () => _push(ManualScreen(api: widget.api, manualId: manual.id)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

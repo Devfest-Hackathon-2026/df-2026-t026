@@ -5,6 +5,7 @@ import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -215,5 +216,25 @@ void main() {
     await tester.tap(find.bySemanticsLabel('戻る'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
+  });
+
+  testWidgets('Ctrl+Enter でも、ボタンを押さずに送れる', (tester) async {
+    Map<String, dynamic>? sent;
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent = body;
+        return _json({'text': body['text'], 'results': []}, 201);
+      }),
+    );
+    await tester.enterText(find.byType(MoonTextArea), 'UUID は使わないでと言われた');
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pumpAndSettle();
+
+    expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
   });
 }
