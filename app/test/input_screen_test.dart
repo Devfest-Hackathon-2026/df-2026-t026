@@ -26,7 +26,7 @@ Map<String, dynamic> _utterance(String id, String text, String createdAt) =>
 /// m1 はキッチン（食い違いが1件）、m2 はホール
 Map<String, dynamic> _state(String id) => switch (id) {
       'm1' => {
-          'manual': {'id': 'm1', 'title': 'キッチン'},
+          'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- 塩 小さじ1', 'patchId': null},
           ],
@@ -40,6 +40,8 @@ Map<String, dynamic> _state(String id) => switch (id) {
                 'text': '- 塩 小さじ1/2',
                 'summary': '塩: 小さじ1 → 小さじ1/2',
                 'status': 'proposed',
+                'createdAt': '2026-11-03T10:00:00Z',
+                'appliedAt': null,
               },
           ],
           'checks': [
@@ -56,7 +58,7 @@ Map<String, dynamic> _state(String id) => switch (id) {
           ],
         },
       _ => {
-          'manual': {'id': 'm2', 'title': 'ホール'},
+          'manual': {'id': 'm2', 'title': 'ホール', 'base': '- レジは現金とカードのみ', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- レジは現金とカードのみ', 'patchId': null},
           ],

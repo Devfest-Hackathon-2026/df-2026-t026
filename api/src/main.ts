@@ -7,14 +7,14 @@ import { checkWithGemini } from './conflict/check.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
 import { transcribeWithGemini } from './intake.ts';
-import { seed } from './seed.ts';
+import { seedWithHistory } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
 
 // 既定は GCP なしで動く組み合わせ。Cloud Run では AI=gemini STORE=firestore にする
 const useGemini = process.env.AI === 'gemini';
 const store: Store = process.env.STORE === 'firestore' ? new FirestoreStore() : new MemoryStore();
-await seed(store, 'demo');
+await seedWithHistory(store, 'demo');
 
 const app = createApp({
   store,

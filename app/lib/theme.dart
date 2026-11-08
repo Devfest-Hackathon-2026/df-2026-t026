@@ -24,6 +24,9 @@ class AppColors {
     required this.grid,
     required this.sticky,
     required this.avatar,
+    required this.graphTrunk,
+    required this.graphBranch,
+    required this.graphPending,
   });
 
   /// 画面の地。ホワイトボードのような明るい灰色。クリームやベージュにすると AI が作った画面の既定の色に見える
@@ -64,6 +67,12 @@ class AppColors {
 
   /// 発言者アバターの地。色で人を区別せず、頭文字で示す
   final Color avatar;
+
+  /// 履歴のグラフの線と点の枠。Miro のコネクタと図形の枠のように、白い面の上で軽く見える明るい色にする。
+  /// 幹（反映した版）は反映済みの緑、あとで確認の枝は黄、ほかの枝は明るい灰色。差分の文字の色より明るいので、文字には使わない
+  final Color graphTrunk;
+  final Color graphBranch;
+  final Color graphPending;
 }
 
 class AppSpace {
@@ -166,6 +175,17 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampTilt = -0.08;
   final double stampDiameter = 84;
 
+  /// 履歴のグラフで、幹と枝を並べる1本分の幅と、版の点の直径
+  final double graphLane = 24;
+  final double graphDot = 14;
+
+  /// 履歴のグラフの線の太さと、1件の行の高さ。行の高さをそろえて、幹と枝の形が一目で見えるようにする
+  final double graphStroke = 2.5;
+  final double graphRow = 40;
+
+  /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
+  final double graphDash = 4;
+
   @override
   AppTokens copyWith() => this;
 
@@ -198,6 +218,9 @@ const _colors = AppColors(
   grid: Color(0xFFE4E4EA),
   sticky: Color(0xFFFFF6A6),
   avatar: Color(0xFFE0E0E8),
+  graphTrunk: Color(0xFF2DA44E),
+  graphBranch: Color(0xFFA9A9C2),
+  graphPending: Color(0xFFFAC710),
 );
 
 ThemeData appTheme() {

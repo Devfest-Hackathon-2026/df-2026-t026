@@ -48,6 +48,7 @@ export class PatchError extends Error {}
  *
  * 行番号ではなく行の文字列で位置を決める。パッチを作ってから反映するまでに
  * 別のパッチが入っても、対象の行が残っていれば当てられるようにするため。
+ * アプリの履歴（app/lib/history.dart）も同じ当て方で各版を組み立てるので、変えるときは合わせる。
  */
 export function applyPatch(lines: ManualLine[], patch: PatchDraft & { id: string }): ManualLine[] {
   const added = patch.op === 'delete' ? [] : patch.text.split('\n').map((text) => ({ text, patchId: patch.id }));
