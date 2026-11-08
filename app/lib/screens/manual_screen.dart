@@ -21,8 +21,6 @@ class ManualScreen extends StatefulWidget {
 
 class _ManualScreenState extends State<ManualScreen> {
   late final c = ManualController(widget.api, widget.manualId)..load();
-  final _input = TextEditingController();
-  var _busy = false;
 
   /// 狭い画面で開いているタブ（0: マニュアル、1: 発言）
   var _tab = 0;
@@ -30,25 +28,7 @@ class _ManualScreenState extends State<ManualScreen> {
   @override
   void dispose() {
     c.dispose();
-    _input.dispose();
     super.dispose();
-  }
-
-  Future<void> _record() async {
-    final text = _input.text.trim();
-    if (text.isEmpty || _busy) return;
-    setState(() => _busy = true);
-    final String id;
-    try {
-      id = await c.record(text);
-      _input.clear();
-    } on ApiException catch (e) {
-      if (mounted) showError(context, e);
-      return;
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-    if (mounted) await showReview(context, c, id);
   }
 
   void _openCheck(Check check) => openCheckViaList(Navigator.of(context), c, check.id);
@@ -91,13 +71,7 @@ class _ManualScreenState extends State<ManualScreen> {
       return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(child: _document(s)),
         Container(width: k.hairline, color: k.colors.rule),
-        SizedBox(
-          width: k.panelWidth,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(child: _utterances(s, withHeader: true)),
-            _composer(stacked: true),
-          ]),
-        ),
+        SizedBox(width: k.panelWidth, child: _utterances(s, withHeader: true)),
       ]);
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -114,7 +88,6 @@ class _ManualScreenState extends State<ManualScreen> {
         ),
       ),
       Expanded(child: _tab == 0 ? _document(s) : _utterances(s, withHeader: false)),
-      _composer(stacked: false),
     ]);
   }
 
@@ -234,38 +207,6 @@ class _ManualScreenState extends State<ManualScreen> {
     );
   }
 
-  /// 記録の入力欄。広い画面ではパネルの下に縦に積み、狭い画面では画面の下に横に並べる
-  Widget _composer({required bool stacked}) {
-    final k = context.tokens;
-    final input = MoonTextInput(
-      controller: _input,
-      onSubmitted: (_) => _record(),
-      hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-    );
-    final button = MoonFilledButton(
-      onTap: _busy ? null : _record,
-      leading: _busy ? const ButtonLoader() : null,
-      label: Text(_busy ? '差分を作成中…' : '差分を作る'),
-    );
-    return Container(
-      decoration: BoxDecoration(
-        color: k.colors.shell,
-        border: Border(top: BorderSide(color: k.colors.rule, width: k.hairline)),
-      ),
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('言われたことを記録', style: k.text.small),
-        SizedBox(height: k.space.sm),
-        if (stacked) ...[
-          input,
-          SizedBox(height: k.space.sm),
-          Align(alignment: Alignment.centerRight, child: button),
-        ] else
-          Row(children: [Expanded(child: input), SizedBox(width: k.space.sm), button]),
-      ]),
-    );
-  }
-
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
@@ -281,7 +222,7 @@ class _ManualScreenState extends State<ManualScreen> {
           child: s.utterances.isEmpty
               ? Padding(
                   padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-                  child: Text('言われたことを下の欄に書くと、ここに並びます', style: k.text.small),
+                  child: Text('入力ページで記録すると、ここに並びます', style: k.text.small),
                 )
               : ListView(children: [
                   for (final u in s.utterances.reversed) ...[_utteranceEntry(s, u), const Rule()],
