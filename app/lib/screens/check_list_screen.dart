@@ -167,7 +167,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
         Text('${plain(chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}', style: k.text.small),
         SizedBox(height: k.space.sm),
         // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
-        Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認'),
+        Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb),
         SizedBox(height: k.space.xs),
         Text(r.note, style: k.text.body),
         if (r.note != plain(r.text)) ...[

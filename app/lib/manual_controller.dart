@@ -47,7 +47,7 @@ class ManualController extends ChangeNotifier {
 
   Future<void> resolve(
     String checkId, {
-    required String decidedBy,
+    String? decidedBy,
     required String decidedAt,
     required String text,
     required String note,

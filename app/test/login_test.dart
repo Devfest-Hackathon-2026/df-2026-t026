@@ -26,14 +26,14 @@ void main() {
             : _json({'error': 'ID かパスワードが違います'}, 401);
       }
       if (req.headers['Authorization'] != 'Bearer token-1') return _json({'error': 'ログインしてください'}, 401);
-      if (req.url.path == '/memos') return _json([], 200);
+      if (req.url.path == '/memos' || req.url.path == '/shared') return _json([], 200);
       if (req.url.path == '/manuals') {
         return _json([
           {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 0, 'openCount': 0},
         ], 200);
       }
       return _json({
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [],
         'utterances': [],
         'patches': [],
@@ -72,7 +72,7 @@ void main() {
     final client = MockClient((req) async {
       if (req.url.path == '/login') return _json({'token': 'token-1'}, 200);
       if (req.headers['Authorization'] != 'Bearer token-1') return _json({'error': 'ログインしてください'}, 401);
-      if (req.url.path == '/memos') return _json([], 200);
+      if (req.url.path == '/memos' || req.url.path == '/shared') return _json([], 200);
       if (req.url.path == '/me') return _json({'name': 'たろう', 'icon': null}, 200);
       if (req.url.path == '/manuals') {
         return _json([
@@ -80,7 +80,7 @@ void main() {
         ], 200);
       }
       return _json({
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [],
         'utterances': [],
         'patches': [],

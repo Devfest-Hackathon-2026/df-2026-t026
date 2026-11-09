@@ -40,13 +40,17 @@ class SharedManual {
   SharedManual.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         title = j['title'],
-        sharedBy = _person(j['sharedBy']);
+        sharedBy = _person(j['sharedBy']),
+        openCount = j['openCount'];
 
   final String id;
   final String title;
 
   /// ノートの持ち主
   final Person sharedBy;
+
+  /// 共有された人も確定できるので数える（ADR 0016）
+  final int openCount;
 }
 
 class ManualSummary {
@@ -60,6 +64,41 @@ class ManualSummary {
   final String title;
   final int utteranceCount;
   final int openCount;
+}
+
+/// 資料の一覧の1件（ADR 0019）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
+class MaterialSummary {
+  MaterialSummary.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        title = j['title'],
+        pageCount = j['pageCount'],
+        lineCount = j['lineCount'],
+        tokens = j['tokens'],
+        createdAt = j['createdAt'],
+        addedBy = j['addedBy'] == null ? null : _person(j['addedBy']);
+
+  final String id;
+  final String title;
+
+  /// 貼り付けた文なら null
+  final int? pageCount;
+  final int lineCount;
+  final int tokens;
+
+  /// 足した日時（ISO 8601）
+  final String createdAt;
+
+  /// 足した人と、その時点の名前。前からある資料には無い（ADR 0018 の記録した人と同じ形）
+  final Person? addedBy;
+}
+
+/// 資料の中身。lines の位置 + 1 が行番号（ページをまたいで通し）
+class MaterialBody extends MaterialSummary {
+  MaterialBody.fromJson(super.j)
+      : lines = [for (final l in j['lines']) (page: l['page'] as int?, text: l['text'] as String)],
+        super.fromJson();
+
+  final List<({int? page, String text})> lines;
 }
 
 class ManualLine {
@@ -81,6 +120,7 @@ class Utterance {
         saidAt = j['saidAt'],
         fromEdit = j['fromEdit'] ?? false,
         editedBy = j['editedBy'],
+        recordedBy = j['recordedBy'] == null ? null : _person(j['recordedBy']),
         createdAt = j['createdAt'];
 
   final String id;
@@ -95,6 +135,9 @@ class Utterance {
 
   /// 共有された人が直接編集したときの、その人の ID。持ち主の編集なら null（ADR 0013）
   final String? editedBy;
+
+  /// この記録を入れた人と、その時点の名前。前からある記録には無い（ADR 0018）
+  final Person? recordedBy;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -143,6 +186,7 @@ class Resolution {
       : utteranceId = j['utteranceId'],
         patchId = j['patchId'],
         decidedBy = j['decidedBy'],
+        answeredBy = j['answeredBy'],
         decidedAt = j['decidedAt'],
         text = j['text'],
         note = j['note'];
@@ -151,6 +195,12 @@ class Resolution {
   final String utteranceId;
   final String? patchId;
   final String decidedBy;
+
+  /// 共有された人が自分の答えとして確定したときの、その人の ID。聞いた結果を記録したときは null（ADR 0017）
+  final String? answeredBy;
+
+  /// 決めた人の後ろに添える言葉。本人が決めたのか、聞いて記録したのかを分ける
+  String get verb => answeredBy == null ? 'に確認' : 'が決定';
   final String decidedAt;
   final String text;
   final String note;
@@ -246,6 +296,8 @@ class ManualState {
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
         checks = [for (final c in j['checks']) Check.fromJson(c)],
+        owner = j['owner'],
+        me = j['me'],
         sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
 
   final String id;
@@ -253,6 +305,14 @@ class ManualState {
 
   /// ほかの人から共有されたノートなら、その持ち主。自分のノートなら null（ADR 0013）
   final Person? sharedBy;
+
+  /// ノートの持ち主と、読んでいる自分のログイン ID
+  final String owner;
+  final String me;
+
+  /// 記録を直す・書き込むかを決められるのは、記録した本人だけ。前からある記録は、共有された人の直接の編集ならその人、
+  /// それ以外は持ち主の記録とみなす（ADR 0018）
+  bool recordedByMe(Utterance u) => (u.recordedBy?.id ?? u.editedBy ?? owner) == me;
 
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;

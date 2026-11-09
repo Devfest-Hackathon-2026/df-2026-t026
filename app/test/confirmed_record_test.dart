@@ -57,7 +57,7 @@ Map<String, dynamic> _check(String id, String patchId, String u, String conflict
 
 /// 田中さんの「小さじ1/2」を 11/7 に店長に確認して 1/2 に決めた。そのあと 11/10 に佐藤さんが「小さじ1」と言った
 Map<String, dynamic> _confirmed() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': _one, 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': _one, 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': _half, 'patchId': 'p2'},
       ],
@@ -98,7 +98,7 @@ Map<String, dynamic> _rewritten() {
 
 /// まだ誰にも確認していない食い違い。田中さんの「小さじ1/2」がノートの「小さじ1」と食い違う
 Map<String, dynamic> _unconfirmed() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': _one, 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': _one, 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': _one, 'patchId': null},
       ],

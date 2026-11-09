@@ -50,7 +50,7 @@ Map<String, dynamic> _check(String id, String patchId, String u, String kind,
 /// 見本のキッチンマニュアルと同じ形：田中さんの「300gまで」を 11/5 に店長に確認して 250g のまま。
 /// そのあと 11/10 に店長の「土日は受けない」が補足（qualification）として入った
 Map<String, dynamic> _qualified({String qualifiedBy = '店長', String kind = 'qualification', bool fromEdit = false}) => {
-      'manual': {'id': 'm1', 'title': 'キッチンマニュアル', 'base': _kept, 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチンマニュアル', 'base': _kept, 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': _weekend, 'patchId': 'p2'},
       ],

@@ -27,7 +27,7 @@ class _Server {
   int get open => 2 - resolved.length;
 
   Map<String, dynamic> state({bool recorded = false}) => {
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [
           {'text': '- 塩 小さじ1', 'patchId': null},
         ],

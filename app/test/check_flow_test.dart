@@ -13,7 +13,7 @@ import 'package:moon_design/moon_design.dart';
 import 'input_font.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '## 味噌汁', 'patchId': null},
         {'text': resolved ? '- 塩 小さじ1/2' : '- 塩 小さじ1', 'patchId': resolved ? 'p2' : null},
@@ -84,7 +84,7 @@ Map<String, dynamic> _state({required bool resolved}) => {
 
 /// 「佐藤さんから塩は小さじ1と言われた」が、マニュアルと同じ内容と判定された state
 Map<String, dynamic> _sameState({required String status}) => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '## 味噌汁', 'patchId': null},
         {'text': '- 塩 小さじ1', 'patchId': null},

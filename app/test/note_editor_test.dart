@@ -22,7 +22,7 @@ class _Server {
   final sent = <Map<String, dynamic>>[];
 
   Map<String, dynamic> get state => {
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': lines,
         'utterances': utterances,
         'patches': patches,

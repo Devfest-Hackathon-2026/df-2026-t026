@@ -6,6 +6,7 @@ import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/review_dialog.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,7 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
-// ノートの共有（ADR 0013）
+// ノートの共有（ADR 0013）と、共有した全員での編集（ADR 0016）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
@@ -24,6 +25,9 @@ class _Server {
   final bool shared;
   final people = <Map<String, dynamic>>[];
   final sent = <String>[];
+
+  /// 次の直接編集で返す衝突。返したら空にする
+  Map<String, dynamic>? conflict;
 
   Map<String, dynamic> get state => {
         'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -58,6 +62,7 @@ class _Server {
           },
         ],
         'owner': 'demo',
+        'me': shared ? 'sato' : 'demo',
         'sharedBy': shared ? {'id': 'demo', 'name': 'かなで'} : null,
       };
 
@@ -69,7 +74,7 @@ class _Server {
     if (path == '/shared') {
       return _json(shared
           ? [
-              {'id': 'm1', 'title': 'キッチン', 'sharedBy': {'id': 'demo', 'name': 'かなで'}, 'sharedAt': '2026-11-09T00:00:00Z'},
+              {'id': 'm1', 'title': 'キッチン', 'sharedBy': {'id': 'demo', 'name': 'かなで'}, 'sharedAt': '2026-11-09T00:00:00Z', 'openCount': 1},
             ]
           : []);
     }
@@ -84,6 +89,11 @@ class _Server {
       return _json(people);
     }
     if (path == '/manuals/m1/shares') return _json(people);
+    if (path == '/manuals/m1/edits' && conflict != null) {
+      final x = conflict!;
+      conflict = null;
+      return _json({'error': 'ほかの人が先にこの行を直しました', 'conflict': x}, 409);
+    }
     if (path.startsWith('/manuals/m1')) return _json(state, req.method == 'POST' && path.endsWith('/edits') ? 201 : 200);
     return _json([]);
   });
@@ -142,22 +152,32 @@ void main() {
     expect(_outlined('履歴'), findsNothing);
   });
 
-  testWidgets('共有された人：持ち主が分かり、サイドバーに出る。共有と書き込む前の確認は出さず、行は直せる', (tester) async {
+  testWidgets('共有された人：持ち主が分かり、サイドバーに件数つきで出る。共有と書き込む前の確認もでき、行も直せる。消すことはできない', (tester) async {
     final server = await _pump(tester, shared: true);
     expect(find.text('かなで から共有'), findsOneWidget);
-    expect(_outlined('共有'), findsNothing);
     expect(_outlined('履歴'), findsOneWidget);
-    // サイドバーの「共有されたノート」に、持ち主の名前つきで出る
+    expect(find.bySemanticsLabel('その他'), findsNothing);
+    // サイドバーの「共有されたノート」に、持ち主の名前と、あとで確認の件数つきで出る
     expect(find.text('共有されたノート'), findsOneWidget);
-    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン'), matching: find.text('かなで')), findsOneWidget);
+    final item = find.widgetWithText(MoonMenuItem, 'キッチン');
+    expect(find.descendant(of: item, matching: find.text('かなで')), findsOneWidget);
+    expect(find.descendant(of: item, matching: find.text('1')), findsOneWidget);
+    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'あとで確認'), matching: find.text('1')), findsOneWidget);
     // 共有された人が直した行には、誰が直したかを出す
     expect(find.descendant(of: find.byType(Speaker), matching: find.text('佐藤店長')), findsOneWidget);
 
-    // 発言の付箋を押しても、言われたことを見せるだけ
+    // 共有のモーダルには持ち主を出す
+    await tester.tap(_outlined('共有'));
+    await tester.pumpAndSettle();
+    expect(find.text('持ち主：かなで（demo）'), findsOneWidget);
+    await tester.tap(_outlined('閉じる'));
+    await tester.pumpAndSettle();
+
+    // 持ち主が記録した発言の付箋は、書き込む前の確認を開かず、言われたことを見せるだけ（ADR 0018）
     await tester.tap(find.text('塩は小さじ1/2でいい'));
     await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
     expect(find.text('「塩は小さじ1/2でいい」'), findsOneWidget);
-    expect(find.text('ノートに書き込む'), findsNothing);
     await tester.tap(_outlined('閉じる'));
     await tester.pumpAndSettle();
 
@@ -173,24 +193,271 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
-  testWidgets('狭い画面の共有された人には、上部バーに何も出さない', (tester) async {
+  testWidgets('狭い画面の共有された人にも、上部バーに「共有」を出す', (tester) async {
     await _pump(tester, shared: true, size: const Size(400, 800));
-    expect(_outlined('共有'), findsNothing);
+    expect(_outlined('共有'), findsOneWidget);
+    expect(find.bySemanticsLabel('その他'), findsNothing);
   });
 
-  for (final shared in [false, true]) {
-    testWidgets('確認のページ：聞いた結果を記録するのは持ち主だけ（${shared ? '共有された人' : '持ち主'}）', (tester) async {
-      final server = _Server(shared: shared);
-      final c = ManualController(server.api, 'm1', ManualState.fromJson(server.state));
-      tester.view.physicalSize = const Size(400, 1600);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckScreen(c: c, checkId: 'c1')));
-      await tester.pumpAndSettle();
-      expect(_outlined('聞いた結果を記録する'), shared ? findsNothing : findsOneWidget);
-      expect(find.text('聞いた結果は、ノートの持ち主の かなで が記録します'), shared ? findsOneWidget : findsNothing);
-      // 誰に確認するかと聞き方は、共有された人にも見せる
-      expect(find.text('どちらですか？'), findsOneWidget);
-    });
+  // 食い違っている行は押すと確認リストを開くので、食い違っていない行を直す
+  Future<void> rewrite(WidgetTester tester, String text) async {
+    await tester.tap(find.text('・だしは煮干し'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), text);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.pumpAndSettle();
   }
+
+  Map<String, dynamic> lastEdit(_Server server) {
+    final sent = server.sent.lastWhere((x) => x.startsWith('POST /manuals/m1/edits '));
+    return jsonDecode(sent.substring('POST /manuals/m1/edits '.length)) as Map<String, dynamic>;
+  }
+
+  testWidgets('同じ行をほかの人が先に直していたら、相手と自分の直しを並べ、「自分のにする」で相手の行を書き換える', (tester) async {
+    final server = await _pump(tester, shared: true);
+    server.conflict = {'line': '- だしは煮干し', 'theirs': '- だしは昆布', 'after': null, 'by': 'かなで', 'at': '2026-11-10'};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('ほかの人が先にこの行を直しました'), findsOneWidget);
+    expect(find.text('かなで（11/10）'), findsOneWidget);
+    expect(find.descendant(of: find.byType(ConflictPair), matching: find.text('だしは昆布')), findsOneWidget);
+    expect(find.descendant(of: find.byType(ConflictPair), matching: find.text('だしはかつお')), findsOneWidget);
+
+    // 外を押しても閉じない
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(MoonFilledButton, '自分のにする'));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(lastEdit(server), allOf(containsPair('op', 'replace'), containsPair('line', '- だしは昆布'), containsPair('text', '- だしはかつお')));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('相手が消していた行は「消しました」と出し、「自分のにする」で元の場所に足す。「相手のままにする」なら何も送らない', (tester) async {
+    final server = await _pump(tester, shared: true);
+    final gone = {'line': '- だしは煮干し', 'theirs': null, 'after': '- 塩 小さじ1', 'by': 'かなで', 'at': '2026-11-10'};
+    server.conflict = {...gone};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('消しました'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonFilledButton, '自分のにする'));
+    await tester.pumpAndSettle();
+    expect(lastEdit(server), allOf(containsPair('op', 'insert'), containsPair('line', '- 塩 小さじ1'), containsPair('text', '- だしはかつお')));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+
+    server.conflict = {...gone};
+    await rewrite(tester, '- だしはあご');
+    final before = server.sent.length;
+    await tester.tap(_outlined('相手のままにする'));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(server.sent.length, before);
+  });
+
+  testWidgets('相手と同じ直しだったら、選ばせずに読み直すだけにする', (tester) async {
+    final server = await _pump(tester, shared: true);
+    server.conflict = {'line': '- だしは煮干し', 'theirs': '- だしはかつお', 'after': null, 'by': 'かなで', 'at': '2026-11-10'};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(server.sent.where((x) => x.startsWith('POST /manuals/m1/edits')), hasLength(1));
+  });
+
+  test('記録した本人かは、記録した人から決め、前からある記録は直接の編集ならその人、それ以外は持ち主とみなす', () {
+    Map<String, dynamic> u(String id, {Map<String, dynamic>? by, String? editedBy}) => {
+          'id': id,
+          'text': 'x',
+          'speaker': '田中さん',
+          'saidAt': '2026-11-10',
+          'fromEdit': editedBy != null,
+          'editedBy': editedBy,
+          'recordedBy': by,
+          'createdAt': '2026-11-10T05:05:00Z',
+        };
+    final j = _Server(shared: true).state
+      ..['utterances'] = [
+        u('a', by: {'id': 'sato', 'name': '佐藤店長'}),
+        u('b', by: {'id': 'demo', 'name': 'かなで'}),
+        u('c', editedBy: 'sato'),
+        u('d'),
+      ]
+      ..['patches'] = []
+      ..['checks'] = [];
+    final s = ManualState.fromJson(j);
+    expect([for (final x in s.utterances) s.recordedByMe(x)], [true, false, true, false]);
+    expect(recordedByText(s.utterance('b')), '記録した人：かなで（11/10）');
+    expect(recordedByText(s.utterance('d')), isNull);
+  });
+
+  testWidgets('書き込む前の確認の「誰が言った？」に、まだ何も言っていなくても、ノートを共有している人（自分以外）を出す', (tester) async {
+    final server = _Server(shared: false)
+      ..people.addAll([
+        {'id': 'haruto', 'name': 'はると'},
+      ]);
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: server.api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('塩は小さじ1/2でいい'));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsOneWidget);
+    // 自分（持ち主のかなで）は出さない
+    expect(find.bySemanticsLabel('発言者をかなでにする'), findsNothing);
+
+    // ログイン ID で探せる。ID で当たった人には ID を添え、押すと名前が入る
+    await tester.enterText(find.byType(EditableText).first, 'haru');
+    await tester.pump();
+    expect(find.text('はると（haruto）'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
+    await tester.tap(find.text('はると（haruto）'));
+    await tester.pump();
+    expect(tester.widget<EditableText>(find.byType(EditableText).first).controller.text, 'はると');
+    // 名前で探すときは ID を添えない
+    await tester.enterText(find.byType(EditableText).first, '佐藤');
+    await tester.pump();
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsNothing);
+  });
+
+  testWidgets('共有された人の「誰が言った？」には、持ち主とほかの共有された人を出し、自分は出さない', (tester) async {
+    final server = _Server(shared: true)
+      ..people.addAll([
+        {'id': 'sato', 'name': '佐藤店長'},
+        {'id': 'haruto', 'name': 'はると'},
+      ]);
+    final state = server.state;
+    // 佐藤店長（sato）が自分で記録した発言にして、書き込む前の確認を開けるようにする
+    (state['utterances'] as List)[1]['recordedBy'] = {'id': 'sato', 'name': '佐藤店長'};
+    (state['utterances'] as List).removeAt(0);
+    (state['patches'] as List).removeAt(0);
+    (state['lines'] as List).removeAt(1);
+    final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: appTheme(),
+      home: Builder(builder: (context) => MoonOutlinedButton(label: const Text('開く'), onTap: () => showReview(context, [(c: c, utteranceId: 'u2')]))),
+    ));
+    await tester.tap(find.text('開く'));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('発言者をかなでにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
+  });
+
+  Future<_Server> pumpCheck(WidgetTester tester,
+      {required bool shared, Map<String, dynamic>? resolution, List<Map<String, dynamic>> people = const []}) async {
+    final server = _Server(shared: shared)..people.addAll(people);
+    final state = server.state;
+    if (resolution != null) (state['checks'] as List).first['resolution'] = resolution;
+    final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckScreen(c: c, checkId: 'c1')));
+    await tester.pumpAndSettle();
+    return server;
+  }
+
+  testWidgets('確認のページ（持ち主）：誰に確認するか・聞き方の例を出し、聞いた結果を記録する', (tester) async {
+    await pumpCheck(tester, shared: false);
+    expect(find.text('誰に確認する？'), findsOneWidget);
+    expect(find.text('どちらですか？'), findsOneWidget);
+    expect(_outlined('聞いた結果を記録する'), findsOneWidget);
+    expect(find.text('答えて確定する'), findsNothing);
+  });
+
+  testWidgets('確認のページ（持ち主）：2 と 3 のどちらでも、共有している人を選べ、名前かログイン ID を打って絞れる', (tester) async {
+    await pumpCheck(tester, shared: false, people: [
+      {'id': 'sato', 'name': '佐藤店長'},
+      {'id': 'haruto', 'name': 'はると'},
+      {'id': 'kim', 'name': 'kim'},
+    ]);
+    String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
+
+    // 2：AI の候補が入っているときは絞らず、共有している人を先に並べる
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(text(0), '店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsOneWidget);
+    // 2 の欄にログイン ID を打つと絞り、ID で当たった人には ID を添える。押すと名前が入る
+    await tester.enterText(find.byType(EditableText).first, 'sat');
+    await tester.pump();
+    expect(find.text('佐藤店長（sato）'), findsOneWidget);
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNothing);
+    await tester.tap(find.ancestor(of: find.text('佐藤店長（sato）'), matching: find.byType(MoonChip)));
+    await tester.pump();
+    expect(text(0), '佐藤店長');
+
+    // 3 にも同じ人が入っていて、同じように選べる
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(text(1), '佐藤店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNWidgets(2));
+    await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする').last);
+    await tester.pump();
+    expect([text(0), text(1)], ['はると', 'はると']);
+
+    // 3 の欄に打っても絞れる。名前を決めていない人（名前が ID のまま）は、ID を打つとそのまま選んだ形になる
+    await tester.enterText(find.byType(EditableText).at(1), 'haru');
+    await tester.pump();
+    expect(find.text('はると（haruto）'), findsNWidgets(2));
+    await tester.enterText(find.byType(EditableText).at(1), 'kim');
+    await tester.pump();
+    expect(find.widgetWithText(MoonChip, 'kim'), findsNWidgets(2));
+    expect(text(0), 'kim');
+  });
+
+  testWidgets('確認のページ（持ち主）：共有していなくても、このノートで言ったことのある人から確認した相手を選べる', (tester) async {
+    await pumpCheck(tester, shared: false);
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(find.bySemanticsLabel('確認した相手を佐藤店長にする'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('確認した相手を田中さんにする'));
+    await tester.pump();
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<EditableText>(find.byType(EditableText).first).controller.text, '田中さん');
+  });
+
+  testWidgets('確認のページ（共有された人）：誰に確認するか・聞き方の例は出さず、自分の答えとして確定する', (tester) async {
+    final server = await pumpCheck(tester, shared: true);
+    expect(find.text('誰に確認する？'), findsNothing);
+    expect(find.text('どちらですか？'), findsNothing);
+    expect(find.text('決める立場'), findsNothing);
+    expect(_outlined('聞いた結果を記録する'), findsNothing);
+    expect(find.text('確認した相手'), findsNothing);
+    // AI の理由は見せる
+    expect(find.text('量が違う'), findsOneWidget);
+
+    await tester.tap(find.text('ノートのまま'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '答えて確定する'));
+    await tester.pump(const Duration(milliseconds: 500));
+    final sent = server.sent.singleWhere((x) => x.startsWith('POST /manuals/m1/checks/c1/resolve'));
+    final body = jsonDecode(sent.substring(sent.indexOf('{'))) as Map<String, dynamic>;
+    expect(body.containsKey('decidedBy'), isFalse);
+    expect(body['text'], '- 塩 小さじ1');
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('本人が答えて決めた確認は「が決定」、聞いた結果の記録は「に確認」と出す', (tester) async {
+    Map<String, dynamic> res({String? answeredBy}) => {
+          'utteranceId': 'u2',
+          'patchId': null,
+          'decidedBy': '佐藤店長',
+          'answeredBy': ?answeredBy,
+          'decidedAt': '2026-11-10',
+          'text': '- 塩 小さじ1',
+          'note': '小さじ1のまま',
+        };
+    await pumpCheck(tester, shared: false, resolution: res(answeredBy: 'sato'));
+    expect(find.text('11/10 佐藤店長が決定：小さじ1のまま'), findsOneWidget);
+    expect(find.text('決定'), findsOneWidget);
+
+    await pumpCheck(tester, shared: false, resolution: res());
+    expect(find.text('11/10 佐藤店長に確認：小さじ1のまま'), findsOneWidget);
+    expect(find.text('決定'), findsNothing);
+  });
 }

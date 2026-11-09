@@ -23,7 +23,7 @@ http.Response _json(Object body) => http.Response.bytes(utf8.encode(jsonEncode(b
 
 /// 食い違いを n 件かかえたノート
 Map<String, dynamic> _state(String id, String title, int open) => {
-      'manual': {'id': id, 'title': title, 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': id, 'title': title, 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '- 塩 小さじ1', 'patchId': null},
       ],

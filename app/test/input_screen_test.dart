@@ -28,7 +28,7 @@ Map<String, dynamic> _utterance(String id, String text, String createdAt) =>
 /// m1 はキッチン（食い違いが1件）、m2 はホール
 Map<String, dynamic> _state(String id) => switch (id) {
       'm1' => {
-          'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+          'owner': 'demo',          'me': 'demo',          'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- 塩 小さじ1', 'patchId': null},
           ],
@@ -60,7 +60,7 @@ Map<String, dynamic> _state(String id) => switch (id) {
           ],
         },
       _ => {
-          'manual': {'id': 'm2', 'title': 'ホール', 'base': '- レジは現金とカードのみ', 'createdAt': '2026-11-01T00:00:00Z'},
+          'owner': 'demo',          'me': 'demo',          'manual': {'id': 'm2', 'title': 'ホール', 'base': '- レジは現金とカードのみ', 'createdAt': '2026-11-01T00:00:00Z'},
           'lines': [
             {'text': '- レジは現金とカードのみ', 'patchId': null},
           ],
@@ -116,6 +116,7 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
       return _json(m);
     }
     onOther?.call(req);
+    if (req.url.path == '/shared') return _json([]);
     if (req.url.path == '/manuals') {
       return _json([
         {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1},

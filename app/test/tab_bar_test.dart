@@ -17,7 +17,7 @@ import 'package:moon_design/moon_design.dart';
 
 /// 塩の量が食い違い、あとで確認が1件ある
 Map<String, dynamic> _note() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '- 塩 小さじ1', 'patchId': null},
       ],
@@ -155,9 +155,10 @@ void main() {
     expect(find.text('ノート'), findsOneWidget);
     expect(_tab('ノート'), findsOneWidget);
     expect(find.descendant(of: find.byType(MoonTabBar), matching: find.text('本文')), findsOneWidget);
-    // 上部バーには、タブバーに無い「共有」だけを出す（ADR 0013）
+    // 上部バーには、タブバーに無い「資料」と「共有」だけを出す（ADR 0013・0019）
     // 本文の下の「行を足す」も枠のボタンなので、上部バーの中だけを数える
-    expect(find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton)), findsOneWidget);
+    expect(find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton)), findsNWidgets(2));
+    expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '資料')), findsOneWidget);
     expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '共有')), findsOneWidget);
   });
 

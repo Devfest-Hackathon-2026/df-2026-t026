@@ -24,7 +24,7 @@ List<String> _faces(WidgetTester tester, {String? of}) => [
 
 /// 田中さんの「塩は小さじ1/2」をノートに書き込んだ（ノートの行と付箋の両方に田中さんが出る）
 Map<String, dynamic> _state() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '- 塩 小さじ1/2', 'patchId': 'p1'},
       ],

@@ -109,12 +109,52 @@ class _ReviewDialogState extends State<ReviewDialog> {
             s.checks.where((c) => c.utteranceId == t.utteranceId).every((c) => c.resolution == null);
       });
 
-  /// 発言者の候補。これらのノートで言ったことのある人を、最近の順に
-  List<String> get _knownSpeakers {
+  /// ノートを共有している人（持ち主と共有された人。自分は除く）。まだ何も言っていなくても候補に出す（ADR 0016）
+  var _members = const <Person>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  /// 読めなくても、言ったことのある人だけを候補にして続ける
+  Future<void> _loadMembers() async {
+    final lists = await Future.wait([
+      for (final t in widget.targets) t.c.api.shares(t.c.manualId).catchError((Object _) => const <Person>[]),
+    ]);
+    final people = <String, Person>{
+      for (final (i, t) in widget.targets.indexed)
+        for (final p in [?t.c.state!.sharedBy, ...lists[i]])
+          if (p.id != t.c.state!.me) p.id: p,
+    };
+    if (mounted) setState(() => _members = people.values.toList());
+  }
+
+  /// 発言者の候補。ノートを共有している人を先に、そのあとにこれらのノートで言ったことのある人を最近の順に。
+  /// 欄に打った言葉があれば、名前かログイン ID にその言葉を含む人に絞り、ID で当たった人には ID を添える
+  List<({String name, String? id})> get _knownSpeakers {
     final recent = [
       for (final t in widget.targets) ...t.c.state!.utterances.where((u) => u.id != t.utteranceId),
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return {for (final u in recent) ?u.speaker}.take(_maxSpeakers).toList();
+    final all = <String, String?>{};
+    for (final p in _members) {
+      all.putIfAbsent(p.name, () => p.id);
+    }
+    for (final u in recent) {
+      if (u.speaker case final name?) all.putIfAbsent(name, () => null);
+    }
+    final typed = _speaker.text.trim();
+    final q = typed.toLowerCase();
+    // 記録の発言者が入ったままのときや、候補をそのまま選んだときは絞らない
+    if (q.isEmpty || typed == (_u.speaker ?? '') || all.containsKey(typed)) {
+      return [for (final name in all.keys.take(_maxSpeakers)) (name: name, id: null)];
+    }
+    return [
+      for (final MapEntry(key: name, value: id) in all.entries)
+        if (name.toLowerCase().contains(q)) (name: name, id: null)
+        else if (id != null && id.toLowerCase().contains(q)) (name: name, id: id),
+    ].take(_maxSpeakers).toList();
   }
 
   /// 直した書き起こしで差分を作り直す。発言者と日付は、ここで変えたものだけを送り、ほかは読み直した結果に任せる
@@ -237,12 +277,12 @@ class _ReviewDialogState extends State<ReviewDialog> {
                         if (_knownSpeakers case final known when known.isNotEmpty) ...[
                           SizedBox(height: k.space.xs),
                           Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
-                            for (final name in known)
+                            for (final (:name, :id) in known)
                               MoonChip(
                                 chipSize: MoonChipSize.sm,
                                 isActive: _speaker.text.trim() == name,
                                 semanticLabel: '発言者を$nameにする',
-                                label: Text(name),
+                                label: Text(id == null ? name : '$name（$id）'),
                                 onTap: () => setState(() => _speaker.text = name),
                               ),
                           ]),
@@ -354,7 +394,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       ),
       SizedBox(height: k.space.md),
       if (chk.resolution != null)
-        Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}に確認して確定済み',
+        Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}${chk.resolution!.verb}して確定済み',
             style: k.text.body.copyWith(color: k.colors.added))
       else ...[
         // 記録した時点では解決を求めない。確認リストに入ったことだけを伝える

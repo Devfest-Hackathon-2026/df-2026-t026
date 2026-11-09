@@ -31,6 +31,8 @@ export interface Resolution {
   patchId: string | null;
   decidedBy: string;
   decidedAt: string;
+  /** 共有された人が自分の答えとして確定したときの、その人のログイン ID。持ち主が聞いた結果を記録したときは付けない（ADR 0017） */
+  answeredBy?: string;
   /** 確定した行の内容 */
   text: string;
   note: string;
@@ -156,7 +158,8 @@ ${u.speaker ?? '発言者不明'}（${u.saidAt}）: ${u.text}
 
 # そこから作ったパッチ
 ${p.op === 'replace' ? `「${p.line}」を「${p.text}」に置き換える` : `「${p.text}」を${p.line ? `「${p.line}」の後ろに` : '末尾に'}追記する`}`;
-  const out = await generate({ system, prompt, schema: schema(lines) });
+  // 差分化をしない分だけ速く、ふだん3〜6秒で返る。書き起こしと同じく8秒で並べる（ADR 0002）
+  const out = await generate({ system, prompt, schema: schema(lines), hedgeMs: 8_000 });
   const sameLine = out.kind === 'same' ? lines[out.sameLineNo! - 1] : null;
   if (out.kind !== 'contradiction') return { kind: out.kind, conflictLine: null, sameLine, reason: out.reason, ask: null };
   return { kind: out.kind, conflictLine: lines[out.conflictLineNo! - 1], sameLine: null, reason: out.reason, ask: out.ask };
