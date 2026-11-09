@@ -42,7 +42,7 @@ const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
 
 /// アプリを開いて最初の画面。題名の右のトグルを ON にすると、書く欄の代わりにリワインドの待ち受けを出す。
 /// ためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
-/// どのマニュアルかは選ばない（ADR 0005）
+/// どのマニュアルかは選ばなくてよい（ADR 0005）。記録先が分かっていれば、入力欄の「記録先」で先に選べる
 class InputScreen extends StatefulWidget {
   const InputScreen({
     super.key,
@@ -70,6 +70,9 @@ class _InputScreenState extends State<InputScreen> {
   final _text = TextEditingController();
   final _files = <Attachment>[];
   var _attachMenu = false;
+
+  /// 入力欄から送るときの記録先。空なら関係するノートを AI が選ぶ
+  final _targets = <String>{};
   var _busy = false;
 
   /// リワインドのトグル。ON の間だけ書く欄の代わりに待ち受けの面を出し、待ち受ける
@@ -304,7 +307,12 @@ class _InputScreenState extends State<InputScreen> {
     final saidOn = poured.isEmpty
         ? today()
         : DateFormat('yyyy-MM-dd').format(poured.map((m) => m.at).reduce((a, b) => a.isBefore(b) ? a : b));
-    await _send(manuals, text: _text.text.trim(), files: _files, today: saidOn, onSaved: () {
+    final targets = [for (final m in manuals) if (_targets.contains(m.id)) m.id];
+    await _send(manuals,
+        text: _text.text.trim(),
+        files: _files,
+        manualIds: targets.isEmpty ? null : targets,
+        today: saidOn, onSaved: () {
       _text.clear();
       _files.clear();
       _memos.removeWhere(poured.contains);
@@ -315,13 +323,17 @@ class _InputScreenState extends State<InputScreen> {
 
   /// 記録して、関係したマニュアルごとに差分の確認を出す。onSaved は記録できたとき、確認を出す前に呼ぶ
   Future<void> _send(List<ManualState> manuals,
-      {required String text, required List<Attachment> files, required String today, VoidCallback? onSaved}) async {
+      {required String text,
+      required List<Attachment> files,
+      List<String>? manualIds,
+      required String today,
+      VoidCallback? onSaved}) async {
     setState(() => _busy = true);
     try {
-      var r = await widget.api.intake(text: text, files: files, today: today);
+      var r = await widget.api.intake(text: text, files: files, manualIds: manualIds, today: today);
       if (r.results.isEmpty) {
         setState(() => _busy = false);
-        final ids = await _pickManuals(manuals, r.text);
+        final ids = await _pickManuals(manuals, heard: r.text);
         if (ids == null) return;
         setState(() => _busy = true);
         // ファイルや録音はもう読み取ったので、読み取った文面だけを送り直す
@@ -346,10 +358,12 @@ class _InputScreenState extends State<InputScreen> {
     }
   }
 
-  /// 関係するマニュアルが見つからなかったときに、記録先を選んでもらう。1回の指示が複数にまたがることもあるので、いくつでも選べる
-  Future<List<String>?> _pickManuals(List<ManualState> manuals, String text) {
+  /// 記録先を選んでもらう。1回の指示が複数にまたがることもあるので、いくつでも選べる。
+  /// heard は関係するマニュアルが見つからなかったときの読み取った文面で、選んだらそのまま送る。
+  /// 無ければ送る前に記録先を決めるだけで、1冊も選ばなければ AI に選ばせる
+  Future<List<String>?> _pickManuals(List<ManualState> manuals, {String? heard, Set<String> initial = const {}}) {
     final k = context.tokens;
-    final picked = <String>{};
+    final picked = {...initial};
     return showMoonModal<List<String>>(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setPicked) {
@@ -363,9 +377,14 @@ class _InputScreenState extends State<InputScreen> {
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Text('どのノートに記録しますか？', style: k.text.title),
                 SizedBox(height: k.space.xs),
-                Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
-                SizedBox(height: k.space.md),
-                Text('「$text」', style: k.text.body),
+                Text(
+                  heard == null ? '選ばなければ、関係するノートを AI が選びます' : '関係するノートが見つかりませんでした。記録するノートを選んでください',
+                  style: k.text.small,
+                ),
+                if (heard != null) ...[
+                  SizedBox(height: k.space.md),
+                  Text('「$heard」', style: k.text.body),
+                ],
                 SizedBox(height: k.space.lg),
                 const Rule(),
                 for (final m in manuals) ...[
@@ -386,8 +405,8 @@ class _InputScreenState extends State<InputScreen> {
                   MoonOutlinedButton(label: const Text('やめる'), onTap: () => Navigator.pop(ctx)),
                   const Spacer(),
                   MoonFilledButton(
-                    label: const Text('選んだノートと照らし合わせる'),
-                    onTap: picked.isEmpty
+                    label: Text(heard == null ? '記録先を決める' : '選んだノートと照らし合わせる'),
+                    onTap: heard != null && picked.isEmpty
                         ? null
                         : () => Navigator.pop(ctx, [for (final m in manuals) if (picked.contains(m.id)) m.id]),
                   ),
@@ -673,7 +692,7 @@ class _InputScreenState extends State<InputScreen> {
                     height: k.composerTools,
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-                      child: Row(children: [_attach(), const Spacer(), _mic()]),
+                      child: Row(children: [_attach(), Flexible(child: _target(manuals)), const Spacer(), _mic()]),
                     ),
                   ),
                 ]),
@@ -775,6 +794,29 @@ class _InputScreenState extends State<InputScreen> {
         backgroundColor: _attachMenu ? k.colors.shell : null,
         onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
         icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
+      ),
+    );
+  }
+
+  /// 入力欄の中の記録先。押すと記録先を選ぶ。選んだノートは題名で見せる
+  Widget _target(List<ManualState> manuals) {
+    final k = context.tokens;
+    final titles = [for (final m in manuals) if (_targets.contains(m.id)) m.title];
+    return MoonTextButton(
+      buttonSize: MoonButtonSize.sm,
+      onTap: _busy
+          ? null
+          : () async {
+              final ids = await _pickManuals(manuals, initial: _targets);
+              if (ids == null || !mounted) return;
+              setState(() => _targets
+                ..clear()
+                ..addAll(ids));
+            },
+      label: Text(
+        '記録先：${titles.isEmpty ? '自動' : titles.join('、')}',
+        style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
+        overflow: TextOverflow.ellipsis,
       ),
     );
   }
