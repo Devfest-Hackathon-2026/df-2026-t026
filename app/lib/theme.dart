@@ -11,6 +11,7 @@ class AppColors {
     required this.inkMuted,
     required this.rule,
     required this.hover,
+    required this.pressed,
     required this.added,
     required this.addedBg,
     required this.removed,
@@ -21,6 +22,7 @@ class AppColors {
     required this.qualifiedBg,
     required this.stamp,
     required this.action,
+    required this.found,
     required this.grid,
     required this.sticky,
     required this.avatar,
@@ -38,6 +40,9 @@ class AppColors {
   final Color inkMuted;
   final Color rule;
   final Color hover;
+
+  /// 押している間の地。hover より濃くして、押したことがはっきり分かるようにする
+  final Color pressed;
 
   /// 反映された差分（追記）
   final Color added;
@@ -58,6 +63,9 @@ class AppColors {
 
   /// 主ボタンと選択中の印。状態の色（特に条件付きの青緑）と紛れない青にする
   final Color action;
+
+  /// 探した言葉の地。選択中の印の青を薄くして、差分・状態の色と紛れないようにする
+  final Color found;
 
   /// 地の方眼の線
   final Color grid;
@@ -158,6 +166,22 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 広い画面で左に常に出すサイドバーの幅
   final double sidebarWidth = 240;
 
+  /// スマホで三本線から出すメニューの幅(画面の幅に対する割合)
+  final double drawerWidthFactor = 0.8;
+
+  /// スマホのメニューの幅の上限(iPad の縦などで広くなりすぎないように)
+  final double drawerMaxWidth = 360;
+
+  /// サイドバーの項目の左に置く物（自分のアイコン・ペンのアイコン）の幅。アイコンの付いた項目どうしで文字の頭をそろえる（自分のアイコンの大きさ xs と同じ）
+  final double sidebarLeading = 24;
+  final double sidebarIcon = 20;
+
+  /// 小さいボタン(sm)に添えるアイコンの大きさ
+  final double buttonIconSm = 16;
+
+  /// サイドバーの1項目の高さ。アイコンの有る項目も無い項目（各ノート）も同じ高さにそろえる（Claude・ChatGPT のサイドバー風）
+  final double sidebarRow = 40;
+
   /// 上部バーの中身の高さ（戻るボタンの高さ）。ボタンの無い画面でも揃え、画面を移っても高さが変わらないようにする
   final double barHeight = 40;
 
@@ -207,6 +231,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
   final double graphDash = 4;
 
+  /// 狭い画面の履歴の1件の、いちばん低い高さ。指で押しやすい 44 より大きくし、文を2行まで出せるときは伸びる
+  final double graphRowTouch = 52;
+
+  /// 履歴の各行の右端の「›」の大きさ。押すと版の詳細が開くと分かるように付ける
+  final double graphChevron = 18;
+
   /// 狭い画面の下に浮かせるタブバー（試作。スマホで重くないかを見る）。高さ・後ろをぼかす強さ・半透明の白・影
   final double tabBarHeight = 60;
 
@@ -246,6 +276,7 @@ const _colors = AppColors(
   inkMuted: Color(0xFF5D5D78),
   rule: Color(0xFFE0E0E8),
   hover: Color(0x0D17173D),
+  pressed: Color(0x1A17173D),
   // 差分の色は、差分表示でなじみのある、はっきりした緑・赤・黄・青にする
   added: Color(0xFF1A7F37),
   addedBg: Color(0xFFDAFBE1),
@@ -257,6 +288,7 @@ const _colors = AppColors(
   qualifiedBg: Color(0xFFDDF3F5),
   stamp: Color(0xFFDE3A2E),
   action: Color(0xFF2459F5),
+  found: Color(0xFFD6E1FE),
   grid: Color(0xFFE4E4EA),
   sticky: Color(0xFFFFF6A6),
   avatar: Color(0xFFE0E0E8),

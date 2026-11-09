@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
@@ -8,21 +9,29 @@ import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'history_screen.dart';
+import 'home_screen.dart';
 import 'review_dialog.dart';
+import 'share_dialog.dart';
 import 'sidebar.dart';
 import 'tab_bar.dart';
 
 /// マニュアル1冊の画面：文書面（現行マニュアル）と、記録した発言のパネル。食い違いは確認リスト（別の画面）にまとめる
 class ManualScreen extends StatefulWidget {
-  const ManualScreen({super.key, required this.api, required this.manualId});
+  const ManualScreen({super.key, required this.api, required this.manualId, this.found});
   final Api api;
   final String manualId;
+
+  /// 「ノートを探す」から開いたときの、押した行の番号と探した言葉。その行まで送り、言葉に地を付ける
+  final ({int line, String query})? found;
 
   @override
   State<ManualScreen> createState() => _ManualScreenState();
 }
 
 class _ManualScreenState extends State<ManualScreen> {
+  /// 上部バーの「…」（その他）のメニューを開いているか
+  var _more = false;
+
   late final c = ManualController(widget.api, widget.manualId)..load();
 
   /// 狭い画面で開いているタブ（0: 本文、1: 発言）
@@ -35,6 +44,10 @@ class _ManualScreenState extends State<ManualScreen> {
 
   /// 食い違いを確かめている編集（パッチの ID）
   final _checking = <String>{};
+
+  /// 探して開いた行。開いて最初に読めたときに1度だけ、その行まで送る
+  final _foundKey = GlobalKey();
+  late var _toFound = widget.found != null;
 
   @override
   void dispose() {
@@ -108,28 +121,48 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
+        if (s != null && _toFound) {
+          _toFound = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_foundKey.currentContext case final ctx?) Scrollable.ensureVisible(ctx, alignment: 0.3);
+          });
+        }
         // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
         final narrow = s != null && !showsSidebar(context);
+        // 共有の相手を変えられるのは持ち主だけ。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0013）
+        final mine = s != null && s.sharedBy == null;
         return Scaffold(
           extendBody: true,
           bottomNavigationBar: narrow && showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
-              crumbs: ['DiffNote（仮）', s?.title ?? ''],
-              trailing: s == null || narrow
+              crumbs: [s?.title ?? ''],
+              trailing: s == null || (narrow && !mine)
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openHistory,
-                        label: const Text('履歴'),
-                      ),
-                      SizedBox(width: context.tokens.space.sm),
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openList,
-                        label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
-                      ),
+                      if (!narrow) ...[
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: _openHistory,
+                          label: const Text('履歴'),
+                        ),
+                        SizedBox(width: context.tokens.space.sm),
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: _openList,
+                          label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
+                        ),
+                      ],
+                      if (mine) ...[
+                        if (!narrow) SizedBox(width: context.tokens.space.sm),
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: () => showShare(context, widget.api, widget.manualId),
+                          label: const Text('共有'),
+                        ),
+                        SizedBox(width: context.tokens.space.xs),
+                        _moreMenu(s),
+                      ],
                     ]),
             ),
             Expanded(
@@ -188,6 +221,7 @@ class _ManualScreenState extends State<ManualScreen> {
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
               child: PageTitle(s.title, meta: [
+                if (s.sharedBy case final owner?) Text('${owner.name} から共有', style: k.text.small),
                 Text('記録 ${s.said.length} 件', style: k.text.small),
                 Text('口頭で変わった行 $changed 行', style: k.text.small),
                 if (s.openChecks.isNotEmpty)
@@ -202,7 +236,12 @@ class _ManualScreenState extends State<ManualScreen> {
                 child: Text('まだ白紙です。ここに直接書くか、入力ページで教わったことを記録すると書き足されます。', style: k.text.small),
               ),
             for (final (i, line) in s.lines.indexed) ...[
-              if (_editing == (at: i, insert: false)) _editor(s) else _line(s, line, i),
+              if (_editing == (at: i, insert: false))
+                _editor(s)
+              else if (i == _foundLine(s))
+                KeyedSubtree(key: _foundKey, child: _line(s, line, i))
+              else
+                _line(s, line, i),
               if (_editing == (at: i, insert: true)) _editor(s),
             ],
             if (_editing == (at: null, insert: true))
@@ -212,9 +251,11 @@ class _ManualScreenState extends State<ManualScreen> {
                 padding: EdgeInsets.only(left: k.gutter, top: k.space.md),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: MoonTextButton(
+                  // 押せると分かるよう、枠のあるボタンにして＋を添える
+                  child: MoonOutlinedButton(
                     buttonSize: MoonButtonSize.sm,
                     onTap: () => _startEdit(s, null, insert: true),
+                    leading: Icon(LucideIcons.plus, size: k.buttonIconSm),
                     label: const Text('行を足す'),
                   ),
                 ),
@@ -223,6 +264,18 @@ class _ManualScreenState extends State<ManualScreen> {
         ),
       ),
     ));
+  }
+
+  /// 探して押した行。探した後に行がずれていたら、言葉を含む最初の行にする
+  int? _foundLine(ManualState s) {
+    final f = widget.found;
+    if (f == null) return null;
+    bool has(int i) => plain(s.lines[i].text).toLowerCase().contains(f.query.toLowerCase());
+    if (f.line < s.lines.length && has(f.line)) return f.line;
+    for (var i = 0; i < s.lines.length; i++) {
+      if (has(i)) return i;
+    }
+    return null;
   }
 
   bool _fromEdit(ManualState s, ManualLine line) =>
@@ -287,7 +340,7 @@ class _ManualScreenState extends State<ManualScreen> {
         i,
         Padding(
           padding: EdgeInsets.fromLTRB(k.gutter, k.space.xl, 0, k.space.xs),
-          child: LineText(line.text),
+          child: LineText(line.text, mark: widget.found?.query),
         ),
       );
     }
@@ -296,19 +349,23 @@ class _ManualScreenState extends State<ManualScreen> {
     final patch = line.patchId == null ? null : s.patch(line.patchId!);
     final said = patch == null ? null : s.utterance(patch.utteranceId);
     // 左余白の色線は変更の種類を表す：あとで確認は黄、口頭で変わった行は緑。食い違いでも行の地は塗らない。
-    // 直接書いた行は本人の文なので、色線も発言者も付けない
-    final oral = said != null && !said.fromEdit;
-    final bar = open.isNotEmpty ? k.colors.pending : (oral || confirmed != null ? k.colors.added : null);
+    // 持ち主が直接書いた行は本人の文なので、色線も発言者も付けない。共有された人が直した行は、口頭と同じく誰が直したかを出す
+    final byOther = said != null && (!said.fromEdit || said.editedBy != null);
+    final bar = open.isNotEmpty ? k.colors.pending : (byOther || confirmed != null ? k.colors.added : null);
+    // 確認したあとに補足で書き換わった行は、補足を言った人に加えて、もとの確認も見せる
+    final afterQualification = confirmed != null && confirmed.resolution!.text != line.text;
     final marks = <Widget>[
-      if (confirmed != null)
-        ConfirmStamp(
-          compact: true,
-          who: confirmed.resolution!.decidedBy,
-          day: confirmed.resolution!.decidedAt,
-          onTap: () => _openCheck(confirmed),
-        )
-      else if (oral)
+      if (byOther && (confirmed == null || afterQualification))
         Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
+      // 確認して決めた行は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる。押すと確認の記録を開く
+      // 「に確認」も Speaker の中に入れて、どこを押しても確認の記録を開く（下の行の書き換えの欄は開かない）
+      if (confirmed != null)
+        Speaker(
+          name: confirmed.resolution!.decidedBy,
+          day: confirmed.resolution!.decidedAt,
+          after: 'に確認',
+          onTap: () => _openCheck(confirmed),
+        ),
       if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),
       for (final c in s.sameChecksFor(line))
         Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -345,7 +402,7 @@ class _ManualScreenState extends State<ManualScreen> {
               spacing: k.space.md,
               runSpacing: k.space.xs,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: [LineText(line.text), ...marks],
+              children: [LineText(line.text, mark: widget.found?.query), ...marks],
             ),
           ),
         ),
@@ -357,6 +414,68 @@ class _ManualScreenState extends State<ManualScreen> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: _openList, child: row),
     );
+  }
+
+  /// 上部バーの「…」（その他）。ボタンを増やしすぎないよう、まれにしか使わない操作をここにまとめる。持ち主だけに出す
+  Widget _moreMenu(ManualState s) {
+    final k = context.tokens;
+    return MoonDropdown(
+      show: _more,
+      dropdownAnchorPosition: MoonDropdownAnchorPosition.bottomRight,
+      backgroundColor: k.colors.canvas,
+      borderColor: k.colors.rule,
+      onTapOutside: () => setState(() => _more = false),
+      // 既定では画面いっぱいまで広がるので、項目の幅に合わせる
+      content: IntrinsicWidth(
+        child: MoonMenuItem(
+          borderRadius: k.radius.control,
+          onTap: () {
+            setState(() => _more = false);
+            _confirmDelete(s);
+          },
+          // 飾りのアイコンは付けない（flutter-ui.md）。危ない操作なので文字を消した行と同じ赤にする
+          label: Text('ノートを消す', style: k.text.body.copyWith(color: k.colors.removed)),
+        ),
+      ),
+      child: MoonButton.icon(
+        buttonSize: MoonButtonSize.sm,
+        semanticLabel: 'その他',
+        backgroundColor: _more ? k.colors.shell : null,
+        onTap: () => setState(() => _more = !_more),
+        icon: Icon(LucideIcons.ellipsis, color: k.colors.ink),
+      ),
+    );
+  }
+
+  /// 消す前に必ず確かめる（元に戻せない。ADR 0014）。消せたら、このノートとその上の画面を外してノート一覧へ
+  Future<void> _confirmDelete(ManualState s) async {
+    final nav = Navigator.of(context);
+    final note = ModalRoute.of(context);
+    final deleted = await showMoonModal<bool>(
+      context: context,
+      // 消している間に外を押して閉じると、消えたノートの画面に取り残される。閉じるのは「やめる」だけ
+      barrierDismissible: false,
+      builder: (_) => _DeleteDialog(api: widget.api, manualId: widget.manualId, title: s.title),
+    );
+    if (deleted != true || !mounted) return;
+    // どこから開いていても（サイドバー・一覧・入力ページ・共有された一覧）、ノートとその上（確認リスト・履歴）を外して一覧を開く。
+    // 一覧は最初の画面（入力ページ）の上に1枚だけ置き、戻ると入力ページに出る（サイドバーから開いたときと同じ積み方）。
+    // 広い画面はサイドバーと同じく動きを付けない
+    final wide = showsSidebar(context);
+    final Route<void> home = wide
+        ? PageRouteBuilder<void>(
+            pageBuilder: (_, _, _) => HomeScreen(api: widget.api),
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+          )
+        : MaterialPageRoute<void>(builder: (_) => HomeScreen(api: widget.api));
+    if (note?.isFirst ?? false) {
+      nav.pushAndRemoveUntil(home, (_) => false);
+    } else {
+      nav.pushAndRemoveUntil(home, (r) => r.isFirst);
+    }
+    // このノートの画面は外れるので、知らせは Navigator の上に出す
+    showToast(nav.context, 'ノートを消しました');
   }
 
   void _showUtterance(Utterance u) {
@@ -414,7 +533,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
     return StickyNote(
-      onTap: () => showReview(context, c, u.id),
+      // 書き込む前の確認は持ち主だけ。共有された人には、言われたことを見せるだけにする（ADR 0013）
+      onTap: () => s.sharedBy == null ? showReview(context, [(c: c, utteranceId: u.id)]) : _showUtterance(u),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),
@@ -449,5 +569,72 @@ class _ManualScreenState extends State<ManualScreen> {
       if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
       return switch (p.status) { 'applied' => '反映済み', 'discarded' => '反映しない', _ => '未反映' };
     }).toList();
+  }
+}
+
+/// 「このノートを消しますか？」。消している間はボタンを押せなくし、二重に送らない。
+/// 消せたら true で閉じる。失敗したら知らせて閉じ、ノートはそのまま
+class _DeleteDialog extends StatefulWidget {
+  const _DeleteDialog({required this.api, required this.manualId, required this.title});
+  final Api api;
+  final String manualId;
+  final String title;
+
+  @override
+  State<_DeleteDialog> createState() => _DeleteDialogState();
+}
+
+class _DeleteDialogState extends State<_DeleteDialog> {
+  var _busy = false;
+
+  Future<void> _delete() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.deleteManual(widget.manualId);
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      final nav = Navigator.of(context);
+      nav.pop(false);
+      showError(nav.context, e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return Padding(
+      padding: EdgeInsets.all(k.space.lg),
+      child: MoonModal(
+        backgroundColor: k.colors.canvas,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: k.modalWidth),
+          child: Padding(
+            padding: EdgeInsets.all(k.space.xl),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('このノートを消しますか？', style: k.text.title),
+              SizedBox(height: k.space.md),
+              Text('「${widget.title}」と、記録・確認・履歴がすべて消えます。共有している人からも見えなくなります。元に戻せません。',
+                  style: k.text.body),
+              SizedBox(height: k.space.xl),
+              Row(children: [
+                // 危ない操作なので、消した行と同じ赤にする
+                MoonFilledButton(
+                  backgroundColor: k.colors.removed,
+                  onTap: _busy ? null : _delete,
+                  label: Text(_busy ? '消しています…' : '消す'),
+                ),
+                SizedBox(width: k.space.sm),
+                MoonOutlinedButton(
+                  onTap: _busy ? null : () => Navigator.pop(context, false),
+                  label: const Text('やめる'),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }

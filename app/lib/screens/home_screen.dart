@@ -45,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）', 'ノート']),
+        const TopBar(crumbs: ['ノート']),
         Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
       ]))),
     );

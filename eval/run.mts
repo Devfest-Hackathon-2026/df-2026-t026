@@ -6,6 +6,7 @@
  */
 import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { assessWithGemini, type Assess } from '../api/src/assess.ts';
 import type { Kind } from '../api/src/conflict/check.ts';
@@ -224,10 +225,11 @@ for (const e of kinds) {
 const dir = new URL('./results/', import.meta.url);
 mkdirSync(dir, { recursive: true });
 const stamp = report.ranAt.replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-');
-const base = new URL(`${stamp}-${model}`, dir);
-writeFileSync(`${base.pathname}.json`, `${JSON.stringify(report, null, 2)}\n`);
-writeFileSync(`${base.pathname}.md`, `${md.join('\n')}\n`);
-console.log(`\n${md.join('\n')}\n\n結果: ${base.pathname}.json（PR に貼る表は .md）`);
+// URL の pathname は Windows で /C:/… や %20 を含み、ファイルのパスにならない
+const base = fileURLToPath(new URL(`${stamp}-${model}`, dir));
+writeFileSync(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
+writeFileSync(`${base}.md`, `${md.join('\n')}\n`);
+console.log(`\n${md.join('\n')}\n\n結果: ${base}.json（PR に貼る表は .md）`);
 
 function gitCommit(): string | null {
   try {

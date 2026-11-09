@@ -1,18 +1,19 @@
+import { ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 
-import { generateJson, type GenerateJson } from './gemini.ts';
+import { generateJson, type GenerateJson, type InlineFile } from './gemini.ts';
 
 /*
- * ノートを作るときの本文の整形（ADR 0011）。案を返すだけで保存しない。土台にも衝突検知にも入らない。
+ * ノートを作るときの本文の整形（ADR 0011）と、PDF・画像からの読み取り（ADR 0012）。
+ * どちらも案を返すだけで保存しない。土台にも衝突検知にも入らない。
  */
 
 /** 平文の本文を、1行を1まとまりとするマークダウンに整えた案を返す */
 export type Format = (text: string) => Promise<string>;
 
+// ノートの書き方。整形と読み取りの両方で使い、1か所で直せるようにする。
 // 差分化のプロンプトが「## は見出し、- は項目」なので、その書き方に寄せる（ADR 0009）
-const formatSystem = `渡すのは、新人が職場のマニュアルや自分用のメモを貼り付けた本文です。
-このアプリのノートとして読みやすいよう、マークダウンに整えてください。
-ノートは1行を1まとまりとして表示し、あとで1行ずつ書き換えたり、ほかの行との食い違いを確かめたりします。
+const noteRules = `ノートは1行を1まとまりとして表示し、あとで1行ずつ書き換えたり、ほかの行との食い違いを確かめたりします。
 - 書いてある言葉・数値・順番を変えない。要約・言い換え・書き足し・削除をしない。誤字も直さない
 - 1行に複数の決まりや手順が詰まっていれば、1つずつ行を分ける
 - まとまりの題になっている言葉の行は「## 」を付けて見出しにする。見出しにする言葉は本文にあるものだけを使う
@@ -21,6 +22,44 @@ const formatSystem = `渡すのは、新人が職場のマニュアルや自分�
 - 表・コードブロックなど、複数行にまたがる書き方は使わない
 - すでにマークダウンで書かれている所はそのまま残す
 - 見出しの前に空行を1行置く。それ以外の空行は入れない`;
+
+const formatSystem = `渡すのは、新人が職場のマニュアルや自分用のメモを貼り付けた本文です。
+このアプリのノートとして読みやすいよう、マークダウンに整えてください。
+${noteRules}`;
+
+/** PDF・画像から、ノートの形に整えた本文と題名の案を読み取る */
+export type ReadNote = (files: InlineFile[]) => Promise<{ title: string; text: string }>;
+
+// 読み取りと整形を1回の呼び出しにまとめ、待ちを1段にする（ADR 0012）
+// 「読み取れなければ空文字を返す」と書くと、応答が毎回約30秒遅くなった（無いと約6秒）。空の扱いは app.ts で受ける
+const readSystem = `添付は、新人が受け取った職場のマニュアルや自分用のメモ（PDF・画像）です。
+このアプリのノートの最初の本文にするため、書いてある文字を日本語で書き起こし、マークダウンに整えてください。
+${noteRules}
+- 数値を丸めない
+- 複数のファイルがあれば、渡した順に続けて起こす
+- 題名には、このノートが何についてのものかを20文字以内で付ける。資料に題があればそれを使う`;
+
+export async function readNoteWithGemini(files: InlineFile[], generate: GenerateJson = generateJson) {
+  const out = await generate({
+    system: readSystem,
+    prompt: '添付したファイルを書き起こしてください。',
+    schema: z.object({
+      title: z.string().describe('ノートの題名の案'),
+      text: z.string().describe('書き起こしてマークダウンに整えた本文。改行で行を分ける'),
+    }),
+    files,
+    // 考えさせると、まとめた分だけ遅くなった（既定で中央値約27秒、LOW で約6秒。ADR 0012）
+    thinkingLevel: ThinkingLevel.LOW,
+  });
+  return {
+    title: out.title.trim(),
+    text: out.text
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .join('\n')
+      .trim(),
+  };
+}
 
 export async function formatWithGemini(text: string, generate: GenerateJson = generateJson): Promise<string> {
   const out = await generate({

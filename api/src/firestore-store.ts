@@ -2,10 +2,11 @@ import { Firestore } from '@google-cloud/firestore';
 
 import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
-import type { Profile, Store } from './store.ts';
+import type { Memo, Profile, Shared, Store } from './store.ts';
 
 /**
  * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
+ * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。未整理メモは users/{userId}/memos/{id}（ADR 0015）。
  * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
  */
 export class FirestoreStore implements Store {
@@ -42,6 +43,14 @@ export class FirestoreStore implements Store {
     await this.manuals(userId).doc(manualId).collection(collection).doc(id).delete();
   }
 
+  // サブコレクションは親と一緒に消えないので一つずつ消し、本文は最後に消す。
+  // 途中で失敗しても本文が残り、持ち主がもう一度消せる（ADR 0014）
+  async removeManual(userId: string, manualId: string) {
+    const doc = this.manuals(userId).doc(manualId);
+    for (const name of ['shares', 'utterances', 'patches', 'checks']) await this.db.recursiveDelete(doc.collection(name));
+    await doc.delete();
+  }
+
   async getAccount(id: string) {
     const doc = await this.db.collection('accounts').doc(id).get();
     return doc.exists ? (doc.data() as Account) : null;
@@ -67,5 +76,49 @@ export class FirestoreStore implements Store {
 
   async putProfile(userId: string, profile: Profile) {
     await this.db.collection('users').doc(userId).set(profile);
+  }
+
+  private shared(userId: string) {
+    return this.db.collection('users').doc(userId).collection('shared');
+  }
+
+  async listShared(userId: string) {
+    const snap = await this.shared(userId).get();
+    return snap.docs.map((d) => d.data() as Shared);
+  }
+
+  async getShared(userId: string, manualId: string) {
+    const doc = await this.shared(userId).doc(manualId).get();
+    return doc.exists ? (doc.data() as Shared) : null;
+  }
+
+  async putShared(userId: string, shared: Shared) {
+    await this.shared(userId).doc(shared.id).set(shared);
+  }
+
+  async removeShared(userId: string, manualId: string) {
+    await this.shared(userId).doc(manualId).delete();
+  }
+
+  private memos(userId: string) {
+    return this.db.collection('users').doc(userId).collection('memos');
+  }
+
+  async listMemos(userId: string) {
+    const snap = await this.memos(userId).get();
+    return snap.docs.map((d) => d.data() as Memo);
+  }
+
+  async getMemo(userId: string, id: string) {
+    const doc = await this.memos(userId).doc(id).get();
+    return doc.exists ? (doc.data() as Memo) : null;
+  }
+
+  async putMemo(userId: string, memo: Memo) {
+    await this.memos(userId).doc(memo.id).set(memo);
+  }
+
+  async removeMemo(userId: string, id: string) {
+    await this.memos(userId).doc(id).delete();
   }
 }

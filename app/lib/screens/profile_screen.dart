@@ -85,7 +85,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         api: widget.api,
         place: Place.profile,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const TopBar(crumbs: ['DiffNote（仮）', '名前とアイコン']),
+          const TopBar(crumbs: ['名前とアイコン']),
           Expanded(
             child: FutureBuilder(
               future: _me,

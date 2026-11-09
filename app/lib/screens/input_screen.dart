@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -18,12 +16,12 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
+import 'attach.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
-import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
-import 'profile_screen.dart';
+import 'open_checks_screen.dart';
 import 'review_dialog.dart';
 import 'rewind_panel.dart';
 import 'sidebar.dart';
@@ -31,23 +29,10 @@ import 'sidebar.dart';
 /// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
 const tokenKey = 'token';
 
-/// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
+/// 前の版が未整理メモをブラウザ（shared_preferences）に置いていたときのキー。サーバーに移したら消す（ADR 0015）
 const memosKey = 'memos';
 
 const _noMic = 'マイクを使えません。ブラウザの設定でマイクを許可してください';
-
-/// 添えられるファイルの拡張子と形式。バックエンドが受け付ける形式と揃える
-const _fileTypes = {
-  'pdf': 'application/pdf',
-  'png': 'image/png',
-  'jpg': 'image/jpeg',
-  'jpeg': 'image/jpeg',
-  'webp': 'image/webp',
-  'heic': 'image/heic',
-};
-
-/// バックエンドの上限（base64 で 15MB）に収まる元の大きさ
-const _maxAttachmentBytes = 10 * 1024 * 1024;
 
 /// 最近の記録に並べる数
 const _recentCount = 5;
@@ -55,20 +40,15 @@ const _recentCount = 5;
 /// サムネイルで見せる形式（HEIC は Safari 以外で描けないので名前だけにする）
 const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
 
-Future<List<PickedFile>> _pickWithFilePicker() async => [
-      for (final f in await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _fileTypes.keys.toList()))
-        (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
-    ];
-
 /// アプリを開いて最初の画面。題名の右のトグルを ON にすると、書く欄の代わりにリワインドの待ち受けを出す。
 /// ためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
-/// どのマニュアルかは選ばない（ADR 0005）
+/// どのマニュアルかは選ばなくてよい（ADR 0005）。記録先が分かっていれば、入力欄の「記録先」で先に選べる
 class InputScreen extends StatefulWidget {
   const InputScreen({
     super.key,
     required this.api,
     this.newRecorder = AudioRecorder.new,
-    this.pickFiles = _pickWithFilePicker,
+    this.pickFiles = pickWithFilePicker,
   });
   final Api api;
 
@@ -84,9 +64,15 @@ class InputScreen extends StatefulWidget {
 
 class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
+
+  /// 狭い画面のメニュー（Drawer）を閉じるため
+  final _scaffold = GlobalKey<ScaffoldState>();
   final _text = TextEditingController();
   final _files = <Attachment>[];
   var _attachMenu = false;
+
+  /// 入力欄から送るときの記録先。空なら関係するノートを AI が選ぶ
+  final _targets = <String>{};
   var _busy = false;
 
   /// リワインドのトグル。ON の間だけ書く欄の代わりに待ち受けの面を出し、待ち受ける
@@ -116,21 +102,28 @@ class _InputScreenState extends State<InputScreen> {
 
   late final void Function() _stopWatchingDrops;
 
+  /// ほかの端末でためたメモを、このアプリに戻ってきたときに出す
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
-    _stopWatchingDrops = onFilesDropped(_addPicked);
-    SharedPreferences.getInstance().then((p) {
-      if (!mounted) return;
-      setState(() => _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]));
+    // ドロップはページ全体で受けるので、上にノートを作る画面を開いている間は受けない
+    _stopWatchingDrops = onFilesDropped((f, _) {
+      if (ModalRoute.of(context)?.isCurrent ?? true) _addPicked(f);
     });
+    _lifecycle = AppLifecycleListener(onResume: _loadMemos);
+    _loadMemos();
+    widget.api.changes.addListener(_follow);
   }
 
   @override
   void dispose() {
+    widget.api.changes.removeListener(_follow);
     _text.dispose();
     _memoText.dispose();
     _stopWatchingDrops();
+    _lifecycle.dispose();
     _dictation?.stop();
     _dictationSocket?.sink.close();
     super.dispose();
@@ -141,9 +134,56 @@ class _InputScreenState extends State<InputScreen> {
     return Future.wait([for (final m in list) widget.api.getManual(m.id)]);
   }
 
-  void _reload() => setState(() {
-        _manuals = _load();
+  void _reload() {
+    setState(() {
+      _manuals = _load();
+    });
+    _loadMemos();
+  }
+
+  /// サイドバーと同じ時機に読み直す。サイドバーから戻ったときは _push を通らないので、
+  /// ほかの画面での確定が「あとで確認」に出ない（#92）。読めなければ今の表示のまま残し、待ち受けや書きかけを消さない
+  void _follow() {
+    final shown = _manuals;
+    setState(() {
+      _manuals = _load().catchError((Object _) => shown);
+    });
+  }
+
+  /// 未整理メモをサーバーから読み直す。ほかの端末でためた・直した・消したメモもここでそろう
+  Future<void> _loadMemos() async {
+    try {
+      await _moveLocalMemos();
+      final memos = await widget.api.listMemos();
+      if (!mounted) return;
+      setState(() {
+        _memos
+          ..clear()
+          ..addAll(memos);
+        if (!_memos.contains(_editingMemo)) _editingMemo = null;
       });
+    } on ApiException {
+      // ログインの前や通信の失敗では今のメモのまま出し、次に読み直すときにまた試す
+    }
+  }
+
+  /// 前の版がブラウザにためていた未整理メモを、サーバーに移す
+  Future<void> _moveLocalMemos() async {
+    final p = await SharedPreferences.getInstance();
+    final left = p.getStringList(memosKey);
+    if (left == null) return;
+    // 先に消して、読み直しが重なっても二重に移さない。移せなかった分は戻す
+    await p.remove(memosKey);
+    try {
+      while (left.isNotEmpty) {
+        final m = jsonDecode(left.first) as Map<String, dynamic>;
+        await widget.api.addMemo(DateTime.parse(m['at']), m['text']);
+        left.removeAt(0);
+      }
+    } finally {
+      if (left.isNotEmpty) await p.setStringList(memosKey, left);
+    }
+  }
 
   Future<void> _login(String id, String password) async {
     final String token;
@@ -163,23 +203,16 @@ class _InputScreenState extends State<InputScreen> {
   /// 選んだ・撮った・貼り付けた・ドロップしたファイルを添える。受け付けない形式は除き、大きな画像は縮める
   Future<void> _addPicked(List<PickedFile> picked) async {
     if (_busy || picked.isEmpty) return;
-    final added = <Attachment>[];
-    for (final f in picked) {
-      final mimeType = _fileTypes[f.name.split('.').last.toLowerCase()] ??
-          (_fileTypes.containsValue(f.type) ? f.type : null);
-      if (mimeType == null) continue;
-      final small = await shrinkImage(f.bytes, mimeType);
-      added.add(Attachment(name: f.name, mimeType: small.mimeType, bytes: small.bytes));
-    }
+    final (files: added, :rejected) = await toAttachments(picked);
     if (!mounted) return;
-    if (added.length < picked.length) showError(context, '添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
+    if (rejected) showError(context, '添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
     _addFiles(added);
   }
 
   void _addFiles(List<Attachment> added) {
     if (!mounted || added.isEmpty) return;
     final total = [..._files, ...added].fold(0, (n, f) => n + f.bytes.length);
-    if (total > _maxAttachmentBytes) {
+    if (total > maxAttachmentBytes) {
       showError(context, 'ファイルは合わせて10MBまでです。減らしてから添えてください');
       return;
     }
@@ -193,18 +226,12 @@ class _InputScreenState extends State<InputScreen> {
         _editingMemo = null;
       });
 
-  /// リワインドで書き起こせたメモ。書き起こしは前後して返るので、切り出した順に並べ直す
+  /// リワインドで書き起こせたメモ（サーバーにはもうある）。書き起こしは前後して返るので、切り出した順に並べ直す
   void _addMemo(Memo m) {
     _memos
       ..add(m)
       ..sort((a, b) => a.at.compareTo(b.at));
-    _saveMemos();
     if (mounted) setState(() {});
-  }
-
-  void _saveMemos() {
-    final saved = [for (final m in _memos) jsonEncode(m.toJson())];
-    unawaited(SharedPreferences.getInstance().then((p) => p.setStringList(memosKey, saved)));
   }
 
   /// メモを入力欄の後ろに足す。続けて入れると1つの指示にまとめられる
@@ -223,35 +250,50 @@ class _InputScreenState extends State<InputScreen> {
     final m = _editingMemo;
     final text = _memoText.text.trim();
     if (m == null || text.isEmpty || _busy) return;
-    await _send(manuals, text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), onSaved: () {
+    await _send(manuals,
+        text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), memoIds: [m.id], onSaved: () {
       _memos.remove(m);
       _poured.remove(m);
       if (_editingMemo == m) _editingMemo = null;
-      _saveMemos();
     });
   }
 
-  /// 書き直したメモに差し替える。入力欄に入れた後なら入れた印も引き継ぐ（入力欄の文面は変えない）
-  void _saveMemo() {
+  /// 書き直したメモに差し替える。入力欄に入れた後でも、入力欄の文面は変えない
+  Future<void> _saveMemo() async {
     final m = _editingMemo;
     final text = _memoText.text.trim();
-    if (m == null || text.isEmpty) return;
-    final edited = Memo(at: m.at, text: text);
-    setState(() {
-      _memos[_memos.indexOf(m)] = edited;
-      final i = _poured.indexOf(m);
-      if (i >= 0) _poured[i] = edited;
-      _editingMemo = null;
-    });
-    _saveMemos();
+    if (m == null || text.isEmpty || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final edited = await widget.api.editMemo(m.id, text);
+      if (!mounted) return;
+      setState(() {
+        final i = _memos.indexOf(m);
+        if (i >= 0) _memos[i] = edited;
+        _editingMemo = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showError(context, e);
+      // ほかの端末で消したり記録したりしていれば、今のメモに合わせる
+      unawaited(_loadMemos());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
-  void _deleteMemo(Memo m) {
+  Future<void> _deleteMemo(Memo m) async {
+    try {
+      await widget.api.deleteMemo(m.id);
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _memos.remove(m);
       _poured.remove(m);
     });
-    _saveMemos();
   }
 
   /// テキスト欄の音声入力。話している途中から入力欄に文字を出し、話し終わったら自動で止める
@@ -325,36 +367,48 @@ class _InputScreenState extends State<InputScreen> {
     final saidOn = poured.isEmpty
         ? today()
         : DateFormat('yyyy-MM-dd').format(poured.map((m) => m.at).reduce((a, b) => a.isBefore(b) ? a : b));
-    await _send(manuals, text: _text.text.trim(), files: _files, today: saidOn, onSaved: () {
+    final targets = [for (final m in manuals) if (_targets.contains(m.id)) m.id];
+    await _send(manuals,
+        text: _text.text.trim(),
+        files: _files,
+        manualIds: targets.isEmpty ? null : targets,
+        today: saidOn,
+        memoIds: [for (final m in poured) m.id], onSaved: () {
       _text.clear();
       _files.clear();
       _memos.removeWhere(poured.contains);
       _poured.clear();
-      _saveMemos();
     });
   }
 
-  /// 記録して、関係したマニュアルごとに差分の確認を出す。onSaved は記録できたとき、確認を出す前に呼ぶ
+  /// 記録して、関係したマニュアルに書き込むか確認を出す。onSaved は記録できたとき、その前に呼ぶ。
+  /// memoIds は文面の元にした未整理メモで、記録できたらサーバーが消す
   Future<void> _send(List<ManualState> manuals,
-      {required String text, required List<Attachment> files, required String today, VoidCallback? onSaved}) async {
+      {required String text,
+      required List<Attachment> files,
+      List<String>? manualIds,
+      required String today,
+      List<String> memoIds = const [],
+      VoidCallback? onSaved}) async {
     setState(() => _busy = true);
     try {
-      var r = await widget.api.intake(text: text, files: files, today: today);
+      var r = await widget.api.intake(text: text, files: files, manualIds: manualIds, today: today, memoIds: memoIds);
       if (r.results.isEmpty) {
         setState(() => _busy = false);
-        final ids = await _pickManuals(manuals, r.text);
+        final ids = await _pickManuals(manuals, heard: r.text);
         if (ids == null) return;
         setState(() => _busy = true);
         // ファイルや録音はもう読み取ったので、読み取った文面だけを送り直す
-        r = await widget.api.intake(text: r.text, manualIds: ids, today: today);
+        r = await widget.api.intake(text: r.text, manualIds: ids, today: today, memoIds: memoIds);
       }
       setState(() {
         onSaved?.call();
         _busy = false;
       });
-      for (final x in r.results) {
-        if (!mounted) return;
-        await showReview(context, ManualController(widget.api, x.manualId, x.state), x.utteranceId);
+      if (r.results.isNotEmpty && mounted) {
+        await writeOrReview(context, [
+          for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
+        ]);
       }
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
@@ -366,10 +420,12 @@ class _InputScreenState extends State<InputScreen> {
     }
   }
 
-  /// 関係するマニュアルが見つからなかったときに、記録先を選んでもらう。1回の指示が複数にまたがることもあるので、いくつでも選べる
-  Future<List<String>?> _pickManuals(List<ManualState> manuals, String text) {
+  /// 記録先を選んでもらう。1回の指示が複数にまたがることもあるので、いくつでも選べる。
+  /// heard は関係するマニュアルが見つからなかったときの読み取った文面で、選んだらそのまま送る。
+  /// 無ければ送る前に記録先を決めるだけで、1冊も選ばなければ AI に選ばせる
+  Future<List<String>?> _pickManuals(List<ManualState> manuals, {String? heard, Set<String> initial = const {}}) {
     final k = context.tokens;
-    final picked = <String>{};
+    final picked = {...initial};
     return showMoonModal<List<String>>(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setPicked) {
@@ -382,10 +438,12 @@ class _InputScreenState extends State<InputScreen> {
               padding: EdgeInsets.all(k.space.xl),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Text('どのノートに記録しますか？', style: k.text.title),
-                SizedBox(height: k.space.xs),
-                Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
-                SizedBox(height: k.space.md),
-                Text('「$text」', style: k.text.body),
+                if (heard != null) ...[
+                  SizedBox(height: k.space.xs),
+                  Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
+                  SizedBox(height: k.space.md),
+                  Text('「$heard」', style: k.text.body),
+                ],
                 SizedBox(height: k.space.lg),
                 const Rule(),
                 for (final m in manuals) ...[
@@ -406,8 +464,8 @@ class _InputScreenState extends State<InputScreen> {
                   MoonOutlinedButton(label: const Text('やめる'), onTap: () => Navigator.pop(ctx)),
                   const Spacer(),
                   MoonFilledButton(
-                    label: const Text('選んだノートと照らし合わせる'),
-                    onTap: picked.isEmpty
+                    label: Text(heard == null ? '記録先を決める' : '選んだノートと照らし合わせる'),
+                    onTap: heard != null && picked.isEmpty
                         ? null
                         : () => Navigator.pop(ctx, [for (final m in manuals) if (picked.contains(m.id)) m.id]),
                   ),
@@ -428,34 +486,39 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
+    final narrow = !showsSidebar(context);
+    // 広い幅に変わったとき、メニューが開いていたら、外す前に閉じる。drawer を外しただけでは Scaffold が「開いている」を
+    // 覚えたままで、狭い幅に戻るとまた開いて出る（レビュー31）。閉じ終わったら onDrawerChanged で作り直し、drawer を外す
+    final open = _scaffold.currentState?.isDrawerOpen ?? false;
+    if (!narrow && open) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scaffold.currentState?.closeDrawer());
+    }
     return Scaffold(
+      key: _scaffold,
+      onDrawerChanged: (_) => setState(() {}),
+      // 左の端からのなぞりでは開かない。iPhone の Safari の「戻る」のなぞりとぶつかるので、三本線だけで開く
+      drawerEnableOpenDragGesture: false,
+      // 狭い画面では、サイドバーの代わりに上部バーの三本線から左にメニューを出す（Claude・ChatGPT のスマホ版と同じ）。
+      // 広い幅に変わったらメニューは外す（開いていたら閉じる）
+      drawer: narrow || open ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
       body: WithSidebar(
         api: widget.api,
         place: Place.input,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
-            crumbs: const ['DiffNote（仮）'],
-            // サイドバーが出ている幅では、そこからマニュアルや名前とアイコンへ移れるので出さない
-            trailing: showsSidebar(context)
-                ? null
-                : Row(mainAxisSize: MainAxisSize.min, children: [
-                    MoonOutlinedButton(
-                      buttonSize: MoonButtonSize.sm,
-                      onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('ノートを見る'),
+            // アプリ名は、広い画面ではサイドバーの一番上に出すので、上部バーには何も出さない。
+            // 狭い画面はサイドバーが無いので、三本線の隣にアプリ名を出す
+            crumbs: narrow ? const ['DiffNote'] : const [],
+            // ノート一覧・自分のページへは、狭い画面ではメニューから、広い画面ではサイドバーから移る
+            leading: narrow
+                ? Builder(
+                    builder: (context) => MoonButton.icon(
+                      semanticLabel: 'メニュー',
+                      icon: Icon(LucideIcons.menu, color: k.colors.ink),
+                      onTap: () => Scaffold.of(context).openDrawer(),
                     ),
-                    MeBuilder(
-                      api: widget.api,
-                      builder: (context, me) => Padding(
-                        padding: EdgeInsets.only(left: k.space.sm),
-                        child: MoonButton.icon(
-                          semanticLabel: '名前とアイコンを変える',
-                          icon: Avatar(me.name, image: me.icon?.bytes),
-                          onTap: () => _push(ProfileScreen(api: widget.api)),
-                        ),
-                      ),
-                    ),
-                  ]),
+                  )
+                : null,
           ),
           Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
         ])),
@@ -499,7 +562,6 @@ class _InputScreenState extends State<InputScreen> {
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
           PageTitle(
             '言われたことを記録',
-            meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)],
             // ON にしても題名とトグルの位置は変えず、ページを移った感じを出さない
             trailing: manuals.isEmpty
                 ? null
@@ -546,13 +608,10 @@ class _InputScreenState extends State<InputScreen> {
     if (_memos.isEmpty && !_rewind) return [];
     return [
       Text('未整理メモ', style: k.text.title),
-      SizedBox(height: k.space.xs),
-      Text(
-        _rewind
-            ? (_memos.isEmpty ? 'いま言われたことをメモすると、ここにたまります' : '押すと書き直して、ノートと照らし合わせられます')
-            : '押すと入力欄に入ります。続けて押すと1つにまとめられます',
-        style: k.text.small,
-      ),
+      if (_memos.isEmpty) ...[
+        SizedBox(height: k.space.xs),
+        Text('いま言われたことをメモすると、ここにたまります', style: k.text.small),
+      ],
       Padding(
         padding: EdgeInsets.only(top: k.space.sm),
         child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
@@ -690,7 +749,12 @@ class _InputScreenState extends State<InputScreen> {
                     height: k.composerTools,
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-                      child: Row(children: [_attach(), const Spacer(), _mic()]),
+                      // Flexible と Spacer で分けると、記録先が使わなかった幅が余ってマイクが右端に届かない
+                      child: Row(children: [
+                        _attach(),
+                        Expanded(child: Align(alignment: Alignment.centerLeft, child: _target(manuals))),
+                        _mic(),
+                      ]),
                     ),
                   ),
                 ]),
@@ -714,22 +778,18 @@ class _InputScreenState extends State<InputScreen> {
             ),
           ],
           SizedBox(height: k.space.lg),
-          // 2列の狭い側ではボタンと案内が1行に収まらないので、案内を折り返す
-          Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            MoonFilledButton(
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoonFilledButton(
               onTap: _ready && !_busy && !_dictating ? submit : null,
               leading: _busy ? const ButtonLoader() : null,
               label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
             ),
-            if (wide) Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
-          ]),
+          ),
         ]),
       ),
     );
   }
-
-  /// Web でも端末の種類を返す。スマホではカメラを直接開くボタンを出す
-  bool get _onPhone => const {TargetPlatform.android, TargetPlatform.iOS}.contains(defaultTargetPlatform);
 
   /// 添えたもの。画像はサムネイルで、ほかは名前で見せる
   Widget _attachment(Attachment f) {
@@ -780,9 +840,9 @@ class _InputScreenState extends State<InputScreen> {
           borderRadius: k.radius.control,
           onTap: () => choose(widget.pickFiles),
           label: Text('ファイルを選ぶ', style: k.text.body),
-          content: Text(_onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
+          content: Text('PDF・画像', style: k.text.small),
         ),
-        if (_onPhone)
+        if (onPhone)
           MoonMenuItem(
             borderRadius: k.radius.control,
             onTap: () => choose(takePhoto),
@@ -795,6 +855,32 @@ class _InputScreenState extends State<InputScreen> {
         backgroundColor: _attachMenu ? k.colors.shell : null,
         onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
         icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
+      ),
+    );
+  }
+
+  /// 入力欄の中の記録先。押すと記録先を選ぶ。選んだノートが1冊なら題名で、2冊以上なら冊数で見せる
+  Widget _target(List<ManualState> manuals) {
+    final k = context.tokens;
+    final titles = [for (final m in manuals) if (_targets.contains(m.id)) m.title];
+    return MoonTextButton(
+      buttonSize: MoonButtonSize.sm,
+      onTap: _busy
+          ? null
+          : () async {
+              final ids = await _pickManuals(manuals, initial: _targets);
+              if (ids == null || !mounted) return;
+              setState(() => _targets
+                ..clear()
+                ..addAll(ids));
+            },
+      // moon_design 1.1.0 はラベルを幅の決まらない Row に入れるので、Flexible で包まないと長い題名がはみ出す
+      label: Flexible(
+        child: Text(
+          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length}冊' }}',
+          style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -814,35 +900,13 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 「あとで確認」への導線。確認リストはマニュアルごとなので、件数とともに1冊ずつ並べる
+  /// 「あとで確認」への導線。中身はサイドバーから開く「あとで確認」の画面と同じ部品
   List<Widget> _openChecks(List<ManualState> manuals) {
     final k = context.tokens;
-    final open = manuals.where((s) => s.openChecks.isNotEmpty).toList();
     return [
       Text('あとで確認', style: k.text.title),
       SizedBox(height: k.space.sm),
-      if (open.isEmpty)
-        Text('食い違いは、いまはありません', style: k.text.small)
-      else
-        // 罫線が方眼とぶつからないよう、白い面に載せる
-        PaperSheet(
-          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            for (final (i, s) in open.indexed) ...[
-              if (i > 0) const Rule(),
-              MoonMenuItem(
-                onTap: () => _push(CheckListScreen(c: ManualController(widget.api, s.id, s))),
-                menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-                label: Text(s.title, style: k.text.heading),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-                  SizedBox(width: k.space.sm),
-                  Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
-                ]),
-              ),
-            ],
-          ]),
-        ),
+      OpenChecksList(manuals: manuals, onOpen: (s) => _push(CheckListScreen(c: ManualController(widget.api, s.id, s)))),
     ];
   }
 

@@ -19,7 +19,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DiffNote（仮）',
+      title: 'DiffNote',
       debugShowCheckedModeBanner: false,
       locale: const Locale('ja'),
       supportedLocales: const [Locale('ja')],

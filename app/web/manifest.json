@@ -1,10 +1,10 @@
 {
-    "name": "DiffNote（仮）",
+    "name": "DiffNote",
     "short_name": "DiffNote",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#2459F5",
-    "theme_color": "#2459F5",
+    "background_color": "#17173D",
+    "theme_color": "#17173D",
     "description": "新人が口頭で教わったことをマニュアルへの差分として記録する",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,

@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
-import '../history.dart';
+import '../models.dart';
 import '../theme.dart';
+import '../web/files.dart';
+import 'attach.dart';
 import 'common.dart';
 import 'manual_screen.dart';
 import 'sidebar.dart';
 
-/// ノートを作る。今あるマニュアルやメモを貼り付けるか、白紙から始める。以後の変更は差分として積む
+/// ノートを作る。今あるマニュアルやメモを貼り付けるか、PDF・画像から読み取るか、白紙から始める。以後の変更は差分として積む
 class NewManualScreen extends StatefulWidget {
-  const NewManualScreen({super.key, required this.api});
+  const NewManualScreen({super.key, required this.api, this.pickFiles = pickWithFilePicker});
   final Api api;
+
+  /// 「ファイルを選ぶ」で選ぶ。テストではファイル選択の代わりを渡す
+  final Future<List<PickedFile>> Function() pickFiles;
 
   @override
   State<NewManualScreen> createState() => _NewManualScreenState();
@@ -22,18 +27,66 @@ class _NewManualScreenState extends State<NewManualScreen> {
   final _body = TextEditingController();
   var _busy = false;
   var _formatting = false;
-  /// AI が整えた本文の案。受け入れるまで本文は変えない（ADR 0011）
-  String? _suggestion;
+  var _reading = false;
 
   bool get _ready => _title.text.trim().isNotEmpty;
   bool get _blank => _body.text.trim().isEmpty;
 
+  /// ドロップと貼り付けは、本文の欄にしたときだけ読み取る
+  final _bodyKey = GlobalKey();
+  final _bodyFocus = FocusNode();
+  late final void Function() _stopWatchingDrops;
+
+  @override
+  void initState() {
+    super.initState();
+    _stopWatchingDrops = onFilesDropped((files, at) {
+      final box = _bodyKey.currentContext?.findRenderObject() as RenderBox?;
+      final onBody = at == null
+          ? _bodyFocus.hasFocus
+          : box != null && (box.localToGlobal(Offset.zero) & box.size).contains(at);
+      if (onBody) _read(files);
+    });
+  }
+
+  @override
+  void dispose() {
+    _stopWatchingDrops();
+    _title.dispose();
+    _body.dispose();
+    _bodyFocus.dispose();
+    super.dispose();
+  }
+
+  /// 選んだ・撮った・貼り付けた・ドロップしたファイルを読み取り、本文を置き換える（ADR 0012）
+  Future<void> _read(List<PickedFile> picked) async {
+    if (_reading || _formatting || _busy || picked.isEmpty) return;
+    final (:files, :rejected) = await toAttachments(picked);
+    if (!mounted) return;
+    if (rejected) showError(context, '読み取れるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
+    if (files.isEmpty) return;
+    if (files.fold(0, (n, f) => n + f.bytes.length) > maxAttachmentBytes) {
+      showError(context, 'ファイルは合わせて10MBまでです。減らしてから選んでください');
+      return;
+    }
+    setState(() => _reading = true);
+    try {
+      final r = await widget.api.readNote(files);
+      if (!mounted) return;
+      setState(() {
+        _body.text = r.text;
+        if (_title.text.trim().isEmpty) _title.text = r.title;
+      });
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _reading = false);
+    }
+  }
+
   Future<void> _format() async {
     final sent = _body.text;
-    setState(() {
-      _formatting = true;
-      _suggestion = null;
-    });
+    setState(() => _formatting = true);
     try {
       final text = await widget.api.format(sent.trim());
       if (!mounted) return;
@@ -41,20 +94,77 @@ class _NewManualScreenState extends State<NewManualScreen> {
       if (_body.text != sent) return;
       if (text == sent.trim()) {
         showToast(context, '整える所はありませんでした');
-      } else {
-        setState(() => _suggestion = text);
+        return;
       }
+      setState(() => _formatting = false);
+      // 受け入れるまで本文は変えない（ADR 0011）
+      final ok = await _showAsNote(
+        heading: 'AI が整えた案',
+        note: '本文はまだ変わっていません。よければこの形にしてください',
+        text: text,
+        actions: (ctx) => [
+          MoonTextButton(onTap: () => Navigator.pop(ctx, false), label: const Text('やめる')),
+          const Spacer(),
+          MoonFilledButton(onTap: () => Navigator.pop(ctx, true), label: const Text('この形にする')),
+        ],
+      );
+      if (ok == true && mounted) setState(() => _body.text = text);
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
-      if (mounted) setState(() => _formatting = false);
+      if (mounted && _formatting) setState(() => _formatting = false);
     }
   }
 
-  void _accept() => setState(() {
-        _body.text = _suggestion!;
-        _suggestion = null;
-      });
+  /// 本文を、ノートと同じ見た目（見出し・箇条書き）でモーダルに見せる。差分の印は付けない
+  Future<bool?> _showAsNote({
+    required String heading,
+    String? note,
+    required String text,
+    required List<Widget> Function(BuildContext ctx) actions,
+  }) {
+    final k = context.tokens;
+    return showMoonModal<bool>(
+      context: context,
+      builder: (ctx) => MoonModal(
+        backgroundColor: k.colors.canvas,
+        child: ConstrainedBox(
+          // 長いノートは中だけを送る
+          constraints: BoxConstraints(maxWidth: k.modalWidth, maxHeight: MediaQuery.sizeOf(ctx).height - k.space.xxl * 2),
+          child: Padding(
+            padding: EdgeInsets.all(k.space.xl),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(heading, style: k.text.title),
+              if (note != null) ...[
+                SizedBox(height: k.space.xs),
+                Text(note, style: k.text.small),
+              ],
+              SizedBox(height: k.space.md),
+              const Rule(),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(vertical: k.space.md),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (final l in text.split('\n'))
+                      Padding(padding: EdgeInsets.symmetric(vertical: k.space.xs), child: LineText(l)),
+                  ]),
+                ),
+              ),
+              const Rule(),
+              SizedBox(height: k.space.lg),
+              Row(children: actions(ctx)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _preview() => _showAsNote(
+        heading: 'ノートの形で見る',
+        text: _body.text.trim(),
+        actions: (ctx) => [MoonOutlinedButton(onTap: () => Navigator.pop(ctx), label: const Text('閉じる'))],
+      );
 
   Future<void> _create() async {
     setState(() => _busy = true);
@@ -76,11 +186,11 @@ class _NewManualScreenState extends State<NewManualScreen> {
     final k = context.tokens;
     return Scaffold(
       body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）', 'ノートを作る']),
+        const TopBar(crumbs: ['ノートを作る']),
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-              PageTitle('ノートを作る', meta: [Text('以後の変更は、このノートへの差分として積み上げます', style: k.text.small)]),
+              const PageTitle('ノートを作る'),
               SizedBox(height: k.space.xl),
               Text('何のノート？', style: k.text.heading),
               SizedBox(height: k.space.sm),
@@ -91,52 +201,35 @@ class _NewManualScreenState extends State<NewManualScreen> {
               ),
               SizedBox(height: k.space.xl),
               Text('最初の本文', style: k.text.heading),
-              SizedBox(height: k.space.xs),
-              Text('今あるマニュアルやメモは、そのまま貼り付けてください。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
-                  '平文のままなら「マークダウンに整える」で、AI が見出しと箇条書きに整えた案を出します。\n'
-                  '無ければ空のままで、白紙から書き始められます。', style: k.text.small),
               SizedBox(height: k.space.sm),
               // expands を付けると moon_design 1.1.0 は文字を欄の縦の真ん中に置く。高さだけ決めて、文字・カーソル・例文を左上から始める
               MoonTextArea(
+                key: _bodyKey,
+                focusNode: _bodyFocus,
                 controller: _body,
                 height: k.editorHeight,
                 textStyle: k.text.inputArea,
-                // 手で直したら、案は前の本文に対するものになるので閉じる
-                onChanged: (_) => setState(() => _suggestion = null),
+                onChanged: (_) => setState(() {}),
               ),
               SizedBox(height: k.space.sm),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: MoonOutlinedButton(
-                  onTap: !_blank && !_formatting ? _format : null,
-                  leading: _formatting
-                      ? SizedBox.square(
-                          dimension: k.space.lg,
-                          child: MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s),
-                        )
-                      : null,
+              Wrap(spacing: k.space.sm, runSpacing: k.space.sm, children: [
+                MoonOutlinedButton(
+                  onTap: !_reading && !_formatting && !_busy ? () async => _read(await widget.pickFiles()) : null,
+                  leading: _reading ? const _OutlinedLoader() : null,
+                  label: Text(_reading ? '読み取っています…' : 'ファイルから読み取る'),
+                ),
+                MoonOutlinedButton(
+                  onTap: !_blank && !_formatting && !_reading ? _format : null,
+                  leading: _formatting ? const _OutlinedLoader() : null,
                   label: Text(_formatting ? '整えています…' : 'マークダウンに整える'),
                 ),
-              ),
-              if (_suggestion case final s?) ...[
-                SizedBox(height: k.space.lg),
-                Text('AI が整えた案', style: k.text.heading),
-                SizedBox(height: k.space.xs),
-                Text('本文はまだ変わっていません。違いを見て、よければこの形にしてください', style: k.text.small),
-                SizedBox(height: k.space.sm),
-                _SuggestionDiff(lineDiff(_body.text.trim().split('\n'), s.split('\n'))),
-                SizedBox(height: k.space.sm),
-                Row(children: [
-                  MoonFilledButton(onTap: _accept, label: const Text('この形にする')),
-                  SizedBox(width: k.space.sm),
-                  MoonTextButton(onTap: () => setState(() => _suggestion = null), label: const Text('やめる')),
-                ]),
-              ],
+                MoonOutlinedButton(onTap: !_blank ? _preview : null, label: const Text('ノートの形で見る')),
+              ]),
               SizedBox(height: k.space.xl),
               Align(
                 alignment: Alignment.centerLeft,
                 child: MoonFilledButton(
-                  onTap: _ready && !_busy ? _create : null,
+                  onTap: _ready && !_busy && !_reading ? _create : null,
                   leading: _busy ? const ButtonLoader() : null,
                   label: Text(_busy ? '作っています…' : (_blank ? '白紙から始める' : 'この内容で作る')),
                 ),
@@ -149,41 +242,16 @@ class _NewManualScreenState extends State<NewManualScreen> {
   }
 }
 
-/// 今の本文と整えた案の違いを、増えた行（緑）・消えた行（赤）で見せる
-class _SuggestionDiff extends StatelessWidget {
-  const _SuggestionDiff(this.lines);
-  final List<DiffLine> lines;
+/// 枠のボタンの読み込み中の印
+class _OutlinedLoader extends StatelessWidget {
+  const _OutlinedLoader();
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final c = k.colors;
-    return Container(
-      decoration: BoxDecoration(
-        color: c.canvas,
-        border: Border.all(color: c.rule, width: k.hairline),
-        borderRadius: k.radius.surface,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final l in lines)
-          Builder(builder: (_) {
-            final (mark, bg, fg) = switch (l.change) {
-              LineChange.added => ('+', c.addedBg, c.added),
-              // U+2212 は同梱フォントに無いので ASCII にする
-              LineChange.removed => ('-', c.removedBg, c.removed),
-              LineChange.kept => (' ', null, c.ink),
-            };
-            return Container(
-              color: bg,
-              padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.xs),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: k.space.lg, child: Text(mark, style: k.text.body.copyWith(color: fg))),
-                Expanded(child: LineText(l.text, color: fg, compact: true)),
-              ]),
-            );
-          }),
-      ]),
+    return SizedBox.square(
+      dimension: k.space.lg,
+      child: MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s),
     );
   }
 }

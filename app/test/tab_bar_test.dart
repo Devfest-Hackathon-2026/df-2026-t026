@@ -52,7 +52,7 @@ Map<String, dynamic> _note() => {
       ],
     };
 
-/// 塩の量の食い違いを店長に確認して 1/2 に決めた（行に確認印が付く）
+/// 塩の量の食い違いを店長に確認して 1/2 に決めた（行に「店長 11/7 に確認」が付く）
 Map<String, dynamic> _confirmed() {
   final n = _note();
   n['lines'] = [
@@ -155,7 +155,10 @@ void main() {
     expect(find.text('ノート'), findsOneWidget);
     expect(_tab('ノート'), findsOneWidget);
     expect(find.descendant(of: find.byType(MoonTabBar), matching: find.text('本文')), findsOneWidget);
-    expect(find.byType(MoonOutlinedButton), findsNothing);
+    // 上部バーには、タブバーに無い「共有」だけを出す（ADR 0013）
+    // 本文の下の「行を足す」も枠のボタンなので、上部バーの中だけを数える
+    expect(find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton)), findsOneWidget);
+    expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '共有')), findsOneWidget);
   });
 
   testWidgets('ノートの食い違っている行から開いた確認リストから、ノートのタブで1枚のノートに戻る', (tester) async {
@@ -173,11 +176,12 @@ void main() {
     expect(find.byType(CheckListScreen, skipOffstage: false), findsNothing);
   });
 
-  testWidgets('行の確認印から開いた確認リスト（その上に確認の記録）でも、ノートのタブで1枚のノートに戻る', (tester) async {
+  testWidgets('行の「店長 11/7 に確認」から開いた確認リスト（その上に確認の記録）でも、ノートのタブで1枚のノートに戻る', (tester) async {
     _size(tester, const Size(390, 844));
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(_confirmed), manualId: 'm1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(ConfirmStamp).first);
+    // 確認して決めた行には、誰に確認したかが発言者の形で出る。押すと確認の記録を開く
+    await tester.tap(find.widgetWithText(Speaker, '店長').first);
     await tester.pumpAndSettle();
     await _backToList(tester);
     expect(find.byType(CheckListScreen), findsOneWidget);

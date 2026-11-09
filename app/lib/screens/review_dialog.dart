@@ -15,20 +15,66 @@ import 'tab_bar.dart';
 /// 発言者の候補に並べる数
 const _maxSpeakers = 6;
 
+/// 1冊のノートに記録した、言われたこと。入力ページからは関係するノートごとに1件ずつできる
+typedef ReviewTarget = ({ManualController c, String utteranceId});
+
 // 外側を押して閉じると発言者と日付の変更が保存されないので、閉じるボタンだけで閉じる
-Future<void> showReview(BuildContext context, ManualController c, String utteranceId) => showMoonModal<void>(
+Future<void> showReview(BuildContext context, List<ReviewTarget> targets) => showMoonModal<void>(
       context: context,
       barrierDismissible: false,
       // ノートの画面から開いたときは、確認リストを「ノートの上」として開く（下のタブバーの「ノート」で1枚のノートに戻る）
-      builder: (_) => ReviewDialog(
-          c: c, utteranceId: utteranceId, listSettings: aboveNote(context, fromNote: context.widget is ManualScreen)),
+      builder: (_) =>
+          ReviewDialog(targets: targets, listSettings: aboveNote(context, fromNote: context.widget is ManualScreen)),
     );
 
-/// 差分化と分類の結果を見て、発言者と日付を確かめてから反映する
+/// 記録した後、迷う所が無ければ確認を開かずに書き込み、知らせの「確かめる」から確認を開けるようにする。
+/// 発言者が分からないか、分類の付いていない差分があれば確認を開く。食い違いは確認リストに入っているので触らない
+Future<void> writeOrReview(BuildContext context, List<ReviewTarget> targets) async {
+  final clear = targets.every((t) {
+    final s = t.c.state!;
+    return s.utterance(t.utteranceId).speaker != null &&
+        s.patchesOf(t.utteranceId).every((p) => p.status != 'proposed' || s.checkOf(p.id) != null);
+  });
+  if (!clear) return showReview(context, targets);
+  var written = 0;
+  var conflicts = 0;
+  // 同じノートの差分は前の書き込みの結果に重ねるので順に送る。ノートが違えば並べて送る
+  await Future.wait([
+    for (final t in targets)
+      () async {
+        // 書き込むたびに状態が置き換わるので、分類は先に控えておく
+        final s = t.c.state!;
+        final kinds = {for (final p in s.patchesOf(t.utteranceId)) if (p.status == 'proposed') p: s.checkOf(p.id)!.kind};
+        for (final MapEntry(key: p, value: kind) in kinds.entries) {
+          switch (kind) {
+            case Kind.addition || Kind.qualification:
+              await t.c.applyPatch(p.id);
+              written++;
+            case Kind.same:
+              await t.c.discardPatch(p.id);
+            case Kind.contradiction:
+              conflicts++;
+          }
+        }
+      }(),
+  ]);
+  if (!context.mounted) return;
+  final message = [
+    if (written > 0) 'ノートに$written行書き込みました',
+    if (conflicts > 0) '食い違いが$conflicts件あり、確認リストに入れました',
+  ].join('。');
+  showToast(
+    context,
+    message.isEmpty ? 'ノートは変えずに、言われた記録として残しました' : message,
+    action: (label: '確かめる', onTap: () => context.mounted ? showReview(context, targets) : null),
+  );
+}
+
+/// 差分化と分類の結果を見て、発言者と日付を確かめてから反映する。
+/// 1つの発言が複数のノートに関わるときは、発言者と日付を1回だけ入れ、ノートごとの変わる行を上下に並べる
 class ReviewDialog extends StatefulWidget {
-  const ReviewDialog({super.key, required this.c, required this.utteranceId, this.listSettings});
-  final ManualController c;
-  final String utteranceId;
+  const ReviewDialog({super.key, required this.targets, this.listSettings});
+  final List<ReviewTarget> targets;
 
   /// 「確認リストを見る」で開く確認リストに付ける印（tab_bar.dart の aboveNote）
   final RouteSettings? listSettings;
@@ -39,8 +85,14 @@ class ReviewDialog extends StatefulWidget {
 
 class _ReviewDialogState extends State<ReviewDialog> {
   /// 書き起こしを直すと差分が作り直されるので、いつも最新の状態から引く
-  Utterance get _u => widget.c.state!.utterance(widget.utteranceId);
-  late final _speaker = TextEditingController(text: _u.speaker ?? '');
+  Utterance _uOf(ReviewTarget t) => t.c.state!.utterance(t.utteranceId);
+
+  /// 言われたことの文面はどのノートでも同じなので、1冊目のものを見せる
+  Utterance get _u => _uOf(widget.targets.first);
+
+  // 発言者は AI がノートごとに読み取るので、読み取れなかったノートがあっても、読み取れた名前を出す
+  late final _speaker =
+      TextEditingController(text: [for (final t in widget.targets) ?_uOf(t).speaker].firstOrNull ?? '');
   late String _saidAt = _u.saidAt;
   final _editing = <String, TextEditingController>{};
   var _busy = false;
@@ -51,13 +103,17 @@ class _ReviewDialogState extends State<ReviewDialog> {
   bool get _hasSpeaker => _speaker.text.trim().isNotEmpty;
 
   /// 反映・確定したものは本文や確認の記録に残っているので、書き起こしは直させない
-  bool _fixable(ManualState s) =>
-      s.patchesOf(_u.id).every((p) => p.status != 'applied') &&
-      s.checks.where((c) => c.utteranceId == _u.id).every((c) => c.resolution == null);
+  bool get _fixable => widget.targets.every((t) {
+        final s = t.c.state!;
+        return s.patchesOf(t.utteranceId).every((p) => p.status != 'applied') &&
+            s.checks.where((c) => c.utteranceId == t.utteranceId).every((c) => c.resolution == null);
+      });
 
-  /// 発言者の候補。このマニュアルで言ったことのある人を、最近の順に
-  List<String> _knownSpeakers(ManualState s) {
-    final recent = s.utterances.where((u) => u.id != _u.id).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  /// 発言者の候補。これらのノートで言ったことのある人を、最近の順に
+  List<String> get _knownSpeakers {
+    final recent = [
+      for (final t in widget.targets) ...t.c.state!.utterances.where((u) => u.id != t.utteranceId),
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return {for (final u in recent) ?u.speaker}.take(_maxSpeakers).toList();
   }
 
@@ -71,12 +127,15 @@ class _ReviewDialogState extends State<ReviewDialog> {
     final dayKept = _saidAt == before.saidAt;
     setState(() => _busy = true);
     try {
-      await widget.c.editUtterance(
-        before.id,
-        text: text,
-        speaker: speakerKept || speaker.isEmpty ? null : speaker,
-        saidAt: dayKept ? null : _saidAt,
-      );
+      await Future.wait([
+        for (final t in widget.targets)
+          t.c.editUtterance(
+            t.utteranceId,
+            text: text,
+            speaker: speakerKept || speaker.isEmpty ? null : speaker,
+            saidAt: dayKept ? null : _saidAt,
+          ),
+      ]);
       if (!mounted) return;
       setState(() {
         if (speakerKept) _speaker.text = _u.speaker ?? '';
@@ -94,8 +153,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
   /// 発言者と日付の変更を先に保存する。反映や確認はこの2つが揃っている前提
   Future<void> _saveMeta() async {
     final speaker = _speaker.text.trim();
-    if (speaker == (_u.speaker ?? '') && _saidAt == _u.saidAt) return;
-    await widget.c.editUtterance(_u.id, speaker: speaker.isEmpty ? null : speaker, saidAt: _saidAt);
+    await Future.wait([
+      for (final t in widget.targets)
+        if (speaker != (_uOf(t).speaker ?? '') || _saidAt != _uOf(t).saidAt)
+          t.c.editUtterance(t.utteranceId, speaker: speaker.isEmpty ? null : speaker, saidAt: _saidAt),
+    ]);
   }
 
   Future<void> _run(Future<void> Function() f) async {
@@ -136,10 +198,8 @@ class _ReviewDialogState extends State<ReviewDialog> {
   Widget build(BuildContext context) {
     final k = context.tokens;
     return ListenableBuilder(
-      listenable: widget.c,
+      listenable: Listenable.merge([for (final t in widget.targets) t.c]),
       builder: (context, _) {
-        final s = widget.c.state!;
-        final patches = s.patchesOf(_u.id);
         return Padding(
           padding: EdgeInsets.all(k.space.lg),
           child: MoonModal(
@@ -153,13 +213,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                   Padding(
                     padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.sm, 0),
                     child: Row(children: [
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('ノートに書き込む前の確認', style: k.text.title),
-                          // 入力ページからは複数のマニュアルの確認が続くので、どの1冊かを添える
-                          Text(s.title, style: k.text.small),
-                        ]),
-                      ),
+                      Expanded(child: Text('ノートに書き込む前の確認', style: k.text.title)),
                       MoonButton.icon(
                         semanticLabel: '閉じる',
                         icon: Icon(LucideIcons.x, color: k.colors.ink),
@@ -171,7 +225,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                     child: SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(k.space.xl, k.space.sm, k.space.xl, k.space.xl),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        ..._said(s),
+                        ..._said(),
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
@@ -180,7 +234,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           onChanged: (_) => setState(() {}),
                           errorText: _hasSpeaker ? null : '反映する前に入れてください',
                         ),
-                        if (_knownSpeakers(s) case final known when known.isNotEmpty) ...[
+                        if (_knownSpeakers case final known when known.isNotEmpty) ...[
                           SizedBox(height: k.space.xs),
                           Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
                             for (final name in known)
@@ -199,15 +253,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           leading: const Icon(LucideIcons.calendar),
                           label: Text('${fmtDay(_saidAt)} に言われた'),
                         ),
-                        SizedBox(height: k.space.xl),
-                        if (patches.isEmpty)
-                          Text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
-                        for (final p in patches) ...[
-                          const Rule(),
-                          SizedBox(height: k.space.lg),
-                          _patch(s, p),
-                          SizedBox(height: k.space.lg),
-                        ],
+                        for (final t in widget.targets) ..._note(t),
                       ]),
                     ),
                   ),
@@ -220,14 +266,37 @@ class _ReviewDialogState extends State<ReviewDialog> {
     );
   }
 
+  /// 1冊のノートで変わる行。どのノートの話かを題名で示す
+  List<Widget> _note(ReviewTarget t) {
+    final k = context.tokens;
+    final s = t.c.state!;
+    final patches = s.patchesOf(t.utteranceId);
+    return [
+      SizedBox(height: k.space.xl),
+      Text(s.title, style: k.text.label),
+      SizedBox(height: k.space.sm),
+      if (patches.isEmpty) ...[
+        const Rule(),
+        SizedBox(height: k.space.lg),
+        Text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
+      ],
+      for (final p in patches) ...[
+        const Rule(),
+        SizedBox(height: k.space.lg),
+        _patch(t.c, p),
+        SizedBox(height: k.space.lg),
+      ],
+    ];
+  }
+
   /// 言われたこと（書き起こし）。聞き間違いがあれば、ここで直して差分を作り直せる
-  List<Widget> _said(ManualState s) {
+  List<Widget> _said() {
     final k = context.tokens;
     final fix = _fix;
     if (fix == null) {
       return [
         StickyNote(child: Text('「${_u.text}」', style: k.text.body)),
-        if (_fixable(s)) ...[
+        if (_fixable) ...[
           SizedBox(height: k.space.xs),
           MoonTextButton(
             onTap: _busy ? null : () => setState(() => _fix = TextEditingController(text: _u.text)),
@@ -251,9 +320,9 @@ class _ReviewDialogState extends State<ReviewDialog> {
     ];
   }
 
-  Widget _patch(ManualState s, Patch p) {
+  Widget _patch(ManualController c, Patch p) {
     final k = context.tokens;
-    final chk = s.checkOf(p.id);
+    final chk = c.state!.checkOf(p.id);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         if (chk != null) ...[KindTag(chk.kind), SizedBox(width: k.space.sm)],
@@ -265,15 +334,15 @@ class _ReviewDialogState extends State<ReviewDialog> {
       ],
       SizedBox(height: k.space.md),
       if (chk?.kind == Kind.contradiction)
-        ..._contradiction(s, p, chk!)
+        ..._contradiction(c, p, chk!)
       else if (chk?.kind == Kind.same)
-        ..._same(p, chk!)
+        ..._same(c, p, chk!)
       else
-        ..._approvable(p),
+        ..._approvable(c, p),
     ]);
   }
 
-  List<Widget> _contradiction(ManualState s, Patch p, Check chk) {
+  List<Widget> _contradiction(ManualController c, Patch p, Check chk) {
     final k = context.tokens;
     return [
       ConflictPair(
@@ -301,7 +370,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       final nav = Navigator.of(context);
                       nav.pop();
                       await nav.push(MaterialPageRoute(
-                          settings: widget.listSettings, builder: (_) => CheckListScreen(c: widget.c)));
+                          settings: widget.listSettings, builder: (_) => CheckListScreen(c: c)));
                     }),
             label: const Text('確認リストを見る'),
           ),
@@ -311,7 +380,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
   }
 
   // 本文は変えないのが既定。判定が外れていたときのために反映もできるようにしておく
-  List<Widget> _same(Patch p, Check chk) {
+  List<Widget> _same(ManualController c, Patch p, Check chk) {
     final k = context.tokens;
     return [
       Text('ノートの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
@@ -319,22 +388,31 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
       else
-        Row(children: [
+        _buttons([
           MoonTextButton(
-            onTap: _busy || !_hasSpeaker ? null : () => _run(() => widget.c.applyPatch(p.id)),
+            onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id)),
             label: const Text('それでも書き込む'),
           ),
-          const Spacer(),
-          MoonFilledButton(
-            onTap: _busy ? null : () => _run(() => widget.c.discardPatch(p.id)),
+        ], MoonFilledButton(
+            onTap: _busy ? null : () => _run(() => c.discardPatch(p.id)),
             leading: _busy ? const ButtonLoader() : null,
             label: const Text('書き込まない'),
-          ),
-        ]),
+          )),
     ];
   }
 
-  List<Widget> _approvable(Patch p) {
+  /// 控えめな操作を左、主ボタンを右に置く。スマホの幅で1行に収まらなければ、主ボタンを次の行に送る
+  Widget _buttons(List<Widget> secondary, Widget primary) {
+    final k = context.tokens;
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      runSpacing: k.space.xs,
+      children: [Row(mainAxisSize: MainAxisSize.min, children: secondary), primary],
+    );
+  }
+
+  List<Widget> _approvable(ManualController c, Patch p) {
     final k = context.tokens;
     final edit = _editing[p.id];
     return [
@@ -346,9 +424,9 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '反映しない', style: k.text.small)
       else
-        Row(children: [
+        _buttons([
           MoonTextButton(
-            onTap: _busy ? null : () => _run(() => widget.c.discardPatch(p.id)),
+            onTap: _busy ? null : () => _run(() => c.discardPatch(p.id)),
             label: const Text('書き込まない'),
           ),
           MoonTextButton(
@@ -361,13 +439,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
             }),
             label: Text(edit == null ? '書き込む内容を直す' : 'やめる'),
           ),
-          const Spacer(),
-          MoonFilledButton(
-            onTap: _busy || !_hasSpeaker ? null : () => _run(() => widget.c.applyPatch(p.id, text: edit?.text.trim())),
-            leading: _busy ? const ButtonLoader() : null,
-            label: const Text('ノートに書き込む'),
-          ),
-        ]),
+        ], MoonFilledButton(
+          onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id, text: edit?.text.trim())),
+          leading: _busy ? const ButtonLoader() : null,
+          label: const Text('ノートに書き込む'),
+        )),
     ];
   }
 }

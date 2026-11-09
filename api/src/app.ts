@@ -9,10 +9,10 @@ import { z } from 'zod';
 import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
-import type { Format } from './format.ts';
-import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
+import type { Format, ReadNote } from './format.ts';
+import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
-import type { Store } from './store.ts';
+import type { Memo, Share, Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
@@ -24,6 +24,8 @@ export interface Deps {
   transcribe: Transcribe;
   /** ノートを作るときの本文の整形（ADR 0011） */
   format: Format;
+  /** ノートを作るときの PDF・画像の読み取り（ADR 0012） */
+  readNote: ReadNote;
   listen: Listen;
   dictate: Dictate;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
@@ -51,13 +53,20 @@ const Me = z.object({
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
 const FormatBody = z.object({ text: z.string().trim().min(1, '整える本文を入れてください') });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
+const DOCUMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic'] as const;
 // 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
-  mimeType: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'audio/wav']),
+  mimeType: z.enum([...DOCUMENT_TYPES, 'audio/wav']),
   data: z.base64(),
 });
 // Gemini に1回で渡せる大きさ（約20MB）に収める
 const MAX_ATTACHMENT_CHARS = 15_000_000;
+const ReadBody = z.object({
+  files: z
+    .array(z.object({ mimeType: z.enum(DOCUMENT_TYPES), data: z.base64() }))
+    .min(1, '読み取るファイルを選んでください')
+    .refine((fs) => fs.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS, 'ファイルは合わせて10MBまでにしてください'),
+});
 const NewIntake = z
   .object({
     text: z.string().trim().default(''),
@@ -65,14 +74,21 @@ const NewIntake = z
     /** 利用者が選んだマニュアル。省略すると関係するマニュアルを判定する */
     manualIds: z.array(z.string().min(1)).min(1).optional(),
     today: date.optional(),
+    /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0015） */
+    memoIds: z.array(z.string().min(1)).default([]),
   })
   .refine((b) => b.text || b.files.length > 0, '言われたことを書くか、ファイルか録音を添えてください')
   .refine(
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
+// 切り出しボタンを押した時刻。端末の時計で決まるので、端末をまたいで並べられるよう UTC で受ける
+const memoAt = z.iso.datetime();
 // リワインドの切り出し。アプリは発話のかたまり（最長で約1分）だけを送る
-const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS) });
+const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS), at: memoAt });
+// 端末内に置いていた前の版の未整理メモを移すときだけ使う
+const NewMemo = z.object({ at: memoAt, text: z.string().trim().min(1) });
+const EditMemo = z.object({ text: z.string().trim().min(1, 'メモを書いてください') });
 /** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
 const MAX_DICTATION_BYTES = 16000 * 2 * 65;
 const EditUtterance =z.object({
@@ -93,6 +109,7 @@ const Edit = z
   })
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
+const NewShare = z.object({ userId: z.string().trim().min(1, '共有する相手のログイン ID を入れてください') });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
   decidedAt: date,
@@ -100,13 +117,14 @@ const Resolve = z.object({
   note: z.string().trim().default(''),
 });
 
-/** 直接編集した人。ノートは利用者ごとに分かれているので、本人 */
+/** 持ち主が直接編集したときの発言者。共有された人の編集は、その人の名前にする（ADR 0013） */
 const SELF = '自分';
 
 const now = () => new Date().toISOString();
+const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-export function createApp({ store, assess, check, transcribe, format, listen, dictate, allowOrigin }: Deps) {
+export function createApp({ store, assess, check, transcribe, format, readNote, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
@@ -127,19 +145,49 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
     return c.json({ error: 'サーバーでエラーが起きました' }, 500);
   });
 
-  async function load(userId: string, manualId: string) {
-    const manual = await store.getManual(userId, manualId);
-    if (!manual) throw new HTTPException(404, { message: 'ノートが見つかりません' });
-    const [utterances, patches, checks] = await Promise.all([
-      store.list<Utterance>(userId, manualId, 'utterances'),
-      store.list<Patch>(userId, manualId, 'patches'),
-      store.list<Check>(userId, manualId, 'checks'),
+  /** 名前を決めていなければ ID を名前にする（ADR 0010） */
+  const nameOf = async (userId: string) => (await store.getProfile(userId))?.name ?? userId;
+
+  const notFound = () => new HTTPException(404, { message: 'ノートが見つかりません' });
+
+  /**
+   * ノートを読む。既定では持ち主だけに許す。shared なら、共有された人にも持ち主のノートを読ませる（ADR 0013）。
+   * 書き込むときは userId ではなく、返した owner の下に書く
+   */
+  async function load(userId: string, manualId: string, { shared = false } = {}) {
+    let owner = userId;
+    let manual = await store.getManual(userId, manualId);
+    if (!manual && shared) {
+      const pointer = await store.getShared(userId, manualId);
+      if (pointer) {
+        owner = pointer.ownerId;
+        manual = await store.getManual(owner, manualId);
+      }
+    }
+    if (!manual) throw notFound();
+    const mine = owner === userId;
+    const [utterances, patches, checks, shares, ownerName] = await Promise.all([
+      store.list<Utterance>(owner, manualId, 'utterances'),
+      store.list<Patch>(owner, manualId, 'patches'),
+      store.list<Check>(owner, manualId, 'checks'),
+      mine ? ([] as Share[]) : store.list<Share>(owner, manualId, 'shares'),
+      mine ? null : nameOf(owner),
     ]);
-    const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
+    // 相手の側の索引だけでは信じず、持ち主の側にも共有の記録があるかを確かめる
+    if (!mine && !shares.some((x) => x.id === userId)) throw notFound();
     utterances.sort(byCreated);
     patches.sort(byCreated);
     checks.sort(byCreated);
-    return { manual, lines: render(manual.base, patches), utterances, patches, checks };
+    return {
+      manual,
+      lines: render(manual.base, patches),
+      utterances,
+      patches,
+      checks,
+      owner,
+      /** 共有されたノートなら持ち主。自分のノートなら null */
+      sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
+    };
   }
 
   async function loadAll(userId: string) {
@@ -216,7 +264,91 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
     return c.json({ text: await format(body.text) });
   });
 
-  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
+  // 読み取った本文と題名の案を返すだけで保存しない（ADR 0012）
+  app.post('/read', async (c) => {
+    const body = ReadBody.parse(await c.req.json());
+    const read = await readNote(body.files);
+    if (!read.text) throw new HTTPException(422, { message: 'ファイルから文字を読み取れませんでした' });
+    return c.json(read);
+  });
+
+  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'), { shared: true })));
+
+  // 自分に共有されたノート。サイドバーに並べる（ADR 0013）
+  app.get('/shared', async (c) => {
+    const { userId } = c.var;
+    const pointers = await store.listShared(userId);
+    const items = await Promise.all(
+      pointers.map(async (x) => {
+        const [manual, shares, name] = await Promise.all([
+          store.getManual(x.ownerId, x.id),
+          store.list<Share>(x.ownerId, x.id, 'shares'),
+          nameOf(x.ownerId),
+        ]);
+        if (!manual || !shares.some((s) => s.id === userId)) return null;
+        return { id: manual.id, title: manual.title, sharedBy: { id: x.ownerId, name }, sharedAt: x.createdAt };
+      }),
+    );
+    return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
+  });
+
+  /** 共有の相手を変える・ノートを消すのは持ち主だけ */
+  async function mustOwn(userId: string, manualId: string) {
+    if (!(await store.getManual(userId, manualId))) throw notFound();
+  }
+
+  async function sharesOf(userId: string, manualId: string) {
+    const shares = (await store.list<Share>(userId, manualId, 'shares')).sort(byCreated);
+    return Promise.all(shares.map(async (x) => ({ id: x.id, name: await nameOf(x.id) })));
+  }
+
+  app.get('/manuals/:id/shares', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    await mustOwn(userId, manualId);
+    return c.json(await sharesOf(userId, manualId));
+  });
+
+  // 招待や承認は無く、足すとすぐ相手のサイドバーに出る（ADR 0013）
+  app.post('/manuals/:id/shares', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const body = NewShare.parse(await c.req.json());
+    await mustOwn(userId, manualId);
+    if (body.userId === userId) throw new HTTPException(400, { message: '自分には共有できません。相手のログイン ID を入れてください' });
+    const account = loginIdPattern.test(body.userId) ? await store.getAccount(body.userId) : null;
+    if (!account) throw new HTTPException(404, { message: `ID「${body.userId}」のアカウントはありません。ID を確かめてください` });
+    const createdAt = now();
+    // 持ち主の側を先に書く。途中で失敗しても、持ち主の知らない相手が読める形を残さない
+    await store.put<Share>(userId, manualId, 'shares', { id: account.id, createdAt });
+    await store.putShared(account.id, { id: manualId, ownerId: userId, createdAt });
+    return c.json(await sharesOf(userId, manualId), 201);
+  });
+
+  app.delete('/manuals/:id/shares/:uid', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const target = c.req.param('uid');
+    await mustOwn(userId, manualId);
+    const shares = await store.list<Share>(userId, manualId, 'shares');
+    if (!shares.some((x) => x.id === target)) throw new HTTPException(404, { message: 'この人には共有していません' });
+    // 相手の側を先に消す。途中で失敗しても、外したはずの相手が読める形を残さない
+    await store.removeShared(target, manualId);
+    await store.remove(userId, manualId, 'shares', target);
+    return c.json(await sharesOf(userId, manualId));
+  });
+
+  // 元に戻せない。画面で確かめてから呼ぶ（ADR 0014）
+  app.delete('/manuals/:id', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    await mustOwn(userId, manualId);
+    // 相手の側の索引を先に消す。途中で失敗しても、相手が読める形を残さない
+    const shares = await store.list<Share>(userId, manualId, 'shares');
+    await Promise.all(shares.map((x) => store.removeShared(x.id, manualId)));
+    await store.removeManual(userId, manualId);
+    return c.body(null, 204);
+  });
 
   // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
   // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
@@ -290,16 +422,49 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
     const results = await record(userId, states, text, body.today ?? todayInJapan(), !!body.manualIds);
+    // 記録先を選び直してもらうときは、送り直すまでメモを残す
+    if (results.length > 0) await Promise.all(body.memoIds.map((id) => store.removeMemo(userId, id)));
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });
 
-  // リワインドの切り出し。書き起こすだけで記録はしない（アプリが未整理メモとして端末にためる）
+  // リワインドの切り出し。書き起こして未整理メモにためるだけで、ノートには記録しない（ADR 0005・0014）
   app.post('/listen', async (c) => {
     const body = NewListen.parse(await c.req.json());
     const text = await listen({ mimeType: 'audio/wav', data: body.data }, phrasesOf(await loadAll(c.var.userId)));
     if (!text) throw new HTTPException(422, { message: '聞き取れませんでした。言われた直後にもう一度押してください' });
-    return c.json({ text });
+    const memo: Memo = { id: randomUUID(), at: body.at, text };
+    await store.putMemo(c.var.userId, memo);
+    return c.json(memo, 201);
+  });
+
+  // 未整理メモはサーバーに置き、どの端末からも同じものを見る（ADR 0015）
+  app.get('/memos', async (c) => {
+    const memos = await store.listMemos(c.var.userId);
+    return c.json(memos.sort((a, b) => a.at.localeCompare(b.at)));
+  });
+
+  app.post('/memos', async (c) => {
+    const body = NewMemo.parse(await c.req.json());
+    const memo: Memo = { id: randomUUID(), ...body };
+    await store.putMemo(c.var.userId, memo);
+    return c.json(memo, 201);
+  });
+
+  app.patch('/memos/:id', async (c) => {
+    const { userId } = c.var;
+    const body = EditMemo.parse(await c.req.json());
+    const found = await store.getMemo(userId, c.req.param('id'));
+    if (!found) throw new HTTPException(404, { message: 'メモが見つかりません。ほかの端末で消したか、記録したようです' });
+    const memo = { ...found, text: body.text };
+    await store.putMemo(userId, memo);
+    return c.json(memo);
+  });
+
+  // ほかの端末で先に消していても、消したい結果は同じなので失敗にしない
+  app.delete('/memos/:id', async (c) => {
+    await store.removeMemo(c.var.userId, c.req.param('id'));
+    return c.body(null, 204);
   });
 
   // テキスト欄の音声入力。PCM を受けるたびに途中の文面（{text}）を返し、"end" を受けたら
@@ -405,18 +570,20 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
     return c.json(await load(userId, manualId));
   });
 
-  // ノートの直接編集。「自分がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）
+  // ノートの直接編集。「誰がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）。
+  // 共有された人も編集でき、その人が書いたとして残す（ADR 0013）
   app.post('/manuals/:id/edits', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
     const body = Edit.parse(await c.req.json());
-    const s = await load(userId, manualId);
+    const s = await load(userId, manualId, { shared: true });
     const utterance: Utterance = {
       id: randomUUID(),
       text: body.op === 'delete' ? `「${body.line}」を消した` : body.text,
-      speaker: SELF,
+      speaker: s.sharedBy ? await nameOf(userId) : SELF,
       saidAt: body.today ?? todayInJapan(),
       fromEdit: true,
+      ...(s.sharedBy && { editedBy: userId }),
       createdAt: now(),
     };
     const patch: Patch = {
@@ -431,9 +598,9 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
       appliedAt: now(),
     };
     applyPatch(s.lines, patch);
-    await store.put(userId, manualId, 'utterances', utterance);
-    await store.put(userId, manualId, 'patches', patch);
-    return c.json(await load(userId, manualId), 201);
+    await store.put(s.owner, manualId, 'utterances', utterance);
+    await store.put(s.owner, manualId, 'patches', patch);
+    return c.json(await load(userId, manualId, { shared: true }), 201);
   });
 
   // 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを見る。
@@ -441,14 +608,30 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
   app.post('/manuals/:id/patches/:pid/check', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
-    const s = await load(userId, manualId);
+    const s = await load(userId, manualId, { shared: true });
     const p = find(s.patches, c.req.param('pid'), '差分');
     const u = find(s.utterances, p.utteranceId, '発言');
     if (!u.fromEdit || p.op === 'delete' || s.checks.some((x) => x.patchId === p.id)) {
       throw new HTTPException(409, { message: 'この編集は確かめられません' });
     }
     // 書いた行そのものは相手にしない。書き換える前の行は本人が直したので、もう残っていない
-    const others = s.lines.filter((l) => l.patchId !== p.id);
+    let others = s.lines.filter((l) => l.patchId !== p.id);
+    if (p.op === 'replace') {
+      // ただし確定済みの行を書き換えたときは、その行も相手にする。この編集を除いて描くと、書き換える前の行が
+      // 元の位置に確定の出どころ付きで並び、Gemini がその行を指せる（#86）
+      let before: ManualLine[] = [];
+      try {
+        before = render(s.manual.base, s.patches.filter((x) => x.id !== p.id));
+      } catch (e) {
+        // 後の編集がこの編集の行を直していると描けない。そのときは今まで通りにする
+        if (!(e instanceof PatchError)) throw e;
+      }
+      const old = before.find((l) => l.text === p.line);
+      const confirmed =
+        old &&
+        s.checks.some((x) => x.resolution && (x.resolution.text === old.text || (old.patchId !== null && x.resolution.patchId === old.patchId)));
+      if (confirmed) others = before;
+    }
     const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
     const result = await check({
       ...manualContext(others, s.patches, s.utterances, s.checks),
@@ -456,8 +639,8 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
       patch: draft,
     });
     const chk: Check = { ...result, id: randomUUID(), patchId: p.id, utteranceId: u.id, resolution: null, createdAt: now() };
-    await store.put(userId, manualId, 'checks', chk);
-    return c.json(await load(userId, manualId));
+    await store.put(s.owner, manualId, 'checks', chk);
+    return c.json(await load(userId, manualId, { shared: true }));
   });
 
   app.post('/manuals/:id/patches/:pid/discard', async (c) => {
@@ -490,9 +673,14 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
     };
     const original = find(s.patches, chk.patchId, '差分');
     let lines = s.lines;
+    const has = (text: string) => s.lines.some((l) => l.text === text);
+    const written = original.status === 'applied' && has(original.text);
+    // 食い違っていた相手の行が今は無いこともある（確定済みの行を書き換えた編集、確定の前に相手の行を直したとき）。
+    // そのときは書いた行を確定した内容にし、どちらの行も無ければ確定の記録だけ残す（#83・#86）
+    const target = has(chk.conflictLine) ? chk.conflictLine : written ? original.text : null;
     // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる
     let merge: Patch | null = null;
-    if (original.status === 'applied' && lines.some((l) => l.text === original.text)) {
+    if (target === chk.conflictLine && written) {
       merge = {
         id: randomUUID(),
         utteranceId: answer.id,
@@ -507,12 +695,12 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
       lines = applyPatch(lines, merge);
     }
     let fix: Patch | null = null;
-    if (body.text !== chk.conflictLine) {
+    if (target !== null && body.text !== target) {
       fix = {
         id: randomUUID(),
         utteranceId: answer.id,
         op: 'replace',
-        line: chk.conflictLine,
+        line: target,
         text: body.text,
         summary: `確認：${note}`,
         status: 'applied',

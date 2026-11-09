@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../history.dart';
@@ -43,10 +44,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
           extendBody: true,
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '履歴']),
+            TopBar(crumbs: [s.title, '履歴']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
-                if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, onOpen: _push));
+                if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, onOpen: _push));
                 final commits = h.rows.map((r) => r.commit);
                 final selected = commits.where((x) => x.id == _selected).firstOrNull ?? commits.first;
                 // グラフが主役なので、確認リストのような細い一覧にせず、差分と半分ずつにする
@@ -73,7 +74,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     ));
   }
 
-  Widget _list(ManualState s, History h, {String? selected, required void Function(Commit) onOpen}) {
+  Widget _list(ManualState s, History h, {String? selected, bool narrow = false, required void Function(Commit) onOpen}) {
     final k = context.tokens;
     final versions = h.rows.where((r) => !r.commit.onBranch).length;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -87,7 +88,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
       PaperSheet(
         padding: EdgeInsets.all(k.space.sm),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (final r in h.rows) _row(h, r, selected: r.commit.id == selected, onTap: () => onOpen(r.commit)),
+          for (final r in h.rows)
+            _GraphRowTile(h: h, r: r, narrow: narrow, selected: r.commit.id == selected, onTap: () => onOpen(r.commit)),
         ]),
       ),
       if (versions == 1) ...[
@@ -96,68 +98,134 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ],
     ]);
   }
+}
 
-  Widget _row(History h, GraphRow r, {required bool selected, required VoidCallback onTap}) {
+/// 履歴の1件。左にグラフ、右に誰が・何を。押すと版の詳細が開くので、右端に「›」を付け、押している間は地を濃くする。
+/// 狭い画面では、文を2行まで出し、増減や札を文の下の行に回して、指で押しやすい高さにする
+class _GraphRowTile extends StatefulWidget {
+  const _GraphRowTile({required this.h, required this.r, required this.narrow, required this.selected, required this.onTap});
+  final History h;
+  final GraphRow r;
+  final bool narrow;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_GraphRowTile> createState() => _GraphRowTileState();
+}
+
+class _GraphRowTileState extends State<_GraphRowTile> {
+  bool _hover = false;
+  bool _down = false;
+
+  void _press(bool v) => setState(() => _down = v);
+
+  @override
+  Widget build(BuildContext context) {
     final k = context.tokens;
+    final r = widget.r;
     final x = r.commit;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        // 1件を同じ高さの1行に詰め、行の間で線を途切れさせずに木の形を見せる
-        child: SizedBox(
-          height: k.graphRow,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            SizedBox(
-              width: h.lanes * k.graphLane,
-              child: CustomPaint(
-                painter: _GraphPainter(
-                  row: r,
-                  lane: k.graphLane,
-                  dot: k.graphDot,
-                  stroke: k.graphStroke,
-                  dash: k.graphDash,
-                  trunk: k.colors.graphTrunk,
-                  branch: k.colors.graphBranch,
-                  pending: k.colors.graphPending,
-                  paper: k.colors.canvas,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-                decoration: BoxDecoration(
-                  borderRadius: k.radius.control,
-                  // 選んでいない行も同じ太さの白い枠にして、選んだときに中身がずれないようにする
-                  border: Border.all(color: selected ? k.colors.action : k.colors.canvas, width: k.hairline * 2),
-                ),
-                child: Row(children: [
-                  // 誰が・いつと本文を1つの文にし、スマホの幅でも本文の末尾を省いて1行に収める。
-                  // 枝は何と何が食い違ったかを先に見せ、誰がいつ言ったかを後ろに添える
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        children: x.onBranch
-                            ? [TextSpan(text: _conflict(x), style: k.text.body), const TextSpan(text: '  '), _whoSpan(k, x)]
-                            : [_whoSpan(k, x), const TextSpan(text: '  '), TextSpan(text: _message(x), style: k.text.body)],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: k.text.small,
-                    ),
+    final narrow = widget.narrow;
+    // 誰が・いつと本文を1つの文にする。枝は何と何が食い違ったかを先に見せ、誰がいつ言ったかを後ろに添える
+    final text = Text.rich(
+      TextSpan(
+        children: x.onBranch
+            ? [TextSpan(text: _conflict(x), style: k.text.body), const TextSpan(text: '  '), _whoSpan(k, x)]
+            : [_whoSpan(k, x), const TextSpan(text: '  '), TextSpan(text: _message(x), style: k.text.body)],
+      ),
+      maxLines: narrow ? 2 : 1,
+      overflow: TextOverflow.ellipsis,
+      style: k.text.small,
+    );
+    final marks = [
+      _Changes(x, short: true),
+      if (x.asides.isNotEmpty) StatusTag(_asidesLabel(x.asides), bg: k.colors.rule, fg: k.colors.ink),
+    ];
+    final chevron = Icon(LucideIcons.chevronRight, size: k.graphChevron, color: k.colors.inkMuted);
+    final content = narrow
+        // 狭い画面: 文に幅を全部使わせ、増減や札は文の下の行に回す
+        ? Row(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: k.space.sm),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      text,
+                      SizedBox(height: k.space.xs),
+                      Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: marks),
+                    ],
                   ),
-                  SizedBox(width: k.space.sm),
-                  _Changes(x, short: true),
-                  if (x.asides.isNotEmpty) ...[
-                    SizedBox(width: k.space.sm),
-                    StatusTag(_asidesLabel(x.asides), bg: k.colors.rule, fg: k.colors.ink),
-                  ],
-                ]),
+                ),
               ),
+              SizedBox(width: k.space.sm),
+              chevron,
+            ],
+          )
+        // 広い画面: 今までどおり1行に詰め、右端に「›」だけ足す
+        : Row(
+            children: [
+              Expanded(child: text),
+              for (final m in marks) ...[SizedBox(width: k.space.sm), m],
+              SizedBox(width: k.space.sm),
+              chevron,
+            ],
+          );
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: widget.h.lanes * k.graphLane,
+          child: CustomPaint(
+            painter: _GraphPainter(
+              row: r,
+              lane: k.graphLane,
+              dot: k.graphDot,
+              stroke: k.graphStroke,
+              dash: k.graphDash,
+              trunk: k.colors.graphTrunk,
+              branch: k.colors.graphBranch,
+              pending: k.colors.graphPending,
+              paper: k.colors.canvas,
             ),
-          ]),
+          ),
+        ),
+        Expanded(
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+            decoration: BoxDecoration(
+              color: _down ? k.colors.pressed : (_hover ? k.colors.hover : null),
+              borderRadius: k.radius.control,
+              // 選んでいない行も同じ太さの白い枠にして、選んだときに中身がずれないようにする
+              border: Border.all(color: widget.selected ? k.colors.action : k.colors.canvas, width: k.hairline * 2),
+            ),
+            child: content,
+          ),
+        ),
+      ],
+    );
+    return Semantics(
+      button: true,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => _press(true),
+          onTapUp: (_) => _press(false),
+          onTapCancel: () => _press(false),
+          onTap: widget.onTap,
+          // 行の間で線を途切れさせないよう、グラフは行の高さいっぱいに描く。
+          // 広い画面は1件を同じ高さの1行に詰めて木の形を見せ、狭い画面は文に合わせて伸ばす
+          child: narrow
+              ? ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: k.graphRowTouch),
+                  child: IntrinsicHeight(child: row),
+                )
+              : SizedBox(height: k.graphRow, child: row),
         ),
       ),
     );
@@ -180,7 +248,7 @@ class _CommitScreen extends StatelessWidget {
         final x = buildHistory(s).rows.map((r) => r.commit).firstWhere((x) => x.id == id);
         return Scaffold(
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '履歴', x.onBranch ? '記録' : '版']),
+            TopBar(crumbs: [s.title, '履歴', x.onBranch ? '記録' : '版']),
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
@@ -238,8 +306,6 @@ class _CommitDetail extends StatelessWidget {
         if (x.asides.isNotEmpty) ...[
           SizedBox(height: k.space.xl),
           Text('この版のあいだの記録', style: k.text.title),
-          SizedBox(height: k.space.xs),
-          Text('ノートと食い違わなかったので、枝にせずここに残しています', style: k.text.small),
           for (final a in x.asides) ...[
             SizedBox(height: k.space.md),
             const Rule(),
@@ -283,7 +349,10 @@ class _Who extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final r = x.onBranch ? null : x.check?.resolution;
-    if (r != null) return ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt);
+    // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
+    if (r != null) {
+      return Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認');
+    }
     if (x.said case final u?) return Speaker(name: u.speaker, day: u.saidAt);
     return Text(_createdDay(x), style: k.text.small);
   }
@@ -292,11 +361,12 @@ class _Who extends StatelessWidget {
 /// グラフの1行に置く、誰が・いつ。アバターを外し、本文と一緒に省けるよう文の一部にする
 InlineSpan _whoSpan(AppTokens k, Commit x) {
   final r = x.onBranch ? null : x.check?.resolution;
+  // 確定した版は、小さい確認印でなく、誰に確認したかを文で添える
   if (r != null) {
-    return WidgetSpan(
-      alignment: PlaceholderAlignment.middle,
-      child: ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
-    );
+    return TextSpan(children: [
+      TextSpan(text: r.decidedBy, style: k.text.small.copyWith(color: k.colors.ink)),
+      TextSpan(text: '  ${fmtDay(r.decidedAt)} に確認'),
+    ]);
   }
   if (x.said case final u?) {
     return TextSpan(children: [

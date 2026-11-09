@@ -7,6 +7,7 @@ import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'sidebar.dart';
 
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
@@ -103,11 +104,15 @@ class KindTag extends StatelessWidget {
 
 /// 上部バー。戻るボタンと、いまの場所を示すパンくず
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.crumbs, this.trailing});
+  const TopBar({super.key, required this.crumbs, this.trailing, this.leading});
 
-  /// 画面の積み重ねと同じ順。最後がいまの画面
+  /// 画面の積み重ねと同じ順。最後がいまの画面。アプリ名はサイドバーの一番上に出すので入れない。
+  /// 空なら何も出さない（広い画面の入力ページ）
   final List<String> crumbs;
   final Widget? trailing;
+
+  /// 戻る先の無い画面（入力ページ）の左に置くボタン。狭い画面のメニュー（三本線）に使う
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -131,15 +136,23 @@ class TopBar extends StatelessWidget {
                 onTap: () => Navigator.maybePop(context),
               ),
               SizedBox(width: k.space.xs),
+            ] else if (leading != null) ...[
+              leading!,
+              SizedBox(width: k.space.xs),
             ] else
               SizedBox(width: k.space.sm),
             Expanded(
-              child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-                for (var i = 0; i < crumbs.length; i++) ...[
-                  if (i > 0) Text(' / ', style: k.text.small),
-                  _crumb(context, i),
-                ],
-              ]),
+              // スマホ（サイドバーの出ない幅）では、パンくずを出さず、いまの画面の名前だけにする。前の画面へは戻る矢印で戻る
+              child: crumbs.isEmpty
+                  ? const SizedBox.shrink()
+                  : showsSidebar(context)
+                  ? Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+                      for (var i = 0; i < crumbs.length; i++) ...[
+                        if (i > 0) Text(' / ', style: k.text.small),
+                        _crumb(context, i),
+                      ],
+                    ])
+                  : Text(crumbs.last, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.heading),
             ),
             ?trailing,
           ]),
@@ -197,8 +210,11 @@ class PageTitle extends StatelessWidget {
 
 /// ノートの1行をマークダウンとして描く
 class LineText extends StatelessWidget {
-  const LineText(this.line, {super.key, this.color, this.compact = false});
+  const LineText(this.line, {super.key, this.color, this.compact = false, this.mark});
   final String line;
+
+  /// 地を付けて見せる言葉（ノートを探して開いたとき）。英字の大文字・小文字は区別しない
+  final String? mark;
 
   /// 差分の増減など、文字の色を変えるとき
   final Color? color;
@@ -238,8 +254,24 @@ class LineText extends StatelessWidget {
           if (n is md.Element && n.children != null)
             TextSpan(children: _spans(k, n.children!, _style(k, n.tag, s)))
           else
-            TextSpan(text: n.textContent, style: s),
+            ..._marked(k, n.textContent, s),
       ];
+
+  // 太字などの印をまたいだ所には付けない（印ごとに分かれた文字の中だけで探す）
+  List<TextSpan> _marked(AppTokens k, String text, TextStyle s) {
+    final q = mark?.toLowerCase() ?? '';
+    if (q.isEmpty) return [TextSpan(text: text, style: s)];
+    final lower = text.toLowerCase();
+    final spans = <TextSpan>[];
+    var at = 0;
+    for (var i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, at)) {
+      spans
+        ..add(TextSpan(text: text.substring(at, i), style: s))
+        ..add(TextSpan(text: text.substring(i, i + q.length), style: s.copyWith(backgroundColor: k.colors.found)));
+      at = i + q.length;
+    }
+    return spans..add(TextSpan(text: text.substring(at), style: s));
+  }
 
   // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0009）
   TextStyle _style(AppTokens k, String tag, TextStyle s) => switch (tag) {
@@ -275,25 +307,78 @@ class Avatar extends StatelessWidget {
   }
 }
 
+/// 発言者の丸。名前から決まったイラストの顔（Open Peeps、assets/avatars/）を出す。同じ名前はいつも同じ顔。
+/// 発言者は名前の文字だけで持っているので、顔は保存せずに毎回名前から選ぶ。
+/// 名前が無いときと「自分」は、ログインする人のアイコン（Avatar）と同じ頭文字の丸のまま
+class SpeakerFace extends StatelessWidget {
+  const SpeakerFace(this.name, {super.key});
+  final String? name;
+
+  /// 顔の枚数（assets/avatars/peep-1.png〜）
+  static const faces = 8;
+
+  /// 名前から顔の番号（0〜faces-1）を選ぶ。String.hashCode は実行のたびに変わりうるので使わず、
+  /// 文字コードから毎回同じになる計算（FNV-1a 32bit）にする。Web では数が 2^53 を超えると狂うので、
+  /// 掛け算を分けて 32bit に収める。見本の名前（店長・田中さん・佐藤さん・鈴木さん など）どうしで顔がかぶらないよう、
+  /// 上の桁を混ぜてから 8 で割る
+  static int faceOf(String name) {
+    var h = 0x811c9dc5;
+    for (final c in name.codeUnits) {
+      h = (h ^ c) & 0xffffffff;
+      // h * 16777619（0x01000193 = 2^24 + 0x193）を 32bit で
+      h = ((h * 0x193) + ((h << 24) & 0xffffffff)) & 0xffffffff;
+    }
+    return ((h ^ (h >> 13)) & 0xffffffff) % faces;
+  }
+
+  static String assetOf(String name) => 'assets/avatars/peep-${faceOf(name) + 1}.png';
+
+  @override
+  Widget build(BuildContext context) {
+    final n = name;
+    if (n == null || n.trim().isEmpty || n == '自分') return Avatar(n);
+    final k = context.tokens;
+    // 読み上げは今までどおり名前（顔の絵は読ませない）
+    return Semantics(
+      label: n,
+      excludeSemantics: true,
+      child: MoonAvatar(
+        avatarSize: MoonAvatarSize.xs,
+        borderRadius: k.radius.round,
+        backgroundColor: k.colors.avatar,
+        backgroundImage: AssetImage(assetOf(n)),
+      ),
+    );
+  }
+}
+
 /// 誰が・いつ言ったか
 class Speaker extends StatelessWidget {
-  const Speaker({super.key, required this.name, required this.day, this.onTap});
+  const Speaker({super.key, required this.name, required this.day, this.after, this.onTap});
   final String? name;
   final String day;
+
+  /// 日付の後ろに添える言葉（例：「に確認」）。添えた言葉も含めてひとまとまりで押せる
+  final String? after;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     final row = Row(mainAxisSize: MainAxisSize.min, children: [
-      Avatar(name),
+      SpeakerFace(name),
       SizedBox(width: k.space.sm),
       Text(name ?? '発言者未入力', style: k.text.small.copyWith(color: k.colors.ink)),
       SizedBox(width: k.space.sm),
       Text(fmtDay(day), style: k.text.small),
+      if (after != null) ...[SizedBox(width: k.space.sm), Text(after!, style: k.text.small)],
     ]);
     if (onTap == null) return row;
-    return MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(onTap: onTap, child: row));
+    // アイコンと名前の間のすき間を押しても、下の行（押すと書き換えの欄が開く）でなく、こちらが受ける
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: row),
+    );
   }
 }
 
@@ -575,14 +660,26 @@ class ButtonLoader extends StatelessWidget {
       );
 }
 
-void showToast(BuildContext context, String message, {bool error = false}) {
+/// action は知らせの右に置く操作。押す間を残すため、付けたときは長めに出す
+void showToast(BuildContext context, String message,
+    {bool error = false, ({String label, VoidCallback onTap})? action}) {
   final k = context.tokens;
   MoonToast.show(
     context,
     backgroundColor: k.colors.ink,
     toastShadows: const [],
+    displayDuration: action == null ? null : const Duration(seconds: 6),
     leading: Icon(error ? LucideIcons.circleAlert : LucideIcons.check, color: k.colors.canvas),
     label: Text(message, style: k.text.body.copyWith(color: k.colors.canvas)),
+    trailing: action == null
+        ? null
+        : MoonTextButton(
+            onTap: () {
+              MoonToast.clearToastQueue();
+              action.onTap();
+            },
+            label: Text(action.label, style: k.text.label.copyWith(color: k.colors.canvas)),
+          ),
   );
 }
 

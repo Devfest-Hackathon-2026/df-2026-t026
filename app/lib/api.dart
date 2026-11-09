@@ -32,8 +32,13 @@ class Api {
   final changes = ValueNotifier(0);
 
   /// 配った ID とパスワードでログインし、以後の呼び出しに使うトークンを返す
-  Future<String> login(String id, String password) async =>
-      token = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
+  Future<String> login(String id, String password) async {
+    final t = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
+    token = t;
+    // トークンを持ってから知らせる。_send の中で知らせると、サイドバーがトークン無しで読み直して空のままになる
+    changes.value++;
+    return t;
+  }
 
   Future<Me> me() async => Me.fromJson(await _send('GET', '/me'));
 
@@ -52,14 +57,46 @@ class Api {
   /// 本文を AI にマークダウンへ整えさせた案を返す。保存はしない
   Future<String> format(String text) async => (await _send('POST', '/format', {'text': text}))['text'] as String;
 
+  /// PDF・画像から、書いてある通りの本文と題名の案を読み取らせる。保存はしない
+  Future<({String title, String text})> readNote(List<Attachment> files) async {
+    final r = await _send('POST', '/read', {
+      'files': [
+        for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
+      ],
+    });
+    return (title: r['title'] as String, text: r['text'] as String);
+  }
+
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
-  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
+  /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。消すと changes が増え、サイドバーや一覧が読み直す
+  Future<void> deleteManual(String id) async => _send('DELETE', '/manuals/$id');
+
+  /// ほかの人から自分に共有されたノート
+  Future<List<SharedManual>> listShared() async =>
+      [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
+
+  /// このノートを共有している相手
+  Future<List<Person>> shares(String manualId) async => _people(await _send('GET', '/manuals/$manualId/shares'));
+
+  /// ログイン ID の人にノートを共有し、共有している相手を返す
+  Future<List<Person>> share(String manualId, String userId) async =>
+      _people(await _send('POST', '/manuals/$manualId/shares', {'userId': userId}));
+
+  /// その人への共有をやめ、共有している相手を返す
+  Future<List<Person>> unshare(String manualId, String userId) async =>
+      _people(await _send('DELETE', '/manuals/$manualId/shares/$userId'));
+
+  List<Person> _people(dynamic json) => [for (final p in json) (id: p['id'] as String, name: p['name'] as String)];
+
+  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ。
+  /// memoIds は入力欄に入れた未整理メモで、記録できたらサーバーが消す
   Future<IntakeResult> intake({
     required String text,
     List<Attachment> files = const [],
     List<String>? manualIds,
     required String today,
+    List<String> memoIds = const [],
   }) async =>
       IntakeResult.fromJson(await _send('POST', '/utterances', {
         'text': text,
@@ -68,11 +105,23 @@ class Api {
         ],
         'manualIds': ?manualIds,
         'today': today,
+        if (memoIds.isNotEmpty) 'memoIds': memoIds,
       }));
 
-  /// リワインドで切り出した WAV を書き起こす。記録はしない
-  Future<String> listen(Uint8List wav) async =>
-      (await _send('POST', '/listen', {'data': base64Encode(wav)}))['text'] as String;
+  /// リワインドで切り出した WAV を書き起こし、未整理メモにためる。ノートには記録しない。at は切り出した時刻
+  Future<Memo> listen(Uint8List wav, DateTime at) async => Memo.fromJson(
+      await _send('POST', '/listen', {'data': base64Encode(wav), 'at': at.toUtc().toIso8601String()}));
+
+  /// 未整理メモを切り出した順に返す
+  Future<List<Memo>> listMemos() async => [for (final m in await _send('GET', '/memos')) Memo.fromJson(m)];
+
+  /// 端末内に置いていた前の版の未整理メモを、サーバーに移す
+  Future<Memo> addMemo(DateTime at, String text) async =>
+      Memo.fromJson(await _send('POST', '/memos', {'at': at.toUtc().toIso8601String(), 'text': text}));
+
+  Future<Memo> editMemo(String id, String text) async => Memo.fromJson(await _send('PATCH', '/memos/$id', {'text': text}));
+
+  Future<void> deleteMemo(String id) async => _send('DELETE', '/memos/$id');
 
   /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
   /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない
@@ -142,11 +191,20 @@ class Api {
     } on http.ClientException {
       throw ApiException('サーバーにつながりません');
     }
-    final json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
-    if (res.statusCode >= 400) {
-      throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
+    // 本文が JSON でない（混んだときの 5xx の HTML など）ときも、画面が受けられる ApiException にする。
+    // FormatException のままだと、送る操作では何も出ず、読み込む画面では英語の例外の文が出る
+    final dynamic json;
+    try {
+      json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
+    } on FormatException {
+      throw ApiException('エラーが起きました（${res.statusCode}）', res.statusCode);
     }
-    if (method != 'GET') changes.value++;
+    if (res.statusCode >= 400) {
+      final error = json is Map ? json['error'] : null;
+      throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode);
+    }
+    // ログインは login() の中で、トークンを持ってから知らせる
+    if (method != 'GET' && path != '/login') changes.value++;
     return json;
   }
 }

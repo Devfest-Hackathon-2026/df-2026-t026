@@ -30,6 +30,25 @@ class Me {
   final IconImage? icon;
 }
 
+/// ほかのアカウントの人。名前を決めていなければ ID が入る
+typedef Person = ({String id, String name});
+
+Person _person(Map<String, dynamic> j) => (id: j['id'] as String, name: j['name'] as String);
+
+/// ほかの人から共有されたノート（ADR 0013）
+class SharedManual {
+  SharedManual.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        title = j['title'],
+        sharedBy = _person(j['sharedBy']);
+
+  final String id;
+  final String title;
+
+  /// ノートの持ち主
+  final Person sharedBy;
+}
+
 class ManualSummary {
   ManualSummary.fromJson(Map<String, dynamic> j)
       : id = j['id'],
@@ -61,6 +80,7 @@ class Utterance {
         speaker = j['speaker'],
         saidAt = j['saidAt'],
         fromEdit = j['fromEdit'] ?? false,
+        editedBy = j['editedBy'],
         createdAt = j['createdAt'];
 
   final String id;
@@ -72,6 +92,9 @@ class Utterance {
 
   /// 利用者がノートを直接編集した記録。口頭で言われたことではない
   final bool fromEdit;
+
+  /// 共有された人が直接編集したときの、その人の ID。持ち主の編集なら null（ADR 0013）
+  final String? editedBy;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -175,18 +198,26 @@ class Attachment {
   final Uint8List bytes;
 }
 
-/// リワインドで切り出して書き起こした未整理メモ。端末内（shared_preferences）にだけ置く（ADR 0005）
+/// リワインドで切り出して書き起こした未整理メモ。サーバーに置き、端末をまたいで同じものを見る（ADR 0015）
 class Memo {
-  Memo({required this.at, required this.text});
+  Memo({required this.id, required this.at, required this.text});
   Memo.fromJson(Map<String, dynamic> j)
-      : at = DateTime.parse(j['at']),
+      : id = j['id'],
+        at = DateTime.parse(j['at']).toLocal(),
         text = j['text'];
+
+  final String id;
 
   /// 切り出しボタンを押した時刻
   final DateTime at;
   final String text;
 
-  Map<String, dynamic> toJson() => {'at': at.toIso8601String(), 'text': text};
+  // 読み直すと別のオブジェクトになるので、書き直し中・入力欄に入れた印を id で引き継ぐ
+  @override
+  bool operator ==(Object other) => other is Memo && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 typedef Recorded = ({String manualId, String utteranceId, ManualState state});
@@ -214,10 +245,14 @@ class ManualState {
         lines = [for (final l in j['lines']) ManualLine.fromJson(l)],
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
-        checks = [for (final c in j['checks']) Check.fromJson(c)];
+        checks = [for (final c in j['checks']) Check.fromJson(c)],
+        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
 
   final String id;
   final String title;
+
+  /// ほかの人から共有されたノートなら、その持ち主。自分のノートなら null（ADR 0013）
+  final Person? sharedBy;
 
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;
@@ -240,15 +275,36 @@ class ManualState {
   List<Check> get openChecks => checks.where((c) => c.isOpen).toList();
   List<Check> get resolvedChecks => checks.where((c) => c.resolution != null).toList();
 
-  /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く
-  Check? confirmationFor(ManualLine line) =>
-      resolvedChecks.where((c) => c.resolution!.text == line.text).lastOrNull;
+  /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く。
+  /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ
+  Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
+
+  Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
+
+  /// 補足の差分をさかのぼって、書き換える前の行の確認を探す。食い違いの確定・追記・直接の編集で書き換えた行では止める
+  Check? _beforeQualification(String? patchId) {
+    final p = patchId == null ? null : patch(patchId);
+    if (p == null || p.op != 'replace' || p.line == null || p.appliedAt == null) return null;
+    if (checkOf(p.id)?.kind != Kind.qualification || utterance(p.utteranceId).fromEdit) return null;
+    final before = _confirmedAs(p.line!);
+    if (before != null) return before;
+    // 書き換える前の行をつくった差分。行は patchId しか持たないので文面で探す。
+    // それより前に反映したものに限って輪にならないようにし、並びは記録順なので反映した順に並べ直す
+    final from = (patches
+            .where((x) => x.status == 'applied' && x.text == p.line && x.appliedAt!.compareTo(p.appliedAt!) < 0)
+            .toList()
+          ..sort((a, b) => a.appliedAt!.compareTo(b.appliedAt!)))
+        .lastOrNull;
+    return _beforeQualification(from?.id);
+  }
 
   /// この行と同じことを言った記録。行の裏付けとして見せる
   List<Check> sameChecksFor(ManualLine line) =>
       checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
 
-  /// この行と食い違っていて、まだ確認していない項目
-  List<Check> openChecksFor(ManualLine line) =>
-      openChecks.where((c) => c.conflictLine == line.text).toList();
+  /// この行と食い違っていて、まだ確認していない項目。相手の行がもうノートに無ければ
+  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける
+  List<Check> openChecksFor(ManualLine line) => openChecks
+      .where((c) => lines.any((l) => l.text == c.conflictLine) ? c.conflictLine == line.text : c.patchId == line.patchId)
+      .toList();
 }

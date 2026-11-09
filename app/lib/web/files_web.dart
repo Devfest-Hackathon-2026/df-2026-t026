@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:js_interop';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui' show Offset;
 
 import 'package:web/web.dart' as web;
 
@@ -87,20 +88,22 @@ Future<List<PickedFile>> takePhoto() {
   return done.future;
 }
 
-/// 画面への貼り付けとドロップでファイルを受け取る。戻り値で受け取るのをやめる
-void Function() onFilesDropped(void Function(List<PickedFile> files) f) {
+/// 画面への貼り付けとドロップでファイルを受け取る。at はドロップした位置（論理ピクセル。貼り付けは null）。
+/// 戻り値で受け取るのをやめる
+void Function() onFilesDropped(void Function(List<PickedFile> files, Offset? at) f) {
   final paste = ((web.ClipboardEvent e) {
     final files = e.clipboardData?.files;
     // 文字の貼り付けは入力欄に任せる
     if (files == null || files.length == 0) return;
     e.preventDefault();
-    _read(files).then(f);
+    _read(files).then((files) => f(files, null));
   }).toJS;
   // 既定ではドロップしたファイルをブラウザが開いてしまうので止める
   final over = ((web.DragEvent e) => e.preventDefault()).toJS;
   final drop = ((web.DragEvent e) {
     e.preventDefault();
-    _read(e.dataTransfer?.files).then(f);
+    final at = Offset(e.clientX.toDouble(), e.clientY.toDouble());
+    _read(e.dataTransfer?.files).then((files) => f(files, at));
   }).toJS;
   web.document
     ..addEventListener('paste', paste)

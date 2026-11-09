@@ -29,7 +29,7 @@ class CheckScreen extends StatelessWidget {
         final chk = s.checks.firstWhere((x) => x.id == checkId);
         return Scaffold(
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
+            TopBar(crumbs: [s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
@@ -126,26 +126,27 @@ class _CheckDetailState extends State<CheckDetail> {
             SizedBox(height: k.space.md),
             Text(chk.reason, style: k.text.body),
             if (chk.isOpen) ...[
-              SizedBox(height: k.space.xs),
-              Text('どちらに合わせるかは、聞けたときに決めます', style: k.text.small),
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
               if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
               SizedBox(height: k.space.xxl),
-              _step('3', '聞いた結果を記録する'),
-              if (_recording)
-                _form(chk, p, u)
+              // 確定はノートの持ち主だけがする（ADR 0013）
+              if (s.sharedBy case final owner?)
+                Text('聞いた結果は、ノートの持ち主の ${owner.name} が記録します', style: k.text.small)
               else ...[
-                Text('聞いて決まったら、ここに残します。後で別の人に聞かれたときの記録になります', style: k.text.small),
-                SizedBox(height: k.space.md),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: MoonOutlinedButton(
-                    onTap: () => setState(() => _recording = true),
-                    label: const Text('聞いた結果を記録する'),
+                _step('3', '聞いた結果を記録する'),
+                if (_recording)
+                  _form(chk, p, u)
+                else ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: MoonOutlinedButton(
+                      onTap: () => setState(() => _recording = true),
+                      label: const Text('聞いた結果を記録する'),
+                    ),
                   ),
-                ),
+                ],
               ],
             ],
           ]),
@@ -184,7 +185,7 @@ class _CheckDetailState extends State<CheckDetail> {
         backgroundColor: selected ? k.colors.shell : null,
         borderRadius: k.radius.control,
         onTap: () => setState(() => _decidedBy.text = cand.who),
-        leading: Avatar(cand.who),
+        leading: SpeakerFace(cand.who),
         label: Text(cand.who, style: k.text.body),
         content: Text(cand.why, style: k.text.small),
         trailing: selected ? Icon(LucideIcons.check, color: k.colors.ink) : null,
@@ -220,7 +221,10 @@ class _CheckDetailState extends State<CheckDetail> {
   Widget _form(Check chk, Patch p, Utterance u) {
     final k = context.tokens;
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    final keep = _choice(_Outcome.keep, 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
+    // 相手の行が書き換えられてもうノートに無いときは、「ノートのまま」だと今のノートの行と読めてしまう（#86）
+    final gone = !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
+    final keep = _choice(
+        _Outcome.keep, gone ? '書き換える前の内容' : 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

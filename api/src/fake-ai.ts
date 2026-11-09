@@ -1,6 +1,6 @@
 import type { Assess } from './assess.ts';
 import type { CheckPatch, CheckResult } from './conflict/check.ts';
-import type { Format } from './format.ts';
+import type { Format, ReadNote } from './format.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
 import { isHeading, unmark } from './gemini.ts';
@@ -106,6 +106,7 @@ export const fakeFormat: Format = async (text) =>
 
 // GCP なしではファイルや録音の中身を読めないので、デモの決まり文句を返す
 export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
+export const fakeReadNote: ReadNote = async () => ({ title: 'キッチンマニュアル', text: '仕込み\n野菜を切る 塩は小さじ1' });
 export const fakeListen: Listen = async () => '佐藤さんから、ご飯はおかわり1回まで無料と教わった';
 
 /** 音声入力は、届いた音声の長さに合わせて決まり文句を頭から少しずつ返す（16kHz・16bit で 0.25 秒ごとに1文字） */

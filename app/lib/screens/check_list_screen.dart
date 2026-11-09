@@ -52,7 +52,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
           extendBody: true,
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.checks) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
+            TopBar(crumbs: [s.title, '確認リスト']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, onOpen: _push));
@@ -92,9 +92,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
   Widget _list(ManualState s, {String? selected, required void Function(Check) onOpen}) {
     final k = context.tokens;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      PageTitle('確認リスト', meta: [
-        Text('ノートの中で食い違っていることです。聞けるときに確認して、決まったら記録します', style: k.text.small),
-      ]),
+      const PageTitle('確認リスト'),
       SizedBox(height: k.space.xxl),
       Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
       SizedBox(height: k.space.md),
@@ -109,7 +107,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
       Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.resolvedChecks.isEmpty)
-        Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
+        Text('確認済みの食い違いは、まだありません', style: k.text.small)
       else
         for (final chk in s.resolvedChecks.reversed) ...[
           _resolvedRow(s, chk, selected: chk.id == selected, onTap: () => onOpen(chk)),
@@ -168,11 +166,10 @@ class _CheckListScreenState extends State<CheckListScreen> {
       body: [
         Text('${plain(chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}', style: k.text.small),
         SizedBox(height: k.space.sm),
-        Row(children: [
-          ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
-          SizedBox(width: k.space.sm),
-          Expanded(child: Text(r.note, style: k.text.body)),
-        ]),
+        // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
+        Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認'),
+        SizedBox(height: k.space.xs),
+        Text(r.note, style: k.text.body),
         if (r.note != plain(r.text)) ...[
           SizedBox(height: k.space.xs),
           Text('確定した内容：${plain(r.text)}', style: k.text.small),
