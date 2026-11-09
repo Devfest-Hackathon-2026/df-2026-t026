@@ -4,7 +4,7 @@ import { beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
 import { hashPassword, sessionIdOf } from '../src/auth.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -17,7 +17,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate };
+const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, format: fakeFormat, listen: fakeListen, dictate: fakeDictate };
 
 /** demo としてログインした状態にする。ログインそのものは別のテストで確かめる */
 const auth = { Authorization: 'Bearer test-token' };
@@ -427,6 +427,15 @@ test('リワインド：聞き取れなければ 422、録音が無ければ 400
     silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(body) });
   assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
   assert.equal((await post({ data: '' })).status, 400);
+});
+
+test('整形：整えた案を返すだけで、ノートは作らない', async () => {
+  const before = (await call('GET', '/manuals')).json.length;
+  const { status, json } = await call('POST', '/format', { text: '## 仕込み\n朝は野菜を切る。塩は小さじ1' });
+  assert.equal(status, 200);
+  assert.deepEqual(json, { text: '## 仕込み\n- 朝は野菜を切る\n- 塩は小さじ1' });
+  assert.equal((await call('GET', '/manuals')).json.length, before);
+  assert.equal((await call('POST', '/format', { text: ' ' })).status, 400);
 });
 
 test('起動時のデモの履歴は、反映済みのパッチが順に当たり、食い違いの確認が1件だけ残る', async () => {

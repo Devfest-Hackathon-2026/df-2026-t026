@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
+import type { Format } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
@@ -21,6 +22,8 @@ export interface Deps {
   /** 直接書いた行の分類だけ（ADR 0007） */
   check: CheckPatch;
   transcribe: Transcribe;
+  /** ノートを作るときの本文の整形（ADR 0011） */
+  format: Format;
   listen: Listen;
   dictate: Dictate;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
@@ -46,6 +49,7 @@ const Me = z.object({
 
 // マニュアルが無い職場では、本文を空にして白紙から始める
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
+const FormatBody = z.object({ text: z.string().trim().min(1, '整える本文を入れてください') });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
 // 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
@@ -102,7 +106,7 @@ const SELF = '自分';
 const now = () => new Date().toISOString();
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-export function createApp({ store, assess, check, transcribe, listen, dictate, allowOrigin }: Deps) {
+export function createApp({ store, assess, check, transcribe, format, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
@@ -204,6 +208,12 @@ export function createApp({ store, assess, check, transcribe, listen, dictate, a
     const manual: Manual = { id: randomUUID(), title: body.title, base: body.body, createdAt: now() };
     await store.putManual(c.var.userId, manual);
     return c.json(await load(c.var.userId, manual.id), 201);
+  });
+
+  // 整えた案を返すだけで保存しない。受け入れるかは利用者が違いを見て決める（ADR 0011）
+  app.post('/format', async (c) => {
+    const body = FormatBody.parse(await c.req.json());
+    return c.json({ text: await format(body.text) });
   });
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));

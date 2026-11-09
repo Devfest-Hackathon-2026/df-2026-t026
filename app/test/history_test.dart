@@ -79,6 +79,21 @@ Map<String, dynamic> _kitchen() => {
 List<String> _texts(Commit c, LineChange change) => [for (final l in c.diff) if (l.change == change) l.text];
 
 void main() {
+  test('lineDiff：同じ行を最も多く残し、消えた行を増えた行より先に並べる', () {
+    final d = lineDiff(['仕込み', '野菜を切る', '', '片付け'], ['## 仕込み', '- 野菜を切る', '', '## 片付け']);
+    expect([for (final l in d) '${l.change.name}:${l.text}'], [
+      'removed:仕込み',
+      'removed:野菜を切る',
+      'added:## 仕込み',
+      'added:- 野菜を切る',
+      'kept:',
+      'removed:片付け',
+      'added:## 片付け',
+    ]);
+    expect(lineDiff(['a', 'b'], ['a', 'b']).every((l) => l.change == LineChange.kept), isTrue);
+    expect(lineDiff([], ['a']).single, (text: 'a', change: LineChange.added));
+  });
+
   group('buildHistory', () {
     test('反映した順に版を積み、食い違った記録は記録した時点の版から分かれて、確定した版に合流する', () {
       final s = ManualState.fromJson(_kitchen());

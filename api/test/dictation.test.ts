@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 
 import { createApp, type Deps } from '../src/app.ts';
 import { sessionIdOf } from '../src/auth.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -22,6 +22,7 @@ async function start(t: { after(fn: () => void): void }, deps: Partial<Deps> = {
     assess: fakeAssess,
     check: fakeCheckPatch,
     transcribe: fakeTranscribe,
+    format: fakeFormat,
     listen: fakeListen,
     dictate: fakeDictate,
     ...deps,

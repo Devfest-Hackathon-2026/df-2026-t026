@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
 import { checkWithGemini } from '../src/conflict/check.ts';
+import { formatWithGemini } from '../src/format.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
@@ -172,6 +173,13 @@ test('書き起こし：ファイルを添えて呼ぶ', async () => {
   const files = [{ mimeType: 'image/png', data: 'AAAA' }];
   assert.equal(await transcribeWithGemini(files, generate), '田中さんから塩は小さじ1/2');
   assert.deepEqual(calls[0].files, files);
+});
+
+test('整形：本文を渡し、行末の空白だけを落として行頭の入れ子は残す', async () => {
+  const { generate, calls } = stub({ text: '## 仕込み  \n- 野菜を切る\n  - 玉ねぎは薄切り \n' });
+  assert.equal(await formatWithGemini('仕込み 野菜を切る 玉ねぎは薄切り', generate), '## 仕込み\n- 野菜を切る\n  - 玉ねぎは薄切り');
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].prompt, /仕込み 野菜を切る 玉ねぎは薄切り/);
 });
 
 /** 決まった順にステータスを返す fetch。呼ばれた回数を数える */
