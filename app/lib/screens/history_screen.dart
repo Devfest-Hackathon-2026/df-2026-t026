@@ -423,7 +423,10 @@ String _message(Commit x) => switch (x) {
 /// 枝の行の見出し。確認リストの比較と同じ「ノートの行 ／ 言われた行」の形
 String _conflict(Commit x) {
   final p = x.patch!;
-  return '${plain(x.check?.conflictLine ?? p.line ?? '')} ／ ${p.op == 'delete' ? '（消す）' : plain(p.text)}';
+  final chk = x.check;
+  // 相手が資料の行なら「資料「店舗マニュアル」p.3：…」（ADR 0019）
+  final left = chk?.conflictLine == null ? plain(p.line ?? '') : counterpartLine(chk!, chk.conflictLine!);
+  return '$left ／ ${p.op == 'delete' ? '（消す）' : plain(p.text)}';
 }
 
 /// 版に付ける、枝にしない記録の印。種類が1つならその名前、混ざっていれば件数だけ

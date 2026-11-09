@@ -101,6 +101,27 @@ class MaterialBody extends MaterialSummary {
   final List<({int? page, String text})> lines;
 }
 
+/// 食い違い・同じ内容の相手が資料の行のときの、その場所（ADR 0019）
+class MaterialRef {
+  MaterialRef.fromJson(Map<String, dynamic> j)
+      : materialId = j['materialId'],
+        title = j['title'],
+        page = j['page'],
+        lineNo = j['lineNo'];
+
+  final String materialId;
+
+  /// 取り込んだときの題名の写し。資料を消しても出せる
+  final String title;
+  final int? page;
+
+  /// 資料の行番号（1始まり、ページをまたいで通し）
+  final int lineNo;
+
+  /// 「資料「店舗マニュアル」p.3」。貼り付けた文ならページを付けない
+  String get label => '資料「$title」${page == null ? '' : 'p.$page'}';
+}
+
 class ManualLine {
   ManualLine(this.text, this.patchId);
 
@@ -219,7 +240,8 @@ class Check {
           for (final c in (j['ask']?['candidates'] as List? ?? [])) AskCandidate.fromJson(c),
         ],
         question = j['ask']?['question'],
-        resolution = j['resolution'] == null ? null : Resolution.fromJson(j['resolution']);
+        resolution = j['resolution'] == null ? null : Resolution.fromJson(j['resolution']),
+        materialRef = j['materialRef'] == null ? null : MaterialRef.fromJson(j['materialRef']);
 
   final String id;
   final String patchId;
@@ -233,6 +255,9 @@ class Check {
   final List<AskCandidate> candidates;
   final String? question;
   final Resolution? resolution;
+
+  /// 相手（conflictLine・sameLine）が資料の行なら、その場所。ノートの行が相手なら null（前からある確認にも無い）
+  final MaterialRef? materialRef;
 
   bool get isOpen => kind == Kind.contradiction && resolution == null;
 }
@@ -339,13 +364,20 @@ class ManualState {
   /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ
   Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
 
-  Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
+  /// 「資料のまま」に決まった確定は資料の行のもの。同じ資料から作ったノートに同じ文の行があっても、そこには付けない
+  Check? _confirmedAs(String text) => resolvedChecks
+      .where((c) => c.resolution!.text == text && !(c.materialRef != null && c.resolution!.text == c.conflictLine))
+      .lastOrNull;
 
   /// 確認待ちの食い違いの相手が確定済みの記録なら、その確認。相手の行がノートにあればその行の確認の印、
-  /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認
+  /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認。
+  /// 相手が資料の行なら、その資料の行に結び付いた確定（資料のまま・違う内容のどちらも）
   Check? confirmedRecordFor(Check c) {
     final conflict = c.conflictLine;
     if (!c.isOpen || conflict == null) return null;
+    if (c.materialRef case final m?) {
+      return checksAt(m.materialId, m.lineNo).where((x) => x.resolution != null).lastOrNull;
+    }
     final line = lines.where((l) => l.text == conflict).firstOrNull;
     return line == null ? _confirmedAs(conflict) : confirmationFor(line);
   }
@@ -367,13 +399,25 @@ class ManualState {
     return _beforeQualification(from?.id);
   }
 
-  /// この行と同じことを言った記録。行の裏付けとして見せる
+  /// この行と同じことを言った記録。行の裏付けとして見せる。資料と同じ内容の記録は、ノートの行の裏付けにしない
   List<Check> sameChecksFor(ManualLine line) =>
-      checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
+      checks.where((c) => c.kind == Kind.same && c.materialRef == null && c.sameLine == line.text).toList();
 
   /// この行と食い違っていて、まだ確認していない項目。相手の行がもうノートに無ければ
-  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける
+  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける。
+  /// 資料と食い違った確認は、同じ文の行がノートにあってもそこには付けない。直接書いた行が資料と食い違ったときだけ、書いた行に付く
   List<Check> openChecksFor(ManualLine line) => openChecks
-      .where((c) => lines.any((l) => l.text == c.conflictLine) ? c.conflictLine == line.text : c.patchId == line.patchId)
+      .where((c) => c.materialRef == null && lines.any((l) => l.text == c.conflictLine)
+          ? c.conflictLine == line.text
+          : c.patchId == line.patchId)
       .toList();
+
+  /// 資料のその行が相手の確認（食い違い・確定・同じ内容）。資料の中の画面で使う
+  List<Check> checksAt(String materialId, int lineNo) => checks
+      .where((c) => c.materialRef?.materialId == materialId && c.materialRef?.lineNo == lineNo)
+      .toList();
+
+  /// その資料と食い違った、まだ確認していない項目
+  List<Check> openChecksIn(String materialId) =>
+      openChecks.where((c) => c.materialRef?.materialId == materialId).toList();
 }

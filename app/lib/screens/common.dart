@@ -496,6 +496,13 @@ String showRecordText(Resolution r) {
   return '${fmtDay(r.decidedAt)} に${r.decidedBy}$how、「$decided」に決まっています$note。';
 }
 
+/// 食い違い・同じ内容の相手の見出し。資料なら「資料「店舗マニュアル」p.3」、ノートなら「ノート」（ADR 0019）
+String counterpartLabel(Check c) => c.materialRef?.label ?? 'ノート';
+
+/// 一覧の1行に出す相手の行。資料なら見出しを前に付ける
+String counterpartLine(Check c, String line) =>
+    c.materialRef == null ? plain(line) : '${c.materialRef!.label}：${plain(line)}';
+
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
 class ConflictPair extends StatelessWidget {
