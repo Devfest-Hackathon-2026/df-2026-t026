@@ -658,9 +658,10 @@ class _InputScreenState extends State<InputScreen> {
             skipTraversal: true,
             onFocusChange: (_) => setState(() {}),
             child: Builder(
+              // 枠は中の欄の上に描く（後ろに描くと、中の欄の白い地に隠れる）
               builder: (context) => DecoratedBox(
+                position: DecorationPosition.foreground,
                 decoration: BoxDecoration(
-                  color: k.colors.canvas,
                   borderRadius: k.radius.control,
                   border: Border.all(
                     color: Focus.of(context).hasFocus ? k.colors.action : k.colors.rule,
