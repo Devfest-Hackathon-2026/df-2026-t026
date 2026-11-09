@@ -1,5 +1,6 @@
 import type { Assess } from './assess.ts';
 import type { CheckPatch, CheckResult } from './conflict/check.ts';
+import type { Format } from './format.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
 import { isHeading, unmark } from './gemini.ts';
@@ -91,6 +92,17 @@ function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): 
     },
   };
 }
+
+/** 印の無い行を、句点と空白で分けて項目にする。印のある行と空行はそのまま */
+export const fakeFormat: Format = async (text) =>
+  text
+    .split('\n')
+    .flatMap((l) =>
+      !l.trim() || unmark(l) !== l.trimStart()
+        ? [l]
+        : l.split(/。|\s+/).filter(Boolean).map((s) => `- ${s}`),
+    )
+    .join('\n');
 
 // GCP なしではファイルや録音の中身を読めないので、デモの決まり文句を返す
 export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
