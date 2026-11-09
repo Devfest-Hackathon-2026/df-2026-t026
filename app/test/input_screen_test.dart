@@ -256,7 +256,7 @@ Future<void> _record(WidgetTester tester, String text) async {
 final _closeReview = find.descendant(of: find.byType(MoonModal), matching: find.byIcon(LucideIcons.x));
 
 /// 照らし合わせた後の結果のカードの「確かめる」から、記録した結果（書き込む前の確認と同じダイアログ）を開く。
-/// 食い違いがあれば主のボタン、無ければ文字のボタン
+/// ダイアログを開くのは食い違いが無いときだけ（食い違いがあれば確認リストでその食い違いを開く）
 Future<void> _review(WidgetTester tester) async {
   await tester.tap(find.text('確かめる'));
   await tester.pumpAndSettle();
@@ -346,6 +346,9 @@ void main() {
   testWidgets('マニュアルを選ばずに記録し、関係するマニュアルの変わる行を1つの確認に並べる', (tester) async {
     Map<String, dynamic>? sent;
     final edited = <String, Map<String, dynamic>>{};
+    // キッチンでは発言者を読み取れなかったので、照らし合わせた後に確認を開く
+    final kitchen = _state('m1');
+    ((kitchen['utterances'] as List).single as Map<String, dynamic>)['speaker'] = null;
     await _pumpInput(
       tester,
       _client(
@@ -354,7 +357,7 @@ void main() {
           return _json({
             'text': body['text'],
             'results': [
-              {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+              {'manualId': 'm1', 'utteranceId': 'u1', 'state': kitchen},
               {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
             ],
           }, 201);
@@ -368,13 +371,8 @@ void main() {
 
     expect(sent, containsPair('text', '田中さんから、レジ締めは店長がやると言われた'));
     expect(sent!.containsKey('manualIds'), isFalse);
-    // 食い違いだけなので、確認は開かずに、入力欄の下の結果のカードで見せる
-    expect(find.text('ノートに書き込む前の確認'), findsNothing);
-    expect(find.text('ノートと食い違っています'), findsOneWidget);
-    expect(find.text('確認リストに入れました'), findsOneWidget);
-    await _review(tester);
-    // 食い違いはもう確認リストに入っているので、書き込む前でなく記録した結果
-    expect(find.text('記録した結果'), findsOneWidget);
+    // 発言者が分からないので、結果のカードでなく書き込む前の確認を開く
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     // どのノートの話かを題名で分け、上下に並べる
     final modal = find.byType(MoonModal);
     expect(find.descendant(of: modal, matching: find.text('キッチン')), findsOneWidget);
@@ -499,7 +497,7 @@ void main() {
         (body) async => _json({
           'text': body['text'],
           'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
           ],
         }, 201),
         onOther: (req) {
@@ -507,7 +505,7 @@ void main() {
         },
       ),
     );
-    await _record(tester, '塩は小さじ1/2');
+    await _record(tester, 'お冷やはすぐ出す');
     await _review(tester);
     expectInputFontsAtLeast16(tester, count: 1); // 書き込む前の確認の、発言者
 
@@ -527,7 +525,7 @@ void main() {
         (body) async => _json({
           'text': body['text'],
           'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
           ],
         }, 201),
         onOther: (req) {
@@ -535,24 +533,24 @@ void main() {
         },
       ),
     );
-    await _record(tester, '塩は小さじ1/2');
+    await _record(tester, 'お冷やはすぐ出す');
     await _review(tester);
 
     await tester.tap(find.widgetWithText(MoonTextButton, '言われたことを直す'));
     await tester.pump();
     expectInputFontsAtLeast16(tester, count: 2); // 発言者・言われたことを直す欄
-    await tester.enterText(find.widgetWithText(MoonTextInput, '塩は小さじ1/2'), '塩は大さじ1/2');
+    await tester.enterText(find.widgetWithText(MoonTextInput, 'お冷やはすぐ出す'), 'お冷やは座ったらすぐ出す');
     await tester.tap(find.widgetWithText(MoonFilledButton, '直して照らし合わせ直す'));
     await tester.pumpAndSettle();
 
     // 発言者と日付は変えていないので送らず、読み直した結果に任せる
-    expect(editBody, {'text': '塩は大さじ1/2'});
+    expect(editBody, {'text': 'お冷やは座ったらすぐ出す'});
     expect(find.text('直して照らし合わせ直す'), findsNothing);
   });
 
   testWidgets('差分の確認で、これまでの発言者を押すと発言者に入る', (tester) async {
-    final kitchen = _state('m1');
-    (kitchen['utterances'] as List).insert(0, {..._utterance('u0', 'お玉は洗って戻す', '2026-11-01T10:00:00Z'), 'speaker': '佐藤さん'});
+    final hall = _state('m2');
+    (hall['utterances'] as List).insert(0, {..._utterance('u0', 'お玉は洗って戻す', '2026-11-01T10:00:00Z'), 'speaker': '佐藤さん'});
     Map<String, dynamic>? editBody;
     await _pumpInput(
       tester,
@@ -560,7 +558,7 @@ void main() {
         (body) async => _json({
           'text': body['text'],
           'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': kitchen},
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': hall},
           ],
         }, 201),
         onOther: (req) {
@@ -568,7 +566,7 @@ void main() {
         },
       ),
     );
-    await _record(tester, '塩は小さじ1/2');
+    await _record(tester, 'お冷やはすぐ出す');
     await _review(tester);
 
     await tester.tap(find.widgetWithText(MoonChip, '佐藤さん'));
@@ -893,7 +891,7 @@ void main() {
         return _json({
           'text': body['text'],
           'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
           ],
         }, 201);
       }),

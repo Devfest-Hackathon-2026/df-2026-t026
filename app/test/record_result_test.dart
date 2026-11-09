@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:diff_note/api.dart';
 import 'package:diff_note/manual_controller.dart';
 import 'package:diff_note/models.dart';
+import 'package:diff_note/screens/check_list_screen.dart';
+import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/screens/open_checks_screen.dart';
@@ -24,6 +26,8 @@ const _half = '- 塩 小さじ1/2';
 const _one = '- 塩 小さじ1';
 const _record = '11/7 店長に確認：1/2で統一';
 const _showText = '11/7 に店長に確認して、「塩 小さじ1/2」に決まっています（1/2で統一）。';
+const _keepLabel = '記録を見せて、ノートのままにする';
+const _shownLine = '11/10 自分が記録を見せた（11/7 店長に確認：1/2で統一）';
 
 const _wide = Size(1440, 1400);
 /// スマホの幅。カードと下の「あとで確認」を1画面に収めて位置を比べられるよう、縦は長くする
@@ -49,7 +53,7 @@ Map<String, dynamic> _patch(String id, String u, String day, String op, String? 
     };
 
 Map<String, dynamic> _check(String id, String patchId, String u, String kind,
-        {String? conflictLine, String? sameLine, Map<String, dynamic>? resolution}) =>
+        {String? conflictLine, String? sameLine, Map<String, dynamic>? resolution, Map<String, dynamic>? materialRef}) =>
     {
       'id': id,
       'patchId': patchId,
@@ -60,6 +64,7 @@ Map<String, dynamic> _check(String id, String patchId, String u, String kind,
       'reason': '理由',
       'ask': null,
       'resolution': resolution,
+      'materialRef': materialRef,
     };
 
 Map<String, dynamic> _note(String id, String title, List<String> lines,
@@ -114,6 +119,56 @@ Map<String, dynamic> _confirmed({bool answered = false}) {
   return j;
 }
 
+/// 記録を見せて最後の確認を確定した状態。サーバーと同じく、見せた確定（shownFrom）の中身を写し、見せた人と日を付ける（#118）
+Map<String, dynamic> _shownWith(Map<String, dynamic> j, Map<String, dynamic> body) {
+  final checks = j['checks'] as List;
+  final prev = checks.firstWhere((c) => c['id'] == body['shownFrom'])['resolution'] as Map<String, dynamic>;
+  (j['utterances'] as List).add(_said('a2', 'かなで', '2026-11-10', '11/7 店長に確認した記録（${prev['note']}）を見せた'));
+  ((j['patches'] as List).last as Map<String, dynamic>)['status'] = 'discarded';
+  (checks.last as Map<String, dynamic>)['resolution'] = {
+    ...prev,
+    'utteranceId': 'a2',
+    'patchId': null,
+    'shown': {
+      'by': {'id': 'demo', 'name': 'かなで'},
+      'at': '2026-11-10',
+    },
+  };
+  return j;
+}
+
+const _material = '- 味噌汁の塩は小さじ1';
+const _materialHalf = '- 味噌汁の塩は小さじ1/2';
+const _materialRef = {'materialId': 'mat1', 'title': '店舗マニュアル', 'page': 2, 'lineNo': 60};
+
+/// 田中さんの「味噌汁の塩は小さじ1/2」が、資料「店舗マニュアル」p.2 の「味噌汁の塩は小さじ1」と食い違う（ADR 0019）。
+/// kept なら、前に佐藤さんが同じことを言い、11/7 に店長に確認して「資料のまま」に決めていた
+Map<String, dynamic> _materialConflict({bool kept = false}) => _note('m1', 'キッチン', [_one],
+    utterances: [
+      if (kept) ...[
+        _said('u0', '佐藤さん', '2026-11-02', '味噌汁の塩は小さじ1/2'),
+        _said('a1', '店長', '2026-11-07', '資料の通り'),
+      ],
+      _said('u1', '田中さん', '2026-11-03', '味噌汁の塩は小さじ1/2でいい'),
+    ],
+    patches: [
+      if (kept) _patch('p0', 'u0', '2026-11-02', 'insert', null, _materialHalf, status: 'discarded'),
+      _patch('p1', 'u1', '2026-11-03', 'insert', null, _materialHalf),
+    ],
+    checks: [
+      if (kept)
+        _check('c0', 'p0', 'u0', 'contradiction', conflictLine: _material, materialRef: _materialRef, resolution: {
+          'utteranceId': 'a1',
+          'patchId': null,
+          'decidedBy': '店長',
+          'answeredBy': null,
+          'decidedAt': '2026-11-07',
+          'text': _material,
+          'note': '資料の通り',
+        }),
+      _check('c1', 'p1', 'u1', 'contradiction', conflictLine: _material, materialRef: _materialRef),
+    ]);
+
 const _hallLines = ['- レジは現金とカードのみ', '- お冷やはすぐ出す'];
 
 /// ホールに、言われたことを照らし合わせた結果。kinds の分類の差分を1つずつ作る
@@ -146,10 +201,19 @@ class _Server {
   /// テストで書き換えると、ほかの画面で確定した・ノートを消したことにできる
   final notes = {'m1': _kitchen(), 'm2': _hall([])};
 
+  /// 確定（POST …/resolve）で送った中身
+  Map<String, dynamic>? resolved;
+
   late final api = Api(client: MockClient(_handle), baseUrl: 'http://api');
 
   Future<http.Response> _handle(http.Request req) async {
     final path = req.url.path;
+    if (req.method == 'POST' && path.endsWith('/resolve')) {
+      posted.add(path);
+      resolved = jsonDecode(req.body);
+      final id = req.url.pathSegments[1];
+      return _json(notes[id] = _shownWith(notes[id]!, resolved!));
+    }
     if (req.method == 'POST' && path == '/utterances') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       final results = intakes.removeAt(0);
@@ -198,8 +262,9 @@ Finder _inCard(Finder f) => find.descendant(of: _card, matching: f);
 
 final _k = appTheme().extension<AppTokens>()!;
 
-/// カードの見た目の要素。食い違いがあれば黄の線で囲んだ見せ場の形（面は白のまま）、無ければ線の無い落ち着いた形か
-void _expectLook(WidgetTester tester, String title, {required bool conflicted}) {
+/// カードの見た目の要素。食い違いがあれば黄の線で囲んだ見せ場の形（面は白のまま）、無ければ線の無い落ち着いた形か。
+/// 食い違いの主のボタンは primary（確定済みの記録と食い違ったら「記録を見せて、…」で、「確かめる」は文字のボタン）
+void _expectLook(WidgetTester tester, String title, {required bool conflicted, String primary = '確かめる'}) {
   final sheet = tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first);
   final heading = tester.widget<Text>(_inCard(find.text(title)));
   final filled = _inCard(find.widgetWithText(MoonFilledButton, '確かめる'));
@@ -207,8 +272,11 @@ void _expectLook(WidgetTester tester, String title, {required bool conflicted}) 
   if (conflicted) {
     expect(sheet.outline, _k.colors.pending);
     expect(heading.style, _k.text.display);
-    expect(filled, findsOneWidget);
-    expect(text, findsNothing);
+    // 主のボタンは1つだけ
+    expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, primary)), findsOneWidget);
+    expect(filled, primary == '確かめる' ? findsOneWidget : findsNothing);
+    expect(text, primary == '確かめる' ? findsNothing : findsOneWidget);
   } else {
     expect(sheet.outline, isNull);
     expect(heading.style, _k.text.title);
@@ -219,6 +287,16 @@ void _expectLook(WidgetTester tester, String title, {required bool conflicted}) 
 
 /// 確かめるで開いたダイアログの中
 Finder _inModal(Finder f) => find.descendant(of: find.byType(MoonModal), matching: f);
+
+/// 食い違いの「確かめる」で、確認リストのその食い違いを選んだ形で開いたか（ノートの食い違っている行を押したときと同じ）。
+/// 広い画面では確認リストの右に、狭い画面では確認のページまで進む。「記録した結果」のダイアログは挟まない
+void _expectCheckOpened(WidgetTester tester, Size size, String checkId) {
+  expect(find.byType(MoonModal), findsNothing);
+  expect(find.text('記録した結果'), findsNothing);
+  expect(find.byType(CheckListScreen, skipOffstage: false), findsOneWidget);
+  expect(tester.widget<CheckDetail>(find.byType(CheckDetail)).checkId, checkId);
+  expect(find.byType(CheckScreen), size.width < _k.wideLayout ? findsOneWidget : findsNothing);
+}
 
 /// 分類のタグと、その右の行の文が同じ高さに並んでいるか
 void _expectLine(WidgetTester tester, String tag, String text) {
@@ -275,13 +353,14 @@ void main() {
       // 食い違いは見せ場：白地のまま黄の線で囲み、見出しを大きく、「確かめる」を主のボタンにする
       _expectLook(tester, 'ノートと食い違っています', conflicted: true);
 
-      // 「確かめる」で、書き込む前の確認と同じダイアログを開く。振り分けはもう済んでいるので題名は「記録した結果」
+      // 確定済みの記録と食い違ったのではないので、カードで決着させるボタンは出さない
+      expect(find.textContaining('記録を見せて、'), findsNothing);
+
+      // 「確かめる」で、確認リストでこの食い違いを選んだ形で開く。カードとほぼ同じ中身の「記録した結果」は挟まない
       await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
       await tester.pumpAndSettle();
-      expect(find.text('記録した結果'), findsOneWidget);
-      expect(find.text('ノートに書き込む前の確認'), findsNothing);
-      // 確定済みの記録と食い違ったのではないので、ダイアログにも確認印は出さない
-      expect(_inModal(find.byType(ConfirmStamp)), findsNothing);
+      expect(tester.takeException(), isNull);
+      _expectCheckOpened(tester, size, 'c1');
     });
   }
 
@@ -295,8 +374,8 @@ void main() {
 
       const title = '店長に確認済みの決定と食い違っています';
       expect(_inCard(find.text(title)), findsOneWidget);
-      // 主のボタンは「確かめる」のまま
-      _expectLook(tester, title, conflicted: true);
+      // 主のボタンはカードで決着させる「記録を見せて、ノートのままにする」で、「確かめる」は文字のボタン（審査員の指摘4回目）
+      _expectLook(tester, title, conflicted: true, primary: _keepLabel);
       final pair = tester.widget<ConflictPair>(_inCard(find.byType(ConflictPair)));
       expect((pair.left, pair.rightLabel, pair.right), (_half, '佐藤さん（11/10）', _one));
       final stamp = tester.widget<ConfirmStamp>(_inCard(find.byType(ConfirmStamp)));
@@ -322,6 +401,10 @@ void main() {
       expect(tester.getRect(_inCard(find.byType(ConflictPair))).bottom,
           lessThan(tester.getTopLeft(_inCard(find.text(_record))).dy));
       expect(tester.getTopLeft(_inCard(find.text(_record))).dy, lessThan(tester.getTopLeft(_inCard(find.text(_showText))).dy));
+      // 主のボタンは見せる文のすぐ下、「確かめる」より上
+      final keep = tester.getRect(_inCard(find.widgetWithText(MoonFilledButton, _keepLabel)));
+      expect(keep.top, greaterThan(tester.getRect(_inCard(find.text(_showText))).bottom));
+      expect(keep.bottom, lessThan(tester.getRect(_inCard(find.widgetWithText(MoonTextButton, '確かめる'))).top));
 
       String? copied;
       final messenger = tester.binding.defaultBinaryMessenger;
@@ -338,35 +421,92 @@ void main() {
   }
 
   for (final size in const [_wide, _narrow]) {
-    testWidgets('確定済みの決定と食い違ったときに「確かめる」で開く画面は「記録した結果」で、確認のページと同じ確認印と記録を出す（$size）',
+    testWidgets('確定済みの決定と食い違ったときも、「確かめる」は確認リストでその食い違いを開く。そこにも同じ決着のボタンが残る（$size）',
         (tester) async {
-      await _pump(tester, [
+      final server = await _pump(tester, [
         [(_confirmed(), 'u3')],
       ], size: size);
       await _recordText(tester, '佐藤さんから、塩は小さじ1だと言われた');
-      await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+      await tester.tap(_inCard(find.widgetWithText(MoonTextButton, '確かめる')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      _expectCheckOpened(tester, size, 'c2');
+
+      // 確認のページの「記録を見せて、ノートのままにする」は今のまま
+      final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
+      expect(keep, findsOneWidget);
+      await tester.ensureVisible(keep);
+      await tester.tap(keep);
+      await tester.pumpAndSettle();
+      expect(server.resolved, {'shownFrom': 'c1'});
+      await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+    });
+  }
+
+  // 審査員の指摘4回目：確定済みと食い違ったときの決着の一手が、確認リストの右をスクロールした先にしかなかった
+  for (final size in const [_wide, _narrow, Size(360, 2000)]) {
+    testWidgets('結果のカードの「記録を見せて、ノートのままにする」で、見せた確定だけを送って決着し、カードは決着した形で残る（$size）',
+        (tester) async {
+      final server = await _pump(tester, [
+        [(_confirmed(), 'u3')],
+      ], size: size);
+      await _recordText(tester, '佐藤さんから、塩は小さじ1だと言われた');
+      final keep = _inCard(find.widgetWithText(MoonFilledButton, _keepLabel));
+      await tester.ensureVisible(keep);
+      await tester.tap(keep);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      expect(find.text('記録した結果'), findsOneWidget);
-      expect(find.text('ノートに書き込む前の確認'), findsNothing);
-      final record = _inModal(find.byType(ConfirmedRecord));
-      expect(record, findsOneWidget);
-      final stamp = tester.widget<ConfirmStamp>(find.descendant(of: record, matching: find.byType(ConfirmStamp)));
-      expect((stamp.who, stamp.day, stamp.decided), ('店長', '2026-11-07', false));
-      expect(find.descendant(of: record, matching: find.text(_record)), findsOneWidget);
-      // 比較のすぐ下に出す
-      expect(tester.getRect(_inModal(find.byType(ConflictPair))).bottom, lessThan(tester.getRect(record).top));
-      // スマホの幅では確認印を文の上に置き、文が細切れに折れないようにする（#126）。広い幅では文の右
-      final stampRect = tester.getRect(find.descendant(of: record, matching: find.byType(ConfirmStamp)));
-      final textRect = tester.getRect(find.descendant(of: record, matching: find.text(_record)));
-      if (size == _narrow) {
-        expect(stampRect.bottom, lessThanOrEqualTo(textRect.top));
-      } else {
-        expect(stampRect.left, greaterThan(textRect.right));
-      }
+      // 確認のページと同じく、どの確定を見せたかだけを送る（#118・#124）
+      expect(server.posted, ['/manuals/m1/checks/c2/resolve']);
+      expect(server.resolved, {'shownFrom': 'c1'});
+      // 確定で入力ページが読み直しても、カードは消えずに決着した形で残る
+      expect(_card, findsOneWidget);
+      expect(_inCard(find.text(_shownLine)), findsOneWidget);
+      expect(_inCard(find.text('確認済み')), findsOneWidget);
+      expect(tester.getRect(_inCard(find.byType(ConflictPair))).bottom,
+          lessThan(tester.getRect(_inCard(find.text(_shownLine))).top));
+      // 比較はそのまま出し、あとで確認の黄をやめる。確認印は元の店長の確定のまま
+      final pair = tester.widget<ConflictPair>(_inCard(find.byType(ConflictPair)));
+      expect((pair.left, pair.right, pair.settled), (_half, _one, true));
+      final stamp = tester.widget<ConfirmStamp>(_inCard(find.byType(ConfirmStamp)));
+      expect((stamp.who, stamp.day), ('店長', '2026-11-07'));
+      expect(_inCard(find.text('店長に確認済みの決定と食い違っています')), findsOneWidget);
+      expect(tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first).outline, isNull);
+      // 決着したので、見せる文・決着のボタン・「確認リストに入れました」は外し、「確かめる」は文字のボタンのまま
+      expect(_inCard(find.text(_showText)), findsNothing);
+      expect(_inCard(find.text(_record)), findsNothing);
+      expect(_inCard(find.byType(MoonFilledButton)), findsNothing);
+      expect(_inCard(find.text('確認リストに入れました')), findsNothing);
+      expect(_inCard(find.widgetWithText(MoonTextButton, '確かめる')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+
+      // 決着したあとの「確かめる」は、確認リストでその確認の記録を開く
+      await tester.tap(_inCard(find.widgetWithText(MoonTextButton, '確かめる')));
+      await tester.pumpAndSettle();
+      _expectCheckOpened(tester, size, 'c2');
+      expect(find.text('11/10 自分が記録を見せた'), findsOneWidget);
     });
   }
+
+  testWidgets('相手の行が書き換えられてノートに無いときは、カードのボタンも「記録を見せて、書き換える前に戻す」', (tester) async {
+    final rewritten = _confirmed();
+    rewritten['lines'] = [
+      {'text': '- 塩 小さじ2', 'patchId': null},
+    ];
+    final server = await _pump(tester, [
+      [(rewritten, 'u3')],
+    ]);
+    await _recordText(tester, '佐藤さんから、塩は小さじ1だと言われた');
+    expect(_inCard(find.text(_keepLabel)), findsNothing);
+    final back = _inCard(find.widgetWithText(MoonFilledButton, '記録を見せて、書き換える前に戻す'));
+    await tester.ensureVisible(back);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+    expect(server.resolved, {'shownFrom': 'c1'});
+    expect(_inCard(find.text(_shownLine)), findsOneWidget);
+    await tester.pump(const Duration(seconds: 10));
+  });
 
   testWidgets('発言者が分からず書き込む前に開いた確認は、書き込み終えても題名を変えない', (tester) async {
     tester.view.physicalSize = _wide;
@@ -443,6 +583,12 @@ void main() {
     // 食い違いが無ければ、白いカードに今までの大きさの見出しと文字の「確かめる」のまま。確認印も出さない
     _expectLook(tester, 'ノートに2行書き込みました', conflicted: false);
     expect(_inCard(find.byType(ConfirmStamp)), findsNothing);
+
+    // 書き込んだ結果の「確かめる」は今まで通り、書き込んだ行を書き込む前の確認と同じダイアログで見せる
+    await tester.tap(_inCard(find.widgetWithText(MoonTextButton, '確かめる')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReviewDialog), findsOneWidget);
+    expect(find.byType(CheckListScreen), findsNothing);
   });
 
   testWidgets('同じ内容だけなら、ノートと同じだったと言う', (tester) async {
@@ -522,9 +668,8 @@ void main() {
   const pc = Size(1280, 657);
 
   /// カードの見出しと比較が、上部バーの下から画面の下の端までに見えているか
-  void expectCardShown(WidgetTester tester, Size size) {
-    expect(tester.getRect(_inCard(find.text('ノートと食い違っています'))).top,
-        greaterThanOrEqualTo(tester.getRect(find.byType(TopBar)).bottom));
+  void expectCardShown(WidgetTester tester, Size size, {String title = 'ノートと食い違っています'}) {
+    expect(tester.getRect(_inCard(find.text(title))).top, greaterThanOrEqualTo(tester.getRect(find.byType(TopBar)).bottom));
     expect(tester.getRect(_inCard(find.byType(ConflictPair))).bottom, lessThanOrEqualTo(size.height));
   }
 
@@ -536,6 +681,20 @@ void main() {
       await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
       expectCardShown(tester, size);
     });
+
+    // 資料と食い違ったときに送らなかったことがある、という報告を確かめる（審査員の指摘4回目）
+    for (final kept in const [false, true]) {
+      testWidgets('資料と食い違ったときも、結果のカードの見出しと比較が見える所まで送る（$size、${kept ? '資料のままの確定あり' : '確定なし'}）',
+          (tester) async {
+        await _pump(tester, [
+          [(_materialConflict(kept: kept), 'u1')],
+        ], size: size);
+        await _recordText(tester, '田中さんから、味噌汁の塩は小さじ1/2でいいと言われた');
+        expect(tester.takeException(), isNull);
+        expect(tester.widget<ConflictPair>(_inCard(find.byType(ConflictPair))).leftLabel, '資料「店舗マニュアル」p.2');
+        expectCardShown(tester, size, title: kept ? '店長に確認済みの決定と食い違っています' : '資料と食い違っています');
+      });
+    }
   }
 
   /// 記録して、時間を進めずに数枚描く。送る動きはまだ進まない
@@ -616,16 +775,16 @@ void main() {
 
   testWidgets('ほかの画面からサイドバーで戻ると、入力欄が見える位置から始める。ダイアログを閉じただけでは動かさない', (tester) async {
     await _pump(tester, [
-      [(_kitchen(), 'u1')],
+      [(_hall(['addition', 'qualification', 'same']), 'u2')],
     ], size: pc);
     final area = find.byType(MoonTextArea);
     final start = tester.getRect(area).top;
-    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+    await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
     final scrolled = tester.getRect(area).top;
     expect(scrolled, lessThan(start));
 
-    // 「確かめる」の確認を開いて閉じても、カードの所に留まる
-    await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+    // 書き込んだ結果の「確かめる」で「記録した結果」を開いて閉じても、カードの所に留まる
+    await tester.tap(_inCard(find.widgetWithText(MoonTextButton, '確かめる')));
     await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
     await tester.pumpAndSettle();
@@ -638,7 +797,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(OpenChecksScreen), findsNothing);
     expect(tester.getRect(area).top, start);
-    // 食い違いはまだ確認待ちなので、カードは残っている
+    // ノートは変わっていないので、カードは残っている
     expect(_card, findsOneWidget);
   });
 }

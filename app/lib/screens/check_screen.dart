@@ -72,10 +72,11 @@ class _CheckDetailState extends State<CheckDetail> {
   final _note = TextEditingController();
   String _decidedAt = today();
   // 相手が確定済みの記録なら、そのまま押しても前の確定を覆さないよう「ノートのまま」から始める。
-  // 資料の行が資料と違う内容に確定していたら、その内容を入れた「別の内容」から始める
+  // 資料の行が資料と違う内容に確定していたら、その内容を入れた「別の内容」から始める。
+  // 相手が資料の行なら、まだ確定が無くても「資料のまま」から始める（資料は職場で決めた文書なので、口頭の側を既定にしない）
   late var _outcome = _settledOtherwise != null
       ? _Outcome.custom
-      : widget.c.state!.confirmedRecordFor(_initial) != null
+      : widget.c.state!.confirmedRecordFor(_initial) != null || _initial.materialRef != null
           ? _Outcome.keep
           : _Outcome.adopt;
   var _busy = false;
@@ -270,7 +271,7 @@ class _CheckDetailState extends State<CheckDetail> {
                   label: Flexible(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(_keepByRecordLabel(chk, confirmed.resolution!)),
+                      child: Text(keepByRecordLabel(s, chk, confirmed.resolution!)),
                     ),
                   ),
                 ),
@@ -449,17 +450,10 @@ class _CheckDetailState extends State<CheckDetail> {
     ]);
   }
 
-  /// 相手の行が書き換えられてもうノートに無いか。そのときは「ノートのまま」だと今のノートの行と読めてしまう（#86）。
-  /// 資料の行はもともとノートに無いので見ない
-  bool _gone(Check chk) => chk.materialRef == null && !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
-
   /// 相手の行を残す選択肢の名前
-  String _keepLabel(Check chk) => chk.materialRef != null ? '資料のまま' : (_gone(chk) ? '書き換える前の内容' : 'ノートのまま');
-
-  String _keepByRecordLabel(Check chk, Resolution r) {
-    if (chk.materialRef != null) return r.text == chk.conflictLine ? '記録を見せて、資料のままにする' : '記録を見せて、確定した内容にする';
-    return _gone(chk) ? '記録を見せて、書き換える前に戻す' : '記録を見せて、ノートのままにする';
-  }
+  String _keepLabel(Check chk) => chk.materialRef != null
+      ? '資料のまま'
+      : (counterpartGone(widget.c.state!, chk) ? '書き換える前の内容' : 'ノートのまま');
 
   /// 資料の中を、相手の行まで送って開く。戻る矢印で確認に戻る。パンくずは確認リストの上に積んだ形にする
   /// （広い画面では確認リストの右にこの詳細があり、狭い画面ではパンくずを出さない）
