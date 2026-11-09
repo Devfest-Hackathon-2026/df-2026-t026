@@ -174,9 +174,17 @@ class Api {
     } on http.ClientException {
       throw ApiException('サーバーにつながりません');
     }
-    final json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
+    // 本文が JSON でない（混んだときの 5xx の HTML など）ときも、画面が受けられる ApiException にする。
+    // FormatException のままだと、送る操作では何も出ず、読み込む画面では英語の例外の文が出る
+    final dynamic json;
+    try {
+      json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
+    } on FormatException {
+      throw ApiException('エラーが起きました（${res.statusCode}）', res.statusCode);
+    }
     if (res.statusCode >= 400) {
-      throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
+      final error = json is Map ? json['error'] : null;
+      throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
     // ログインは login() の中で、トークンを持ってから知らせる
     if (method != 'GET' && path != '/login') changes.value++;
