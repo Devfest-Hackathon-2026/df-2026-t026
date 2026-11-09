@@ -28,8 +28,6 @@ class _NewManualScreenState extends State<NewManualScreen> {
   var _busy = false;
   var _formatting = false;
   var _reading = false;
-  /// AI が整えた本文の案。受け入れるまで本文は変えない（ADR 0011）
-  String? _suggestion;
 
   bool get _ready => _title.text.trim().isNotEmpty;
   bool get _blank => _body.text.trim().isEmpty;
@@ -78,7 +76,6 @@ class _NewManualScreenState extends State<NewManualScreen> {
       setState(() {
         _body.text = r.text;
         if (_title.text.trim().isEmpty) _title.text = r.title;
-        _suggestion = null;
       });
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
@@ -89,10 +86,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
 
   Future<void> _format() async {
     final sent = _body.text;
-    setState(() {
-      _formatting = true;
-      _suggestion = null;
-    });
+    setState(() => _formatting = true);
     try {
       final text = await widget.api.format(sent.trim());
       if (!mounted) return;
@@ -100,20 +94,77 @@ class _NewManualScreenState extends State<NewManualScreen> {
       if (_body.text != sent) return;
       if (text == sent.trim()) {
         showToast(context, '整える所はありませんでした');
-      } else {
-        setState(() => _suggestion = text);
+        return;
       }
+      setState(() => _formatting = false);
+      // 受け入れるまで本文は変えない（ADR 0011）
+      final ok = await _showAsNote(
+        heading: 'AI が整えた案',
+        note: '本文はまだ変わっていません。よければこの形にしてください',
+        text: text,
+        actions: (ctx) => [
+          MoonTextButton(onTap: () => Navigator.pop(ctx, false), label: const Text('やめる')),
+          const Spacer(),
+          MoonFilledButton(onTap: () => Navigator.pop(ctx, true), label: const Text('この形にする')),
+        ],
+      );
+      if (ok == true && mounted) setState(() => _body.text = text);
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
-      if (mounted) setState(() => _formatting = false);
+      if (mounted && _formatting) setState(() => _formatting = false);
     }
   }
 
-  void _accept() => setState(() {
-        _body.text = _suggestion!;
-        _suggestion = null;
-      });
+  /// 本文を、ノートと同じ見た目（見出し・箇条書き）でモーダルに見せる。差分の印は付けない
+  Future<bool?> _showAsNote({
+    required String heading,
+    String? note,
+    required String text,
+    required List<Widget> Function(BuildContext ctx) actions,
+  }) {
+    final k = context.tokens;
+    return showMoonModal<bool>(
+      context: context,
+      builder: (ctx) => MoonModal(
+        backgroundColor: k.colors.canvas,
+        child: ConstrainedBox(
+          // 長いノートは中だけを送る
+          constraints: BoxConstraints(maxWidth: k.modalWidth, maxHeight: MediaQuery.sizeOf(ctx).height - k.space.xxl * 2),
+          child: Padding(
+            padding: EdgeInsets.all(k.space.xl),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text(heading, style: k.text.title),
+              if (note != null) ...[
+                SizedBox(height: k.space.xs),
+                Text(note, style: k.text.small),
+              ],
+              SizedBox(height: k.space.md),
+              const Rule(),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(vertical: k.space.md),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (final l in text.split('\n'))
+                      Padding(padding: EdgeInsets.symmetric(vertical: k.space.xs), child: LineText(l)),
+                  ]),
+                ),
+              ),
+              const Rule(),
+              SizedBox(height: k.space.lg),
+              Row(children: actions(ctx)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _preview() => _showAsNote(
+        heading: 'ノートの形で見る',
+        text: _body.text.trim(),
+        actions: (ctx) => [MoonOutlinedButton(onTap: () => Navigator.pop(ctx), label: const Text('閉じる'))],
+      );
 
   Future<void> _create() async {
     setState(() => _busy = true);
@@ -162,8 +213,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
                 controller: _body,
                 height: k.editorHeight,
                 textStyle: k.text.inputArea,
-                // 手で直したら、案は前の本文に対するものになるので閉じる
-                onChanged: (_) => setState(() => _suggestion = null),
+                onChanged: (_) => setState(() {}),
               ),
               SizedBox(height: k.space.sm),
               Wrap(spacing: k.space.sm, runSpacing: k.space.sm, children: [
@@ -177,21 +227,8 @@ class _NewManualScreenState extends State<NewManualScreen> {
                   leading: _formatting ? const _OutlinedLoader() : null,
                   label: Text(_formatting ? '整えています…' : 'マークダウンに整える'),
                 ),
+                MoonOutlinedButton(onTap: !_blank ? _preview : null, label: const Text('ノートの形で見る')),
               ]),
-              if (_suggestion case final s?) ...[
-                SizedBox(height: k.space.lg),
-                Text('AI が整えた案', style: k.text.heading),
-                SizedBox(height: k.space.xs),
-                Text('本文はまだ変わっていません。よければこの形にしてください', style: k.text.small),
-                SizedBox(height: k.space.sm),
-                _Suggestion(s.split('\n')),
-                SizedBox(height: k.space.sm),
-                Row(children: [
-                  MoonFilledButton(onTap: _accept, label: const Text('この形にする')),
-                  SizedBox(width: k.space.sm),
-                  MoonTextButton(onTap: () => setState(() => _suggestion = null), label: const Text('やめる')),
-                ]),
-              ],
               SizedBox(height: k.space.xl),
               Align(
                 alignment: Alignment.centerLeft,
@@ -219,28 +256,6 @@ class _OutlinedLoader extends StatelessWidget {
     return SizedBox.square(
       dimension: k.space.lg,
       child: MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s),
-    );
-  }
-}
-
-/// 整えた案を、ノートと同じ見た目でそのまま見せる。増えた行・消えた行の印は、差分を見慣れない人に読みにくいので付けない
-class _Suggestion extends StatelessWidget {
-  const _Suggestion(this.lines);
-  final List<String> lines;
-
-  @override
-  Widget build(BuildContext context) {
-    final k = context.tokens;
-    return Container(
-      decoration: BoxDecoration(
-        color: k.colors.canvas,
-        border: Border.all(color: k.colors.rule, width: k.hairline),
-        borderRadius: k.radius.surface,
-      ),
-      padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final l in lines) Padding(padding: EdgeInsets.symmetric(vertical: k.space.xs), child: LineText(l)),
-      ]),
     );
   }
 }
