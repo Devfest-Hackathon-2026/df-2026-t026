@@ -32,6 +32,8 @@ fvm install
 fvm flutter run -d chrome
 ```
 
+アプリを開いたら、ID `demo`・パスワード `demo` でログインする（メモリ上のデータで動かすときだけ、起動時にこのアカウントを作る）。
+
 アプリが呼ぶ API の URL は `--dart-define=API_URL=...` で変えられる（既定は `http://localhost:8787`）。
 
 偽の Gemini（`api/src/fake-ai.ts`）は、「田中さんから、塩は小さじ1/2でいいと言われた」のような決まった言い回しだけを解釈する。デモの流れ：
@@ -53,7 +55,6 @@ API は環境変数で切り替える。認証は ADC（`gcloud auth application
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI のリージョン | `global` |
 | `GEMINI_MODEL` | モデル | `gemini-3.8-flash` |
 | `ALLOW_ORIGIN` | CORS で許可するオリジン | すべて |
-| `PASSCODE` | API の合言葉。決めると `X-Passcode` ヘッダーで一致しないリクエストを 401 にする（[ADR 0003](docs/adr/0003-demo-passcode.md)） | 確かめない |
 | `HOST` | 待ち受けるアドレス | `127.0.0.1`（自分のマシンからだけ） |
 | `PORT` | ポート | `8787` |
 
@@ -69,7 +70,9 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project diff-note-514023
 ```
 
-`STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう。保存まで確かめたいときは、下のエミュレータを使う。
+`STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう（メンバーは読むだけの権限なので、書こうとすると権限エラーになる）。保存まで確かめたいときは、下のエミュレータを使う。
+
+本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users/demo?project=diff-note-514023)で見られる。ノートはログイン ID ごとに分かれ、`users/{ID}/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に記録が並ぶ。アカウントの作り方は [infra/README.md](infra/README.md) の「使う人のアカウントを作る」。
 
 ## テスト
 

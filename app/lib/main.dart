@@ -9,7 +9,7 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
-  runApp(App(api: Api(passcode: prefs.getString(passcodeKey))));
+  runApp(App(api: Api(token: prefs.getString(tokenKey))));
 }
 
 class App extends StatelessWidget {

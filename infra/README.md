@@ -2,7 +2,7 @@
 
 GCP 上の次のものを作る。手で作るのは、GCP プロジェクトそのものと課金アカウントのひも付けだけ。
 
-- Cloud Run（API。`AI=gemini`・`STORE=firestore` で動き、合言葉 `PASSCODE` を確かめる）と、そのサービスアカウント（Firestore・Vertex AI・Speech-to-Text を使える）
+- Cloud Run（API。`AI=gemini`・`STORE=firestore` で動き、配った ID とパスワードのログインで守る）と、そのサービスアカウント（Firestore・Vertex AI・Speech-to-Text を使える）
 - Firestore（ネイティブモード）
 - Artifact Registry（API のイメージ置き場）
 - Firebase Hosting（Web 版。`https://<プロジェクト ID>.web.app`）
@@ -29,7 +29,7 @@ gcloud auth application-default set-quota-project <プロジェクト ID>
 
 # 4. 作る
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # project_id・billing_account・passcode を書き換える
+cp terraform.tfvars.example terraform.tfvars   # project_id・billing_account を書き換える
 terraform init
 # 3 でできた Firebase と Hosting のサイトを取り込む
 terraform import google_firebase_project.this projects/<プロジェクト ID>
@@ -44,9 +44,23 @@ terraform output -json github_variables \
 
 5 が済むと、main に push するたびに `.github/workflows/deploy.yml` が API（Cloud Run）と Web（Firebase Hosting）をデプロイする。済むまではデプロイのジョブは飛ばされる。
 
+## 使う人のアカウントを作る
+
+登録の画面は無い。こちらでアカウントを作り、ID とパスワードを本人に渡す（[ADR 0009](../docs/adr/0009-login-with-issued-accounts.md)）。本番の Firestore に書くので、書ける権限のある人（プロジェクトのオーナー）が回す。
+
+```sh
+cd api
+GOOGLE_CLOUD_PROJECT=<プロジェクト ID> pnpm create-account <ID>               # パスワードを作って表示する
+GOOGLE_CLOUD_PROJECT=<プロジェクト ID> pnpm create-account <ID> <パスワード>  # パスワードを決めて渡す
+```
+
+- ID は英数字・ハイフン・下線で64文字まで。ノートは ID ごとに分かれ、新しい ID は空から始まる。ID `demo` を作ると、合言葉のころのデータ（`users/demo`）をそのまま使える
+- 同じ ID で回すとパスワードを置き換える。ログイン済みの人は、そのまま使え続ける
+- 使えなくするときは、Firestore のコンソールで `accounts/<ID>` と、`sessions` のうち `userId` がその ID のものを消す
+
 ## メンバーがローカルで本物の Gemini と Speech-to-Text を使えるようにする
 
-`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）が付く。Firestore の権限は付けない。外すときは一覧から消して `terraform apply` する。
+`terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）、Firestore を読むだけの権限（`roles/datastore.viewer`）が付く。Firestore は読むだけで、本番のデータは書き換えられない。外すときは一覧から消して `terraform apply` する。
 
 ```hcl
 team_members = ["member1@gmail.com", "member2@gmail.com"]
@@ -58,4 +72,4 @@ team_members = ["member1@gmail.com", "member2@gmail.com"]
 
 - 3 を飛ばして `terraform apply` すると、Firebase の追加が 403（The caller does not have permission）で止まる。3 をしてから取り込めばよい
 - Cloud Run のイメージは Terraform では管理しない（初回だけ仮のイメージを置き、以後は GitHub Actions が差し替える）。環境変数やサービスアカウントを変えるときは Terraform で変える
-- API は誰でも呼べる設定で公開し、合言葉で守っている（[ADR 0003](../docs/adr/0003-demo-passcode.md)）。合言葉を変えるときは `terraform.tfvars` の `passcode` を書き換えて `terraform apply` する。合言葉は Cloud Run の設定画面でプロジェクトのメンバーから見える
+- API は誰でも呼べる設定で公開し、配った ID とパスワードのログインで守っている（[ADR 0009](../docs/adr/0009-login-with-issued-accounts.md)）

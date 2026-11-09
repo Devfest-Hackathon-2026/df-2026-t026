@@ -1,4 +1,11 @@
+import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
+
+/** 本人が決めた名前とアイコン（ADR 0010）。アイコンは base64 */
+export interface Profile {
+  name: string;
+  icon: { mimeType: string; data: string } | null;
+}
 
 /**
  * 保存先。マニュアルの下に、土台（utterances / patches）と
@@ -11,12 +18,21 @@ export interface Store {
   list<T>(userId: string, manualId: string, collection: string): Promise<T[]>;
   put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T): Promise<void>;
   remove(userId: string, manualId: string, collection: string, id: string): Promise<void>;
+  getAccount(id: string): Promise<Account | null>;
+  putAccount(account: Account): Promise<void>;
+  getSession(id: string): Promise<Session | null>;
+  putSession(session: Session): Promise<void>;
+  getProfile(userId: string): Promise<Profile | null>;
+  putProfile(userId: string, profile: Profile): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
 export class MemoryStore implements Store {
   private manuals = new Map<string, Map<string, Manual>>();
   private docs = new Map<string, Map<string, unknown>>();
+  private accounts = new Map<string, Account>();
+  private sessions = new Map<string, Session>();
+  private profiles = new Map<string, Profile>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -44,5 +60,29 @@ export class MemoryStore implements Store {
 
   async remove(userId: string, manualId: string, collection: string, id: string) {
     this.docs.get(`${userId}/${manualId}/${collection}`)?.delete(id);
+  }
+
+  async getAccount(id: string) {
+    return structuredClone(this.accounts.get(id) ?? null);
+  }
+
+  async putAccount(account: Account) {
+    this.accounts.set(account.id, structuredClone(account));
+  }
+
+  async getSession(id: string) {
+    return structuredClone(this.sessions.get(id) ?? null);
+  }
+
+  async putSession(session: Session) {
+    this.sessions.set(session.id, structuredClone(session));
+  }
+
+  async getProfile(userId: string) {
+    return structuredClone(this.profiles.get(userId) ?? null);
+  }
+
+  async putProfile(userId: string, profile: Profile) {
+    this.profiles.set(userId, structuredClone(profile));
   }
 }

@@ -85,10 +85,6 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "ALLOW_ORIGIN"
         value = "https://${google_firebase_hosting_site.web.site_id}.web.app,https://${google_firebase_hosting_site.web.site_id}.firebaseapp.com"
       }
-      env {
-        name  = "PASSCODE"
-        value = var.passcode
-      }
     }
   }
 
@@ -98,7 +94,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [google_project_service.this]
 }
 
-# ブラウザから直接呼ぶので公開する。デモ版は認証の代わりに API が合言葉（PASSCODE）を確かめる
+# ブラウザから直接呼ぶので公開する。API は配った ID とパスワードのログインで守る（ADR 0009）
 resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.api.name
   location = google_cloud_run_v2_service.api.location
@@ -179,10 +175,11 @@ resource "google_service_account_iam_member" "deployer_act_as_api" {
 # ---------- ローカルで本物の Gemini を試すメンバー ----------
 
 # 各自の Google アカウント（ADC）で Vertex AI と Speech-to-Text を呼ぶための権限。serviceUsageConsumer は ADC の
-# クォータ用プロジェクトにこのプロジェクトを指定するために要る。Firestore の権限は付けない（本番のデータを守る）
+# クォータ用プロジェクトにこのプロジェクトを指定するために要る。Firestore は、使ってみた記録をみんなで確かめられるよう
+# 読むだけにする（本番のデータは書き換えさせない）
 resource "google_project_iam_member" "team" {
   for_each = {
-    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer", "roles/speech.client"]) :
+    for pair in setproduct(var.team_members, ["roles/aiplatform.user", "roles/serviceusage.serviceUsageConsumer", "roles/speech.client", "roles/datastore.viewer"]) :
     "${pair[0]} ${pair[1]}" => { email = pair[0], role = pair[1] }
   }
   project = var.project_id

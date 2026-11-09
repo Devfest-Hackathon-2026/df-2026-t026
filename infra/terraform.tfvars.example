@@ -1,6 +1,4 @@
 project_id      = "your-project-id"
 billing_account = "XXXXXX-XXXXXX-XXXXXX"
-# アプリで入力する合言葉。英数字・ハイフン・下線で10文字以上
-passcode = "change-me-please"
 # ローカルから本物の Gemini を呼べるようにするメンバー（Google アカウントのメールアドレス）
 # team_members = ["member1@gmail.com", "member2@gmail.com"]

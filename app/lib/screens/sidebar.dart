@@ -8,9 +8,10 @@ import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'profile_screen.dart';
 
 /// サイドバーで、いまいる画面
-enum Place { input, manuals }
+enum Place { input, manuals, profile }
 
 /// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
 bool showsSidebar(BuildContext context) {
@@ -65,7 +66,7 @@ class _SidebarState extends State<_Sidebar> {
     super.dispose();
   }
 
-  // 読めないとき（合言葉を入れる前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
+  // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
   Future<List<ManualSummary>> _load() => widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]);
 
   void _reload() => setState(() {
@@ -89,6 +90,18 @@ class _SidebarState extends State<_Sidebar> {
         builder: (context, snap) => ListView(
           padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.lg),
           children: [
+            MeBuilder(
+              api: widget.api,
+              builder: (context, me) => Padding(
+                padding: EdgeInsets.only(bottom: k.space.lg),
+                child: _item(
+                  me.name,
+                  leading: Avatar(me.name, image: me.icon?.bytes),
+                  selected: widget.place == Place.profile,
+                  onTap: () => _go(ProfileScreen(api: widget.api)),
+                ),
+              ),
+            ),
             _item('言われたことを記録', selected: widget.place == Place.input, onTap: () => _go(null)),
             SizedBox(height: k.space.lg),
             _item('ノート', selected: widget.place == Place.manuals, onTap: () => _go(HomeScreen(api: widget.api))),
@@ -107,13 +120,15 @@ class _SidebarState extends State<_Sidebar> {
     );
   }
 
-  Widget _item(String label, {required bool selected, required VoidCallback onTap, bool nested = false, int open = 0}) {
+  Widget _item(String label,
+      {required bool selected, required VoidCallback onTap, bool nested = false, int open = 0, Widget? leading}) {
     final k = context.tokens;
     return MoonMenuItem(
       onTap: onTap,
       backgroundColor: selected ? k.colors.shell : null,
       borderRadius: k.radius.control,
       menuItemPadding: EdgeInsets.fromLTRB(nested ? k.space.lg : k.space.sm, k.space.sm, k.space.sm, k.space.sm),
+      leading: leading,
       label: Text(
         label,
         maxLines: 1,

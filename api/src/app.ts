@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { upgradeWebSocket } from '@hono/node-server';
 import { Hono } from 'hono';
@@ -7,6 +7,7 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 
 import type { Assess, AssessResult } from './assess.ts';
+import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
@@ -24,13 +25,24 @@ export interface Deps {
   dictate: Dictate;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
   allowOrigin?: string;
-  /** API を使うための合言葉（X-Passcode ヘッダーで受ける）。未指定なら確かめない（ローカル開発用） */
-  passcode?: string;
 }
 
 type Env = { Variables: { userId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
+
+const Login = z.object({ id: z.string().trim(), password: z.string() });
+// アイコンはアプリが一辺 256px の JPEG に縮めて送る（数十KB）。縮められなかった画像も Firestore の1件の上限（1MB）に収める
+const MAX_ICON_CHARS = 500_000;
+const Me = z.object({
+  name: z.string().trim().min(1, '名前を入れてください').max(40, '名前は40文字までにしてください'),
+  icon: z
+    .object({
+      mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+      data: z.base64().max(MAX_ICON_CHARS, 'アイコンの画像が大きすぎます。小さい画像を選んでください'),
+    })
+    .nullable(),
+});
 
 // マニュアルが無い職場では、本文を空にして白紙から始める
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
@@ -83,27 +95,23 @@ const Resolve = z.object({
   note: z.string().trim().default(''),
 });
 
-/** 直接編集した人。認証を入れるまでは利用者本人1人 */
+/** 直接編集した人。ノートは利用者ごとに分かれているので、本人 */
 const SELF = '自分';
 
 const now = () => new Date().toISOString();
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-const digest = (s: string) => createHash('sha256').update(s).digest();
-
-export function createApp({ store, assess, check, transcribe, listen, dictate, allowOrigin, passcode }: Deps) {
+export function createApp({ store, assess, check, transcribe, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
-  // 認証を入れるまでは合言葉だけで守る単一ユーザー。入れるときはここでトークンから userId を決める
+  // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
   app.use(async (c, next) => {
-    if (passcode && c.req.path !== '/health') {
-      // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
-      const given = c.req.header('X-Passcode') ?? (c.req.path === '/dictation' ? c.req.query('passcode') : undefined);
-      if (!given) throw new HTTPException(401, { message: '合言葉を入れてください' });
-      // 長さの違いや一致までの時間から合言葉を推し量られないよう、ハッシュをそろえて比べる
-      if (!timingSafeEqual(digest(given), digest(passcode))) throw new HTTPException(401, { message: '合言葉が違います' });
-    }
-    c.set('userId', 'demo');
+    if (c.req.path === '/health' || c.req.path === '/login') return next();
+    // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
+    const token = c.req.header('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? (c.req.path === '/dictation' ? c.req.query('token') : undefined);
+    const session = token ? await store.getSession(sessionIdOf(token)) : null;
+    if (!session) throw new HTTPException(401, { message: 'ログインしてください' });
+    c.set('userId', session.userId);
     await next();
   });
   app.onError((e, c) => {
@@ -146,6 +154,32 @@ export function createApp({ store, assess, check, transcribe, listen, dictate, a
   }
 
   app.get('/health', (c) => c.json({ ok: true }));
+
+  // アカウントはこちらで作って配るので、登録の API は無い
+  app.post('/login', async (c) => {
+    const body = Login.parse(await c.req.json());
+    // 使えない文字の ID は Firestore で引けないので、引く前に違うと返す
+    const account = loginIdPattern.test(body.id) ? await store.getAccount(body.id) : null;
+    if (!account || !(await verifyPassword(body.password, account))) {
+      throw new HTTPException(401, { message: 'ID かパスワードが違います' });
+    }
+    const token = newToken();
+    await store.putSession({ id: sessionIdOf(token), userId: account.id, createdAt: now() });
+    return c.json({ token });
+  });
+
+  // 名前を決めていなければ ID を名前にする（ADR 0010）
+  app.get('/me', async (c) => {
+    const { userId } = c.var;
+    const profile = await store.getProfile(userId);
+    return c.json({ id: userId, name: profile?.name ?? userId, icon: profile?.icon ?? null });
+  });
+
+  app.put('/me', async (c) => {
+    const profile = Me.parse(await c.req.json());
+    await store.putProfile(c.var.userId, profile);
+    return c.json({ id: c.var.userId, ...profile });
+  });
 
   app.get('/manuals', async (c) => {
     const userId = c.var.userId;

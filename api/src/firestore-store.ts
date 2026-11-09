@@ -1,9 +1,13 @@
 import { Firestore } from '@google-cloud/firestore';
 
+import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
-import type { Store } from './store.ts';
+import type { Profile, Store } from './store.ts';
 
-/** users/{userId}/manuals/{manualId}/{collection}/{id} に保存する */
+/**
+ * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
+ * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
+ */
 export class FirestoreStore implements Store {
   private db = new Firestore();
 
@@ -36,5 +40,32 @@ export class FirestoreStore implements Store {
 
   async remove(userId: string, manualId: string, collection: string, id: string) {
     await this.manuals(userId).doc(manualId).collection(collection).doc(id).delete();
+  }
+
+  async getAccount(id: string) {
+    const doc = await this.db.collection('accounts').doc(id).get();
+    return doc.exists ? (doc.data() as Account) : null;
+  }
+
+  async putAccount(account: Account) {
+    await this.db.collection('accounts').doc(account.id).set(account);
+  }
+
+  async getSession(id: string) {
+    const doc = await this.db.collection('sessions').doc(id).get();
+    return doc.exists ? (doc.data() as Session) : null;
+  }
+
+  async putSession(session: Session) {
+    await this.db.collection('sessions').doc(session.id).set(session);
+  }
+
+  async getProfile(userId: string) {
+    const doc = await this.db.collection('users').doc(userId).get();
+    return doc.exists ? (doc.data() as Profile) : null;
+  }
+
+  async putProfile(userId: string, profile: Profile) {
+    await this.db.collection('users').doc(userId).set(profile);
   }
 }

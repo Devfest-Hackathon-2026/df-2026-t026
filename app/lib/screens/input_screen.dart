@@ -18,20 +18,18 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
-import '../web/screen.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'profile_screen.dart';
 import 'review_dialog.dart';
+import 'rewind_screen.dart';
 import 'sidebar.dart';
 
-/// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
-const passcodeKey = 'passcode';
-
-/// 常時待ち受けを ON にしたかをブラウザ（shared_preferences）に覚えておくときのキー
-const listeningKey = 'listening';
+/// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
+const tokenKey = 'token';
 
 /// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
 const memosKey = 'memos';
@@ -51,11 +49,8 @@ const _fileTypes = {
 /// バックエンドの上限（base64 で 15MB）に収まる元の大きさ
 const _maxAttachmentBytes = 10 * 1024 * 1024;
 
-/// 最近の記録・リワインドのストックに並べる数
+/// 最近の記録に並べる数
 const _recentCount = 5;
-
-const _rewind = 0;
-const _organize = 1;
 
 /// サムネイルで見せる形式（HEIC は Safari 以外で描けないので名前だけにする）
 const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
@@ -65,8 +60,8 @@ Future<List<PickedFile>> _pickWithFilePicker() async => [
         (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
     ];
 
-/// アプリを開いて最初の画面。「リワインド」で常時待ち受けから切り出して未整理メモにため、
-/// 「整理・入力」でメモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。どのマニュアルかは選ばない（ADR 0005）
+/// アプリを開いて最初の画面。リワインド（別のページ）でためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
+/// どのマニュアルかは選ばない（ADR 0005）
 class InputScreen extends StatefulWidget {
   const InputScreen({
     super.key,
@@ -90,29 +85,13 @@ class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
   final _text = TextEditingController();
   final _files = <Attachment>[];
+  var _attachMenu = false;
   var _busy = false;
-
-  /// 利用者が選んだ常時待ち受けの ON／OFF。ブラウザはマイクを操作のあとでないと開けないので、
-  /// 前回 ON のまま開いたときは最初の操作で待ち受けを再開する
-  var _wantListening = false;
-  CaptureRecorder? _listener;
-  var _starting = false;
-
-  /// 切り出しボタンを押してから、話し終わりを待って切り出すまで
-  var _capturing = false;
-
-  /// 裏で書き起こしている切り出しの数
-  var _transcribing = 0;
 
   final _memos = <Memo>[];
 
   /// 入力欄に流し込んだメモ。差分を作れたら未整理メモから消す
   final _poured = <Memo>[];
-
-  var _tab = _organize;
-
-  /// 最初のタブは前回の待ち受けで決める。決まったら切り替えを作り直す
-  var _tabRestored = false;
 
   /// 音声入力の録音。話し終わると null になり、確定の文面が届いてソケットが閉じるのを待つ
   Dictation? _dictation;
@@ -121,34 +100,22 @@ class _InputScreenState extends State<InputScreen> {
   /// 音声入力を始めたときの入力欄。届いた文面はこの後ろに足す
   var _beforeDictation = '';
 
-  late final void Function() _stopWatchingScreen;
   late final void Function() _stopWatchingDrops;
 
   @override
   void initState() {
     super.initState();
-    // 画面に戻ったら、待ち受けのマイクが止められていないかを確かめる
-    _stopWatchingScreen = onScreenShown(() => _listener?.checkAlive());
     _stopWatchingDrops = onFilesDropped(_addPicked);
     SharedPreferences.getInstance().then((p) {
       if (!mounted) return;
-      final listening = p.getBool(listeningKey) == true;
-      setState(() {
-        _wantListening = listening;
-        _tab = listening ? _rewind : _organize;
-        _tabRestored = true;
-        _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]);
-      });
+      setState(() => _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]));
     });
   }
 
   @override
   void dispose() {
     _text.dispose();
-    _stopWatchingScreen();
     _stopWatchingDrops();
-    if (_listener != null) keepScreenOn(false);
-    _listener?.stop();
     _dictation?.stop();
     _dictationSocket?.sink.close();
     super.dispose();
@@ -163,16 +130,17 @@ class _InputScreenState extends State<InputScreen> {
         _manuals = _load();
       });
 
-  Future<void> _enter(String passcode) async {
-    widget.api.passcode = passcode;
-    _reload();
+  Future<void> _login(String id, String password) async {
+    final String token;
     try {
-      await _manuals;
-    } catch (_) {
-      return; // 違っていれば FutureBuilder がもう一度合言葉を聞く
+      token = await widget.api.login(id, password);
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+      return;
     }
-    // 次に開いたときにまた聞かなくて済むよう、ブラウザに覚えておく
-    await (await SharedPreferences.getInstance()).setString(passcodeKey, passcode);
+    // 次に開いたときにまたログインしなくて済むよう、ブラウザに覚えておく
+    await (await SharedPreferences.getInstance()).setString(tokenKey, token);
+    _reload();
   }
 
   bool get _ready => _text.text.trim().isNotEmpty || _files.isNotEmpty;
@@ -203,80 +171,24 @@ class _InputScreenState extends State<InputScreen> {
     setState(() => _files.addAll(added));
   }
 
-  Future<void> _setListening(bool on) async {
-    setState(() => _wantListening = on);
-    unawaited(SharedPreferences.getInstance().then((p) => p.setBool(listeningKey, on)));
-    if (on) {
-      await _startListening();
-    } else {
-      final c = _listener;
-      setState(() => _listener = null);
-      keepScreenOn(false);
-      await c?.stop();
-    }
+  /// リワインドを開く。開いている間だけ待ち受ける。トグルを押した操作で開くので、ブラウザはそのままマイクを開ける
+  Future<void> _openRewind() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RewindScreen(api: widget.api, newRecorder: widget.newRecorder, memos: _memos, onMemo: _addMemo),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
-  Future<void> _startListening() async {
-    if (_listener != null || _starting) return;
-    _starting = true;
-    final c = await CaptureRecorder.start(widget.newRecorder(), onStopped: _onListenerStopped);
-    _starting = false;
-    // マイクを開いている間に OFF にされたら閉じる
-    if (!mounted || !_wantListening) {
-      await c?.stop();
-      return;
-    }
-    if (c == null) {
-      await _setListening(false);
-      if (mounted) showError(context, _noMic);
-      return;
-    }
-    setState(() => _listener = c);
-    keepScreenOn(true);
-  }
-
-  /// 画面が消えている間などにマイクが止まったら知らせる。ON は覚えたままにし、次の操作で再開する
-  void _onListenerStopped() {
-    final c = _listener;
-    if (!mounted || c == null) return;
-    setState(() => _listener = null);
-    keepScreenOn(false);
-    c.stop();
-    showError(context, '待ち受けが止まっていました。画面のどこかを押すと再開します');
-  }
-
-  /// 言われた後に押す。話し終わりを待って直前の発話だけを切り出す。書き起こしは裏で行い、
-  /// 待ち受けを止めず確認も出さないので、切り出し終われば続けて押せる
-  Future<void> _capture() async {
-    final c = _listener;
-    if (c == null || _capturing) return;
-    final at = DateTime.now();
-    setState(() => _capturing = true);
-    final wav = await c.capture();
-    if (!mounted) return;
-    setState(() => _capturing = false);
-    if (wav == null) {
-      showError(context, '声が入っていませんでした。言われた直後にもう一度押してください');
-      return;
-    }
-    unawaited(_transcribe(wav, at));
-  }
-
-  /// 書き起こせたら未整理メモにためる。書き起こせなければ音声は残さず知らせる
-  Future<void> _transcribe(Uint8List wav, DateTime at) async {
-    setState(() => _transcribing++);
-    try {
-      final text = await widget.api.listen(wav);
-      // 書き起こしは前後して返るので、切り出した順に並べ直す
-      _memos
-        ..add(Memo(at: at, text: text))
-        ..sort((a, b) => a.at.compareTo(b.at));
-      _saveMemos();
-    } on ApiException catch (e) {
-      if (mounted) showError(context, e);
-    } finally {
-      if (mounted) setState(() => _transcribing--);
-    }
+  /// リワインドで書き起こせたメモ。書き起こしは前後して返るので、切り出した順に並べ直す
+  void _addMemo(Memo m) {
+    _memos
+      ..add(m)
+      ..sort((a, b) => a.at.compareTo(b.at));
+    _saveMemos();
+    if (mounted) setState(() {});
   }
 
   void _saveMemos() {
@@ -471,36 +383,45 @@ class _InputScreenState extends State<InputScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final k = context.tokens;
     return Scaffold(
-      body: Listener(
-        onPointerDown: (_) {
-          if (_wantListening && _listener == null) _startListening();
-        },
-        child: WithSidebar(
-          api: widget.api,
-          place: Place.input,
-          child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(
-              crumbs: const ['DiffNote（仮）'],
-              // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
-              trailing: showsSidebar(context)
-                  ? null
-                  : MoonOutlinedButton(
+      body: WithSidebar(
+        api: widget.api,
+        place: Place.input,
+        child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TopBar(
+            crumbs: const ['DiffNote（仮）'],
+            // サイドバーが出ている幅では、そこからマニュアルや名前とアイコンへ移れるので出さない
+            trailing: showsSidebar(context)
+                ? null
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    MoonOutlinedButton(
                       buttonSize: MoonButtonSize.sm,
                       onTap: () => _push(HomeScreen(api: widget.api)),
                       label: const Text('ノートを見る'),
                     ),
-            ),
-            Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-          ])),
-        ),
+                    MeBuilder(
+                      api: widget.api,
+                      builder: (context, me) => Padding(
+                        padding: EdgeInsets.only(left: k.space.sm),
+                        child: MoonButton.icon(
+                          semanticLabel: '名前とアイコンを変える',
+                          icon: Avatar(me.name, image: me.icon?.bytes),
+                          onTap: () => _push(ProfileScreen(api: widget.api)),
+                        ),
+                      ),
+                    ),
+                  ]),
+          ),
+          Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+        ])),
       ),
     );
   }
 
   Widget _body(AsyncSnapshot<List<ManualState>> snap) {
     if (snap.error case ApiException(status: 401, :final message)) {
-      return _PasscodeForm(message: message, onSubmit: _enter);
+      return _LoginForm(message: message, onSubmit: _login);
     }
     if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
     if (!snap.hasData) return const Loading();
@@ -508,8 +429,8 @@ class _InputScreenState extends State<InputScreen> {
 
     final k = context.tokens;
     return LayoutBuilder(builder: (context, box) {
-      // 広い画面の「整理・入力」では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
-      final wide = box.maxWidth >= k.wideLayout && _tab != _rewind;
+      // 広い画面では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
+      final wide = box.maxWidth >= k.wideLayout;
       final input = [
         ..._unsorted(),
         _composer(manuals, wide: wide),
@@ -519,27 +440,28 @@ class _InputScreenState extends State<InputScreen> {
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-          PageTitle('言われたことを記録', meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)]),
+          PageTitle(
+            '言われたことを記録',
+            meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)],
+            // リワインドのページの同じ位置にも ON のトグルがあり、OFF にすると戻ってくる
+            trailing: manuals.isEmpty
+                ? null
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text('リワインド', style: k.text.heading),
+                    SizedBox(width: k.space.sm),
+                    MoonSwitch(
+                      value: false,
+                      semanticLabel: 'リワインド',
+                      // 音声入力とマイクを取り合わない
+                      onChanged: _dictating ? null : (_) => _openRewind(),
+                    ),
+                  ]),
+          ),
           SizedBox(height: k.space.xl),
           if (manuals.isEmpty)
             _empty()
           else ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: MoonSegmentedControl(
-                // 前回の待ち受けを読み込めたら、そのタブで作り直す
-                key: ValueKey(_tabRestored),
-                initialIndex: _tab,
-                onSegmentChanged: (i) => setState(() => _tab = i),
-                segments: const [Segment(label: Text('リワインド')), Segment(label: Text('整理・入力'))],
-              ),
-            ),
-            SizedBox(height: k.space.lg),
-            if (_tab == _rewind) ...[
-              _listening(),
-              SizedBox(height: k.space.xxl),
-              ..._stock(),
-            ] else if (wide)
+            if (wide)
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: input)),
                 SizedBox(width: k.space.xxl),
@@ -559,74 +481,7 @@ class _InputScreenState extends State<InputScreen> {
     });
   }
 
-  /// 常時待ち受け。待ち受け中は、何も送っていないことと音量をいつも見せる。白い面に載せる
-  Widget _listening() {
-    final k = context.tokens;
-    final c = _listener;
-    return PaperSheet(
-      padding: EdgeInsets.all(k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          MoonSwitch(
-            value: _wantListening,
-            semanticLabel: '常時待ち受け',
-            onChanged: _capturing ? null : _setListening,
-          ),
-          SizedBox(width: k.space.sm),
-          Text('常時待ち受け', style: k.text.heading),
-        ]),
-        SizedBox(height: k.space.sm),
-        if (c == null)
-          Text(
-            _wantListening ? '画面のどこかを押すと、待ち受けを再開します' : 'ON にすると、言われた後に押すだけで直前の発話をメモに残せます',
-            style: k.text.small,
-          )
-        else ...[
-          Text('端末内で直前60秒を保持中（送信していません）', style: k.text.small),
-          Text('押したときだけ、その発話を文字に起こすために送ります。音声は保存しません', style: k.text.small),
-          SizedBox(height: k.space.xs),
-          ValueListenableBuilder(
-            valueListenable: c.level,
-            builder: (_, v, _) => MoonLinearProgress(
-              value: v,
-              semanticLabel: '音量',
-              color: k.colors.ink,
-              backgroundColor: k.colors.rule,
-            ),
-          ),
-          SizedBox(height: k.space.xl),
-          // 指導中に画面を見なくても押せるよう、幅いっぱいの大きなボタンにする
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.xl,
-            isFullWidth: true,
-            onTap: _capturing ? null : _capture,
-            leading: _capturing ? const ButtonLoader() : null,
-            label: Text(_capturing ? '話し終わるのを待っています…' : 'いま言われたことをメモする'),
-          ),
-        ],
-      ]),
-    );
-  }
-
-  /// リワインドで直近にためたメモ。書き起こし中の数も出し、押せたかを確かめられるようにする
-  List<Widget> _stock() {
-    final k = context.tokens;
-    return [
-      Text('未整理メモ', style: k.text.title),
-      SizedBox(height: k.space.sm),
-      Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        Text('${_memos.length} 件', style: k.text.small),
-        if (_transcribing > 0) StatusTag('書き起こし中 $_transcribing 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-      ]),
-      SizedBox(height: k.space.sm),
-      if (_memos.isEmpty)
-        Text('残したメモは、あとで「整理・入力」で発言者や言葉を補ってから記録します', style: k.text.small)
-      else
-        _memoNotes(_memos.reversed.take(_recentCount)),
-    ];
-  }
-
-  /// 「整理・入力」に出す未整理メモ。押すと入力欄に入れる。無ければ何も出さない
+  /// リワインドでためた未整理メモ。押すと入力欄に入れる。無ければ何も出さない
   List<Widget> _unsorted() {
     if (_memos.isEmpty) return [];
     final k = context.tokens;
@@ -634,12 +489,12 @@ class _InputScreenState extends State<InputScreen> {
       Text('未整理メモ', style: k.text.title),
       SizedBox(height: k.space.xs),
       Text('押すと入力欄に入ります。続けて押すと1つにまとめられます', style: k.text.small),
-      _memoNotes(_memos, organizing: true),
+      _memoNotes(_memos),
       SizedBox(height: k.space.xxl),
     ];
   }
 
-  Widget _memoNotes(Iterable<Memo> memos, {bool organizing = false}) {
+  Widget _memoNotes(Iterable<Memo> memos) {
     final k = context.tokens;
     return Padding(
       padding: EdgeInsets.only(top: k.space.sm),
@@ -648,17 +503,16 @@ class _InputScreenState extends State<InputScreen> {
           SizedBox(
             width: k.stickyWidth,
             child: StickyNote(
-              onTap: organizing && !_poured.contains(m) && !_busy && !_dictating ? () => _pour(m) : null,
+              onTap: !_poured.contains(m) && !_busy && !_dictating ? () => _pour(m) : null,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Expanded(child: Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small)),
-                  if (organizing)
-                    MoonButton.icon(
-                      buttonSize: MoonButtonSize.xs,
-                      semanticLabel: 'メモを消す',
-                      icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
-                      onTap: _busy ? null : () => _deleteMemo(m),
-                    ),
+                  MoonButton.icon(
+                    buttonSize: MoonButtonSize.xs,
+                    semanticLabel: 'メモを消す',
+                    icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+                    onTap: _busy ? null : () => _deleteMemo(m),
+                  ),
                 ]),
                 SizedBox(height: k.space.sm),
                 Text(m.text, style: k.text.body),
@@ -692,12 +546,15 @@ class _InputScreenState extends State<InputScreen> {
               expands: true,
               readOnly: _dictating,
               textStyle: k.text.body,
+              // 下の行に添付とマイクのボタンを置くので、文字がその下に潜らないよう空けておく
+              textPadding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.xxl),
               hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
               onChanged: (v) => setState(() {
                 // 消し切ったら、流し込んだメモはもう使っていない
                 if (v.trim().isEmpty) _poured.clear();
               }),
             ),
+            Positioned(left: k.space.sm, bottom: k.space.sm, child: _attach()),
             Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
           ]),
           if (_files.isNotEmpty) ...[
@@ -709,21 +566,13 @@ class _InputScreenState extends State<InputScreen> {
               children: [for (final f in _files) _attachment(f)],
             ),
           ],
-          SizedBox(height: k.space.md),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            MoonOutlinedButton(
-              onTap: _busy ? null : () async => _addPicked(await widget.pickFiles()),
-              label: const Text('ファイルを添える'),
+          if (_dictation != null) ...[
+            SizedBox(height: k.space.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
             ),
-            if (_onPhone)
-              MoonOutlinedButton(
-                onTap: _busy ? null : () async => _addPicked(await takePhoto()),
-                label: const Text('写真を撮る'),
-              )
-            else
-              Text('PDF・画像は貼り付けやドロップでも添えられます', style: k.text.small),
-            if (_dictation != null) StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
-          ]),
+          ],
           SizedBox(height: k.space.lg),
           // 2列の狭い側ではボタンと案内が1行に収まらないので、案内を折り返す
           Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -767,6 +616,47 @@ class _InputScreenState extends State<InputScreen> {
       ),
       Positioned(top: k.space.xs, right: k.space.xs, child: remove),
     ]);
+  }
+
+  /// 入力欄の中の＋。押すと添え方を選ぶメニューを開く
+  Widget _attach() {
+    final k = context.tokens;
+    Future<void> choose(Future<List<PickedFile>> Function() pick) async {
+      setState(() => _attachMenu = false);
+      _addPicked(await pick());
+    }
+
+    return MoonDropdown(
+      show: _attachMenu,
+      // 上に開くと書いている文字に重なるので、下に開く
+      dropdownAnchorPosition: MoonDropdownAnchorPosition.bottomLeft,
+      backgroundColor: k.colors.canvas,
+      borderColor: k.colors.rule,
+      onTapOutside: () => setState(() => _attachMenu = false),
+      // 既定では画面いっぱいまで広がるので、項目の幅に合わせる
+      content: IntrinsicWidth(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MoonMenuItem(
+          borderRadius: k.radius.control,
+          onTap: () => choose(widget.pickFiles),
+          label: Text('ファイルを選ぶ', style: k.text.body),
+          content: Text(_onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
+        ),
+        if (_onPhone)
+          MoonMenuItem(
+            borderRadius: k.radius.control,
+            onTap: () => choose(takePhoto),
+            label: Text('写真を撮る', style: k.text.body),
+          ),
+      ])),
+      child: MoonButton.icon(
+        buttonSize: MoonButtonSize.sm,
+        semanticLabel: 'ファイルを添える',
+        backgroundColor: _attachMenu ? k.colors.shell : null,
+        onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
+        icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
+      ),
+    );
   }
 
   /// 入力欄の中のマイク。聞き取り中は色で示し、確定の文面を待つ間は読み込み中にする
@@ -872,27 +762,35 @@ class _InputScreenState extends State<InputScreen> {
   }
 }
 
-class _PasscodeForm extends StatefulWidget {
-  const _PasscodeForm({required this.message, required this.onSubmit});
+class _LoginForm extends StatefulWidget {
+  const _LoginForm({required this.message, required this.onSubmit});
   final String message;
-  final ValueChanged<String> onSubmit;
+  final Future<void> Function(String id, String password) onSubmit;
 
   @override
-  State<_PasscodeForm> createState() => _PasscodeFormState();
+  State<_LoginForm> createState() => _LoginFormState();
 }
 
-class _PasscodeFormState extends State<_PasscodeForm> {
-  final _passcode = TextEditingController();
+class _LoginFormState extends State<_LoginForm> {
+  final _id = TextEditingController();
+  final _password = TextEditingController();
+  final _passwordFocus = FocusNode();
+  var _busy = false;
 
   @override
   void dispose() {
-    _passcode.dispose();
+    _id.dispose();
+    _password.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    final v = _passcode.text.trim();
-    if (v.isNotEmpty) widget.onSubmit(v);
+  Future<void> _submit() async {
+    final id = _id.text.trim();
+    if (_busy || id.isEmpty || _password.text.isEmpty) return;
+    setState(() => _busy = true);
+    await widget.onSubmit(id, _password.text);
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -901,24 +799,41 @@ class _PasscodeFormState extends State<_PasscodeForm> {
     return Narrow(
       child: SingleChildScrollView(
         padding: EdgeInsets.symmetric(horizontal: k.space.xl, vertical: k.space.xxl),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.message, style: k.text.heading),
-          SizedBox(height: k.space.xs),
-          Text('合言葉は、このアプリを紹介した人に聞いてください', style: k.text.small),
-          SizedBox(height: k.space.lg),
-          MoonTextInput(
-            controller: _passcode,
-            autofocus: true,
-            obscureText: true,
-            hintText: '合言葉',
-            onSubmitted: (_) => _submit(),
-          ),
-          SizedBox(height: k.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoonFilledButton(label: const Text('入る'), onTap: _submit),
-          ),
-        ]),
+        // ブラウザのパスワード管理に覚えさせられるよう、ID とパスワードを1つのまとまりにする
+        child: AutofillGroup(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(widget.message, style: k.text.heading),
+            SizedBox(height: k.space.xs),
+            Text('ID とパスワードは、このアプリを紹介した人に聞いてください', style: k.text.small),
+            SizedBox(height: k.space.lg),
+            MoonTextInput(
+              controller: _id,
+              autofocus: true,
+              hintText: 'ID',
+              autofillHints: const [AutofillHints.username],
+              textInputAction: TextInputAction.next,
+              onSubmitted: (_) => _passwordFocus.requestFocus(),
+            ),
+            SizedBox(height: k.space.sm),
+            MoonTextInput(
+              controller: _password,
+              focusNode: _passwordFocus,
+              obscureText: true,
+              hintText: 'パスワード',
+              autofillHints: const [AutofillHints.password],
+              onSubmitted: (_) => _submit(),
+            ),
+            SizedBox(height: k.space.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoonFilledButton(
+                onTap: _busy ? null : _submit,
+                leading: _busy ? const ButtonLoader() : null,
+                label: Text(_busy ? 'ログインしています…' : 'ログインする'),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
