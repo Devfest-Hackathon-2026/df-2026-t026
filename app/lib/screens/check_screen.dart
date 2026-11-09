@@ -15,6 +15,9 @@ import 'tab_bar.dart';
 
 enum _Outcome { keep, adopt, custom }
 
+/// 確認した相手の候補に並べる数（「誰が言った？」と同じ）
+const _maxPeople = 6;
+
 /// 食い違い1件の画面。狭い画面で確認リストから開く。広い画面では確認リストの右に CheckDetail を直接置く
 class CheckScreen extends StatelessWidget {
   const CheckScreen({super.key, required this.c, required this.checkId});
@@ -85,17 +88,29 @@ class _CheckDetailState extends State<CheckDetail> {
     if (mounted) setState(() => _members = [for (final p in people) if (p.id != me) p]);
   }
 
+  /// 確認した相手に選べる人（名前 → ログイン ID）。共有している人を先に、そのあとにこのノートで言ったことのある人を最近の順に。
+  /// 共有していなくても、言ったことのある人から選べるようにする
+  Map<String, String?> get _people {
+    final all = <String, String?>{for (final p in _members) p.name: p.id};
+    final recent = [...widget.c.state!.utterances]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    for (final u in recent) {
+      if (u.speaker case final name?) all.putIfAbsent(name, () => null);
+    }
+    return all;
+  }
+
   /// 確認した相手の欄に打った言葉で、名前かログイン ID にその言葉を含む人。ID で当たった人には ID を添える。
-  /// 空のときや、共有している人の名前をそのまま選んだときは絞らない
-  List<({String name, String? id})> get _matchedMembers {
+  /// 空のときや、候補の名前をそのまま選んだときは絞らない
+  List<({String name, String? id})> get _matchedPeople {
+    final people = _people;
     final typed = _decidedBy.text.trim();
     final q = typed.toLowerCase();
-    if (q.isEmpty || _members.any((p) => p.name == typed)) return const [];
+    if (q.isEmpty || people.containsKey(typed)) return const [];
     return [
-      for (final p in _members)
-        if (p.name.toLowerCase().contains(q)) (name: p.name, id: null)
-        else if (p.id.toLowerCase().contains(q)) (name: p.name, id: p.id),
-    ];
+      for (final MapEntry(key: name, value: id) in people.entries)
+        if (name.toLowerCase().contains(q)) (name: name, id: null)
+        else if (id != null && id.toLowerCase().contains(q)) (name: name, id: id),
+    ].take(_maxPeople).toList();
   }
 
   Widget _memberChips(List<({String name, String? id})> people) {
@@ -203,11 +218,11 @@ class _CheckDetailState extends State<CheckDetail> {
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
-              if (_members.isNotEmpty) ...[
+              if (_people.keys.take(_maxPeople).toList() case final names when names.isNotEmpty) ...[
                 SizedBox(height: k.space.md),
-                Text('共有している人', style: k.text.small),
+                Text('ほかの人', style: k.text.small),
                 SizedBox(height: k.space.xs),
-                _memberChips([for (final p in _members) (name: p.name, id: null)]),
+                _memberChips([for (final name in names) (name: name, id: null)]),
               ],
               if (chk.question != null) ...[
                 SizedBox(height: k.space.md),
@@ -319,7 +334,7 @@ class _CheckDetailState extends State<CheckDetail> {
             label: Text('${fmtDay(_decidedAt)} に聞いた'),
           ),
         ]),
-        if (_matchedMembers case final matched when matched.isNotEmpty) ...[
+        if (_matchedPeople case final matched when matched.isNotEmpty) ...[
           SizedBox(height: k.space.xs),
           _memberChips(matched),
         ],

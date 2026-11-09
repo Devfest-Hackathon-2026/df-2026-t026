@@ -375,7 +375,7 @@ void main() {
       {'id': 'sato', 'name': '佐藤店長'},
       {'id': 'haruto', 'name': 'はると'},
     ]);
-    expect(find.text('共有している人'), findsOneWidget);
+    expect(find.text('ほかの人'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする'));
     await tester.pump();
     await tester.tap(_outlined('聞いた結果を記録する'));
@@ -393,6 +393,17 @@ void main() {
     expect(tester.widget<EditableText>(field).controller.text, '佐藤店長');
     // 選んだあとは絞った候補を消す
     expect(find.text('佐藤店長（sato）'), findsNothing);
+  });
+
+  testWidgets('確認のページ（持ち主）：共有していなくても、このノートで言ったことのある人から確認した相手を選べる', (tester) async {
+    await pumpCheck(tester, shared: false);
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(find.bySemanticsLabel('確認した相手を佐藤店長にする'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('確認した相手を田中さんにする'));
+    await tester.pump();
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<EditableText>(find.byType(EditableText).first).controller.text, '田中さん');
   });
 
   testWidgets('確認のページ（共有された人）：誰に確認するか・聞き方の例は出さず、自分の答えとして確定する', (tester) async {
