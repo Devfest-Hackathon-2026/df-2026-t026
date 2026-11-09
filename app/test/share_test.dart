@@ -261,18 +261,64 @@ void main() {
     expect(server.sent.where((x) => x.startsWith('POST /manuals/m1/edits')), hasLength(1));
   });
 
-  for (final shared in [false, true]) {
-    testWidgets('確認のページ：聞いた結果は、持ち主も共有された人も記録できる（${shared ? '共有された人' : '持ち主'}）', (tester) async {
-      final server = _Server(shared: shared);
-      final c = ManualController(server.api, 'm1', ManualState.fromJson(server.state));
-      tester.view.physicalSize = const Size(400, 1600);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckScreen(c: c, checkId: 'c1')));
-      await tester.pumpAndSettle();
-      expect(_outlined('聞いた結果を記録する'), findsOneWidget);
-      // 誰に確認するかと聞き方は、共有された人にも見せる
-      expect(find.text('どちらですか？'), findsOneWidget);
-    });
+  Future<_Server> pumpCheck(WidgetTester tester, {required bool shared, Map<String, dynamic>? resolution}) async {
+    final server = _Server(shared: shared);
+    final state = server.state;
+    if (resolution != null) (state['checks'] as List).first['resolution'] = resolution;
+    final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
+    tester.view.physicalSize = const Size(400, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckScreen(c: c, checkId: 'c1')));
+    await tester.pumpAndSettle();
+    return server;
   }
+
+  testWidgets('確認のページ（持ち主）：誰に確認するか・聞き方の例を出し、聞いた結果を記録する', (tester) async {
+    await pumpCheck(tester, shared: false);
+    expect(find.text('誰に確認する？'), findsOneWidget);
+    expect(find.text('どちらですか？'), findsOneWidget);
+    expect(_outlined('聞いた結果を記録する'), findsOneWidget);
+    expect(find.text('答えて確定する'), findsNothing);
+  });
+
+  testWidgets('確認のページ（共有された人）：誰に確認するか・聞き方の例は出さず、自分の答えとして確定する', (tester) async {
+    final server = await pumpCheck(tester, shared: true);
+    expect(find.text('誰に確認する？'), findsNothing);
+    expect(find.text('どちらですか？'), findsNothing);
+    expect(find.text('決める立場'), findsNothing);
+    expect(_outlined('聞いた結果を記録する'), findsNothing);
+    expect(find.text('確認した相手'), findsNothing);
+    // AI の理由は見せる
+    expect(find.text('量が違う'), findsOneWidget);
+
+    await tester.tap(find.text('ノートのまま'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '答えて確定する'));
+    await tester.pump(const Duration(milliseconds: 500));
+    final sent = server.sent.singleWhere((x) => x.startsWith('POST /manuals/m1/checks/c1/resolve'));
+    final body = jsonDecode(sent.substring(sent.indexOf('{'))) as Map<String, dynamic>;
+    expect(body.containsKey('decidedBy'), isFalse);
+    expect(body['text'], '- 塩 小さじ1');
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('本人が答えて決めた確認は「が決定」、聞いた結果の記録は「に確認」と出す', (tester) async {
+    Map<String, dynamic> res({String? answeredBy}) => {
+          'utteranceId': 'u2',
+          'patchId': null,
+          'decidedBy': '佐藤店長',
+          'answeredBy': ?answeredBy,
+          'decidedAt': '2026-11-10',
+          'text': '- 塩 小さじ1',
+          'note': '小さじ1のまま',
+        };
+    await pumpCheck(tester, shared: false, resolution: res(answeredBy: 'sato'));
+    expect(find.text('11/10 佐藤店長が決定：小さじ1のまま'), findsOneWidget);
+    expect(find.text('決定'), findsOneWidget);
+
+    await pumpCheck(tester, shared: false, resolution: res());
+    expect(find.text('11/10 佐藤店長に確認：小さじ1のまま'), findsOneWidget);
+    expect(find.text('決定'), findsNothing);
+  });
 }

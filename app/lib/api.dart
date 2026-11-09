@@ -173,16 +173,17 @@ class Api {
   Future<ManualState> discardPatch(String manualId, String id) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
 
+  /// 確定する。共有された人は decidedBy を送らず、自分の答えとして確定する（ADR 0017）
   Future<ManualState> resolve(
     String manualId,
     String checkId, {
-    required String decidedBy,
+    String? decidedBy,
     required String decidedAt,
     required String text,
     required String note,
   }) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {
-        'decidedBy': decidedBy,
+        'decidedBy': ?decidedBy,
         'decidedAt': decidedAt,
         'text': text,
         'note': note,

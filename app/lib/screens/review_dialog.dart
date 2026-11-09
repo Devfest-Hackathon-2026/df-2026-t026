@@ -354,7 +354,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       ),
       SizedBox(height: k.space.md),
       if (chk.resolution != null)
-        Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}に確認して確定済み',
+        Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}${chk.resolution!.verb}して確定済み',
             style: k.text.body.copyWith(color: k.colors.added))
       else ...[
         // 記録した時点では解決を求めない。確認リストに入ったことだけを伝える

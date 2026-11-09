@@ -423,6 +423,33 @@ test('共同編集：共有された人も、記録・書き込み・確定を�
   assert.equal((await call('GET', '/manuals/demo-kitchen')).json.patches.find((x: any) => x.id === p.id).status, 'discarded');
 });
 
+test('教える人の答え：共有された人の確定は、送った名前でなく本人の名前で、本人が答えた記録として残る', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+
+  const answered = await callAs('sato', 'POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, {
+    decidedBy: '田中さん',
+    decidedAt: '2026-11-10',
+    text: '- 塩 小さじ1/2',
+    note: '1/2で統一する',
+  });
+  assert.equal(answered.status, 200);
+  const res = answered.json.checks.find((c: any) => c.id === r.check.id).resolution;
+  assert.deepEqual([res.decidedBy, res.answeredBy, res.decidedAt], ['佐藤店長', 'sato', '2026-11-10']);
+  assert.equal(answered.json.utterances.find((u: any) => u.id === res.utteranceId).speaker, '佐藤店長');
+  assert.ok(answered.json.lines.some((l: any) => l.text === '- 塩 小さじ1/2'));
+});
+
+test('教える人の答え：持ち主が聞いた結果を記録するときは、確認した相手が要り、本人の答えにはしない', async () => {
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const path = `/manuals/demo-kitchen/checks/${r.check.id}/resolve`;
+  assert.equal((await call('POST', path, { decidedAt: '2026-11-10', text: '- 塩 小さじ1/2' })).status, 400);
+  const ok = await call('POST', path, { decidedBy: '店長', decidedAt: '2026-11-10', text: '- 塩 小さじ1/2' });
+  const res = ok.json.checks.find((c: any) => c.id === r.check.id).resolution;
+  assert.deepEqual([res.decidedBy, 'answeredBy' in res], ['店長', false]);
+});
+
 test('共同編集：共有された人も共有の相手を足し・外せるが、持ち主には足せず、ノートは消せない', async () => {
   await withAccounts();
   await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });

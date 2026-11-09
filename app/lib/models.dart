@@ -147,6 +147,7 @@ class Resolution {
       : utteranceId = j['utteranceId'],
         patchId = j['patchId'],
         decidedBy = j['decidedBy'],
+        answeredBy = j['answeredBy'],
         decidedAt = j['decidedAt'],
         text = j['text'],
         note = j['note'];
@@ -155,6 +156,12 @@ class Resolution {
   final String utteranceId;
   final String? patchId;
   final String decidedBy;
+
+  /// 共有された人が自分の答えとして確定したときの、その人の ID。聞いた結果を記録したときは null（ADR 0017）
+  final String? answeredBy;
+
+  /// 決めた人の後ろに添える言葉。本人が決めたのか、聞いて記録したのかを分ける
+  String get verb => answeredBy == null ? 'に確認' : 'が決定';
   final String decidedAt;
   final String text;
   final String note;

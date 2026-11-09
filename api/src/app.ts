@@ -111,7 +111,8 @@ const Edit = z
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
 const NewShare = z.object({ userId: z.string().trim().min(1, '共有する相手のログイン ID を入れてください') });
 const Resolve = z.object({
-  decidedBy: z.string().trim().min(1),
+  /** 確認した相手。共有された人が答えるときは送らない（ADR 0017） */
+  decidedBy: z.string().trim().min(1).optional(),
   decidedAt: date,
   text: z.string().trim().min(1),
   note: z.string().trim().default(''),
@@ -688,11 +689,15 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (chk.kind !== 'contradiction' || chk.resolution || !chk.conflictLine) {
       throw new HTTPException(409, { message: 'この項目は確定できません' });
     }
+    // 共有された人は、自分の答えとして確定する。決めた人は送られた名前でなく、ログインしている人にする（ADR 0017）
+    const answeredBy = s.sharedBy ? userId : undefined;
+    const decidedBy = answeredBy ? await nameOf(userId) : body.decidedBy;
+    if (!decidedBy) throw new HTTPException(400, { message: '確認した相手を入れてください' });
     const note = body.note || body.text;
     const answer: Utterance = {
       id: randomUUID(),
       text: note,
-      speaker: body.decidedBy,
+      speaker: decidedBy,
       saidAt: body.decidedAt,
       createdAt: now(),
     };
@@ -740,7 +745,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       resolution: {
         utteranceId: answer.id,
         patchId: fix?.id ?? null,
-        decidedBy: body.decidedBy,
+        decidedBy,
+        ...(answeredBy && { answeredBy }),
         decidedAt: body.decidedAt,
         text: body.text,
         note,

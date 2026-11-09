@@ -399,7 +399,7 @@ class _ManualScreenState extends State<ManualScreen> {
         Speaker(
           name: confirmed.resolution!.decidedBy,
           day: confirmed.resolution!.decidedAt,
-          after: 'に確認',
+          after: confirmed.resolution!.verb,
           onTap: () => _openCheck(confirmed),
         )
       else if (byOther)
