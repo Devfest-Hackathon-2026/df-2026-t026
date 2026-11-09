@@ -66,6 +66,8 @@ export async function formatWithGemini(text: string, generate: GenerateJson = ge
     system: formatSystem,
     prompt: `# 本文\n${text}`,
     schema: z.object({ text: z.string().describe('整えた本文。改行で行を分ける') }),
+    // 並べ替えるだけで、既定だと考えた分が出力の十数倍あった（中央値 12.7〜15.6 秒 → LOW で 5.2〜6.3 秒。ADR 0011）
+    thinkingLevel: ThinkingLevel.LOW,
   });
   // 行頭の空白は入れ子なので残す（ADR 0009）
   return out.text
