@@ -530,26 +530,30 @@ class ConflictPair extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    Widget side(String label, String text, TextStyle style) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Container(
-            color: c.shell,
-            padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
-            child: Text(label, style: k.text.small),
-          ),
-          Padding(
-            padding: EdgeInsets.all(k.space.lg),
-            child: Text(plain(text), style: style),
-          ),
-        ]);
-    final band = Container(
-      width: stacked ? null : k.space.xl + k.space.sm,
-      height: stacked ? k.space.xl : null,
-      color: settled ? c.shell : c.pendingBg,
-      alignment: Alignment.center,
-      child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
-    );
-    final l = side(leftLabel, left, k.text.title);
-    final r = side(rightLabel, right, k.text.title);
+    Widget head(String label) => Container(
+          color: c.shell,
+          padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+          child: Text(label, style: k.text.small),
+        );
+    Widget body(String text) => Padding(
+          padding: EdgeInsets.all(k.space.lg),
+          child: Text(plain(text), style: k.text.title),
+        );
+    Widget band({bool slash = true}) => Container(
+          width: stacked ? null : k.space.xl + k.space.sm,
+          height: stacked ? k.space.xl : null,
+          color: settled ? c.shell : c.pendingBg,
+          alignment: Alignment.center,
+          child: slash ? Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)) : null,
+        );
+    // 左右に並べるときは、見出しと本文を別の行にする。片方の見出しだけが2行に折れても、左右の段がずれない（#120）
+    Widget row(Widget l, Widget m, Widget r) => IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: l),
+            m,
+            Expanded(child: r),
+          ]),
+        );
     return Container(
       decoration: BoxDecoration(
         color: c.canvas,
@@ -557,15 +561,12 @@ class ConflictPair extends StatelessWidget {
         borderRadius: k.radius.surface,
       ),
       clipBehavior: Clip.antiAlias,
-      child: stacked
-          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [l, band, r])
-          : IntrinsicHeight(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Expanded(child: l),
-                band,
-                Expanded(child: r),
-              ]),
-            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: stacked
+            ? [head(leftLabel), body(left), band(), head(rightLabel), body(right)]
+            : [row(head(leftLabel), band(slash: false), head(rightLabel)), row(body(left), band(), body(right))],
+      ),
     );
   }
 }

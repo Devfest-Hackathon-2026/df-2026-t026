@@ -258,6 +258,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color tabBarPill = const Color(0x262459F5);
   final Duration tabBarPillMove = const Duration(milliseconds: 220);
 
+  /// 記録したあと、結果のカードが見える所まで送る時間
+  final Duration scrollToResult = const Duration(milliseconds: 300);
+
   @override
   AppTokens copyWith() => this;
 
