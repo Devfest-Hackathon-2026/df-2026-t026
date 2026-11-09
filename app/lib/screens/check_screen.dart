@@ -514,24 +514,25 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 記録を見せて済ませた確定は、確認印と中身は元の確定のまま、見せた人と日を上に添える（#118）
   Widget _evidence(Resolution r, {VoidCallback? onTap}) {
     final k = context.tokens;
-    final box = Container(
-      padding: EdgeInsets.all(k.space.xl),
-      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (shownByText(widget.c.state!, r) case final shown?) ...[
-              Text(shown, style: k.text.small),
-              SizedBox(height: k.space.xs),
-            ],
-            Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
-            SizedBox(height: k.space.sm),
-            Text('確定した内容：${plain(r.text)}', style: k.text.body),
-          ]),
-        ),
-        SizedBox(width: k.space.lg),
-        ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null),
-      ]),
+    final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (shownByText(widget.c.state!, r) case final shown?) ...[
+        Text(shown, style: k.text.small),
+        SizedBox(height: k.space.xs),
+      ],
+      Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
+      SizedBox(height: k.space.sm),
+      Text('確定した内容：${plain(r.text)}', style: k.text.body),
+    ]);
+    final stamp = ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null);
+    // スマホの幅で印を文の横に置くと、印に幅を取られて文が細切れに折れるので、印を文の上に置く（#126）
+    final box = LayoutBuilder(
+      builder: (context, size) => Container(
+        padding: EdgeInsets.all(k.space.xl),
+        decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
+        child: size.maxWidth < k.stackBelow
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, SizedBox(height: k.space.lg), text])
+            : Row(children: [Expanded(child: text), SizedBox(width: k.space.lg), stamp]),
+      ),
     );
     if (onTap == null) return box;
     return MouseRegion(
