@@ -297,6 +297,51 @@ class Avatar extends StatelessWidget {
   }
 }
 
+/// 発言者の丸。名前から決まったイラストの顔（Open Peeps、assets/avatars/）を出す。同じ名前はいつも同じ顔。
+/// 発言者は名前の文字だけで持っているので、顔は保存せずに毎回名前から選ぶ。
+/// 名前が無いときと「自分」は、ログインする人のアイコン（Avatar）と同じ頭文字の丸のまま
+class SpeakerFace extends StatelessWidget {
+  const SpeakerFace(this.name, {super.key});
+  final String? name;
+
+  /// 顔の枚数（assets/avatars/peep-1.png〜）
+  static const faces = 8;
+
+  /// 名前から顔の番号（0〜faces-1）を選ぶ。String.hashCode は実行のたびに変わりうるので使わず、
+  /// 文字コードから毎回同じになる計算（FNV-1a 32bit）にする。Web では数が 2^53 を超えると狂うので、
+  /// 掛け算を分けて 32bit に収める。見本の名前（店長・田中さん・佐藤さん・鈴木さん など）どうしで顔がかぶらないよう、
+  /// 上の桁を混ぜてから 8 で割る
+  static int faceOf(String name) {
+    var h = 0x811c9dc5;
+    for (final c in name.codeUnits) {
+      h = (h ^ c) & 0xffffffff;
+      // h * 16777619（0x01000193 = 2^24 + 0x193）を 32bit で
+      h = ((h * 0x193) + ((h << 24) & 0xffffffff)) & 0xffffffff;
+    }
+    return ((h ^ (h >> 13)) & 0xffffffff) % faces;
+  }
+
+  static String assetOf(String name) => 'assets/avatars/peep-${faceOf(name) + 1}.png';
+
+  @override
+  Widget build(BuildContext context) {
+    final n = name;
+    if (n == null || n.trim().isEmpty || n == '自分') return Avatar(n);
+    final k = context.tokens;
+    // 読み上げは今までどおり名前（顔の絵は読ませない）
+    return Semantics(
+      label: n,
+      excludeSemantics: true,
+      child: MoonAvatar(
+        avatarSize: MoonAvatarSize.xs,
+        borderRadius: k.radius.round,
+        backgroundColor: k.colors.avatar,
+        backgroundImage: AssetImage(assetOf(n)),
+      ),
+    );
+  }
+}
+
 /// 誰が・いつ言ったか
 class Speaker extends StatelessWidget {
   const Speaker({super.key, required this.name, required this.day, this.after, this.onTap});
@@ -311,7 +356,7 @@ class Speaker extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final row = Row(mainAxisSize: MainAxisSize.min, children: [
-      Avatar(name),
+      SpeakerFace(name),
       SizedBox(width: k.space.sm),
       Text(name ?? '発言者未入力', style: k.text.small.copyWith(color: k.colors.ink)),
       SizedBox(width: k.space.sm),

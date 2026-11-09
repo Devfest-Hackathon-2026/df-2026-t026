@@ -185,7 +185,7 @@ class _CheckDetailState extends State<CheckDetail> {
         backgroundColor: selected ? k.colors.shell : null,
         borderRadius: k.radius.control,
         onTap: () => setState(() => _decidedBy.text = cand.who),
-        leading: Avatar(cand.who),
+        leading: SpeakerFace(cand.who),
         label: Text(cand.who, style: k.text.body),
         content: Text(cand.why, style: k.text.small),
         trailing: selected ? Icon(LucideIcons.check, color: k.colors.ink) : null,
