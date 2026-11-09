@@ -69,6 +69,9 @@ class Api {
 
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
+  /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。消すと changes が増え、サイドバーや一覧が読み直す
+  Future<void> deleteManual(String id) async => _send('DELETE', '/manuals/$id');
+
   /// ほかの人から自分に共有されたノート
   Future<List<SharedManual>> listShared() async =>
       [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
