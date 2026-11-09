@@ -331,9 +331,10 @@ class _InputScreenState extends State<InputScreen> {
         onSaved?.call();
         _busy = false;
       });
-      for (final x in r.results) {
-        if (!mounted) return;
-        await showReview(context, ManualController(widget.api, x.manualId, x.state), x.utteranceId);
+      if (r.results.isNotEmpty && mounted) {
+        await showReview(context, [
+          for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
+        ]);
       }
     } on ApiException catch (e) {
       if (mounted) showError(context, e);

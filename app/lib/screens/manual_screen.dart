@@ -431,7 +431,7 @@ class _ManualScreenState extends State<ManualScreen> {
     final k = context.tokens;
     return StickyNote(
       // 書き込む前の確認は持ち主だけ。共有された人には、言われたことを見せるだけにする（ADR 0013）
-      onTap: () => s.sharedBy == null ? showReview(context, c, u.id) : _showUtterance(u),
+      onTap: () => s.sharedBy == null ? showReview(context, [(c: c, utteranceId: u.id)]) : _showUtterance(u),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),

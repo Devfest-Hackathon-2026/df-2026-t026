@@ -225,37 +225,50 @@ void main() {
     expect(texts.indexOf('お冷やはすぐ出す'), lessThan(texts.indexOf('塩は小さじ1/2')));
   });
 
-  testWidgets('マニュアルを選ばずに記録し、関係するマニュアルごとに差分の確認を順に出す', (tester) async {
+  testWidgets('マニュアルを選ばずに記録し、関係するマニュアルの変わる行を1つの確認に並べる', (tester) async {
     Map<String, dynamic>? sent;
+    final edited = <String, Map<String, dynamic>>{};
     await _pumpInput(
       tester,
-      _client((body) async {
-        sent = body;
-        return _json({
-          'text': body['text'],
-          'results': [
-            {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
-            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
-          ],
-        }, 201);
-      }),
+      _client(
+        (body) async {
+          sent = body;
+          return _json({
+            'text': body['text'],
+            'results': [
+              {'manualId': 'm1', 'utteranceId': 'u1', 'state': _state('m1')},
+              {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
+            ],
+          }, 201);
+        },
+        onOther: (req) {
+          if (req.method == 'PATCH') edited[req.url.pathSegments[1]] = jsonDecode(req.body);
+        },
+      ),
     );
     await _record(tester, '田中さんから、レジ締めは店長がやると言われた');
 
     expect(sent, containsPair('text', '田中さんから、レジ締めは店長がやると言われた'));
     expect(sent!.containsKey('manualIds'), isFalse);
     expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    // どのノートの話かを題名で分け、上下に並べる
+    final modal = find.byType(MoonModal);
+    expect(find.descendant(of: modal, matching: find.text('キッチン')), findsOneWidget);
+    expect(find.descendant(of: modal, matching: find.text('ホール')), findsOneWidget);
     // 記録しても確認へ急がせない
     expect(find.text('確認リストに入れました。聞けるときに確認して、決まったら記録します'), findsOneWidget);
-
-    await tester.tap(find.byIcon(LucideIcons.x));
-    await tester.pumpAndSettle();
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     expect(find.text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
+    // 発言者は1回だけ入れる
+    expect(find.descendant(of: modal, matching: find.byType(MoonTextInput)), findsOneWidget);
 
+    await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
     await tester.tap(find.byIcon(LucideIcons.x));
     await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
+    // 直した発言者は、どのノートの記録にも入る
+    expect(edited.keys, unorderedEquals(['m1', 'm2']));
+    expect(edited['m1'], containsPair('speaker', '田中さん（ホール）'));
+    expect(edited['m2'], containsPair('speaker', '田中さん（ホール）'));
     expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text, isEmpty);
   });
 
