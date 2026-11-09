@@ -115,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Text('まだノートがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
+          '$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),

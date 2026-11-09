@@ -81,13 +81,13 @@ void main() {
     });
   }
 
-  testWidgets('広い幅では、サイドバーの（?）で使い方（暫定）を開き、PC の幅の画像を出す。使い方のページには（?）を出さず、戻ると元の画面', (tester) async {
+  testWidgets('広い幅では、サイドバーの（?）で使い方を開き、PC の幅の画像を出す。使い方のページには（?）を出さず、戻ると元の画面', (tester) async {
     _size(tester, const Size(1440, 900));
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
     await tester.pumpAndSettle();
     await tester.tap(help());
     await tester.pumpAndSettle();
-    expect(find.text('使い方（暫定）'), findsWidgets);
+    expect(find.text('使い方'), findsWidgets);
     expect(find.byIcon(LucideIcons.circleQuestionMark), findsNothing);
     final img = tester.widgetList<Image>(find.byType(Image)).first.image as AssetImage;
     expect(img.assetName, 'assets/help/wide/new_note.png');

@@ -238,6 +238,10 @@ Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) 
   await tester.pump();
 }
 
+/// リワインドのトグルと、記録先：自動に添える一言
+const _rewindNote = 'リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その発話を切り出して文字にします';
+const _targetNote = '記録先が自動のままなら、どのノートの話かを AI が選びます';
+
 /// トーストが消えるまで進める（タイマーを残したまま終えない）
 Future<void> _waitToast(WidgetTester tester) => tester.pumpAndSettle(const Duration(seconds: 10));
 
@@ -404,6 +408,7 @@ void main() {
       }),
     );
     expect(find.text('記録先：自動'), findsOneWidget);
+    expect(find.text(_targetNote), findsOneWidget);
     // 記録先を足しても、マイクは入力欄の右端に置いたまま（余白の分だけ内側）
     final mic = tester.getRect(find.widgetWithIcon(MoonButton, LucideIcons.mic));
     final area = tester.getRect(find.byType(MoonTextArea));
@@ -416,6 +421,8 @@ void main() {
     await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
     await tester.pumpAndSettle();
     expect(find.text('記録先：ホール'), findsOneWidget);
+    // 選んだ後は AI が選ばないので、自動の一言は出さない
+    expect(find.text(_targetNote), findsNothing);
 
     await _record(tester, 'お冷やはすぐ出す');
     expect(sent.single['manualIds'], ['m2']);
@@ -429,6 +436,7 @@ void main() {
     await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
     await tester.pumpAndSettle();
     expect(find.text('記録先：自動'), findsOneWidget);
+    expect(find.text(_targetNote), findsOneWidget);
     await _record(tester, 'レジ締めは店長');
     expect(sent.last.containsKey('manualIds'), isFalse);
     await _waitToast(tester);
@@ -539,8 +547,42 @@ void main() {
     await _pumpInput(tester, MockClient((_) async => _json([])));
 
     expect(find.text('まだノートがありません'), findsOneWidget);
+    expect(find.text('$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。'), findsOneWidget);
     expect(find.byType(MoonTextArea), findsNothing);
+    // 題名の下の一文は、空の案内と重ねて出さない
+    expect(find.text(appPurpose), findsNothing);
+    expect(find.text(_rewindNote), findsNothing);
   });
+
+  for (final (size, wide) in const [(Size(1200, 1400), true), (Size(390, 844), false)]) {
+    testWidgets('ノートがあるときも、題名の下に何の道具かを出し、リワインドと記録先が何をするかを一言ずつ添える（$size）', (tester) async {
+      await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController<Uint8List>(), size: size);
+      expect(tester.takeException(), isNull);
+      expect(find.text(appPurpose), findsOneWidget);
+      expect(find.text(_rewindNote), findsOneWidget);
+      expect(find.text(_targetNote), findsOneWidget);
+      final toggle = tester.getRect(find.byType(MoonSwitch));
+      final note = tester.getRect(find.text(_rewindNote));
+      final title = tester.getRect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')));
+      expect(note.top, greaterThanOrEqualTo(toggle.bottom));
+      expect(tester.getRect(find.text(appPurpose)).top, greaterThanOrEqualTo(title.bottom));
+      if (wide) {
+        // 広い画面では、リワインドの一言はトグルの下（右の列）に置き、書く欄の横に並べる
+        expect(note.left, greaterThan(tester.getRect(find.byType(MoonTextArea)).right));
+        expect(note.right, toggle.right);
+      }
+      // 記録先の一言は、記録先のある入力欄の枠のすぐ下
+      expect(tester.getRect(find.text(_targetNote)).top, greaterThan(tester.getRect(find.byType(MoonTextArea)).bottom));
+
+      // リワインドにしても題名の下はそのまま。書く欄が無いので記録先の一言は出さない
+      await _startRewind(tester);
+      expect(find.text(appPurpose), findsOneWidget);
+      expect(tester.getRect(find.text(_rewindNote)), note);
+      expect(find.text(_targetNote), findsNothing);
+      await tester.tap(find.byType(MoonSwitch));
+      await tester.pumpAndSettle();
+    });
+  }
 
   testWidgets('リワインドを ON にすると、サイドバーとトグルの位置はそのままで、書く欄の所に待ち受け、最近の記録の所に未整理メモを出し、OFF にすると止める', (tester) async {
     final mic = StreamController<Uint8List>();

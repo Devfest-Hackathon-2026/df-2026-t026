@@ -5,7 +5,7 @@ import 'common.dart';
 import 'sidebar.dart';
 
 /// 使い方。画面に説明文を並べる代わりに、ここにまとめる。
-/// 画面は今後変わるので暫定とし、スクショの撮り直し方は assets/help/README.md に書く
+/// スクショの撮り直し方は assets/help/README.md に書く
 class HelpScreen extends StatelessWidget {
   const HelpScreen({super.key});
 
@@ -14,11 +14,11 @@ class HelpScreen extends StatelessWidget {
     final k = context.tokens;
     return Scaffold(
       body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['使い方（暫定）']),
+        const TopBar(crumbs: ['使い方']),
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-              const PageTitle('使い方（暫定）'),
+              const PageTitle('使い方'),
               SizedBox(height: k.space.xl),
               const _Section(n: '1', title: 'ノートを作る', shot: 'new_note', lines: [
                 'ノートは、職場のマニュアルや自分用のメモのことです。サイドバー（スマホは左上の三本線）の「ノート」の右の＋から作ります。',

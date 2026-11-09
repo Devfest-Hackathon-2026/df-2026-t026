@@ -59,6 +59,7 @@ test('差分化と分類を1回で受け取り、行番号を行の文字列に�
   assert.deepEqual(r.items[0].check.ask, ask);
   // マニュアル全文を行番号付きで渡している
   assert.match(calls[0].prompt, /L2: - 塩 小さじ1\n/);
+  assert.equal(calls[0].hedgeMs, 12_000);
 });
 
 test('差分化：見出しや範囲外の行を置き換えようとしたら受け付けない', async () => {
@@ -183,6 +184,7 @@ test('整形：本文を渡し、行末の空白だけを落として行頭の�
   assert.equal(await formatWithGemini('仕込み 野菜を切る 玉ねぎは薄切り', generate), '## 仕込み\n- 野菜を切る\n  - 玉ねぎは薄切り');
   assert.equal(calls.length, 1);
   assert.match(calls[0].prompt, /仕込み 野菜を切る 玉ねぎは薄切り/);
+  assert.equal(calls[0].thinkingLevel, 'LOW');
 });
 
 test('読み取り：ファイルを渡し、本文と題名の前後の空白を落とす', async () => {

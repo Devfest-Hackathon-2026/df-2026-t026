@@ -110,7 +110,8 @@ ${input.today}
 
 # 新人のメモ
 ${input.text}`;
-  const out = await generate({ system, prompt, schema: schema(manuals) });
+  // ふだんは5〜15秒で返り、遅い1本は25秒を過ぎても返らない。12秒で並べると遅い件が約6秒縮む（ADR 0002）
+  const out = await generate({ system, prompt, schema: schema(manuals), hedgeMs: 12_000 });
   return {
     speaker: out.speaker,
     saidAt: out.saidAt,

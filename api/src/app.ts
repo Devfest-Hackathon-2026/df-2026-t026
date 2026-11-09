@@ -10,7 +10,7 @@ import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
-import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
+import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import type { Memo, Share, Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
@@ -676,7 +676,23 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       throw new HTTPException(409, { message: 'この編集は確かめられません' });
     }
     // 書いた行そのものは相手にしない。書き換える前の行は本人が直したので、もう残っていない
-    const others = s.lines.filter((l) => l.patchId !== p.id);
+    let others = s.lines.filter((l) => l.patchId !== p.id);
+    if (p.op === 'replace') {
+      // ただし確定済みの行を書き換えたときは、その行も相手にする。この編集を除いて描くと、書き換える前の行が
+      // 元の位置に確定の出どころ付きで並び、Gemini がその行を指せる（#86）
+      let before: ManualLine[] = [];
+      try {
+        before = render(s.manual.base, s.patches.filter((x) => x.id !== p.id));
+      } catch (e) {
+        // 後の編集がこの編集の行を直していると描けない。そのときは今まで通りにする
+        if (!(e instanceof PatchError)) throw e;
+      }
+      const old = before.find((l) => l.text === p.line);
+      const confirmed =
+        old &&
+        s.checks.some((x) => x.resolution && (x.resolution.text === old.text || (old.patchId !== null && x.resolution.patchId === old.patchId)));
+      if (confirmed) others = before;
+    }
     const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
     const result = await check({
       ...manualContext(others, s.patches, s.utterances, s.checks),
@@ -726,9 +742,14 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     };
     const original = find(s.patches, chk.patchId, '差分');
     let lines = s.lines;
+    const has = (text: string) => s.lines.some((l) => l.text === text);
+    const written = original.status === 'applied' && has(original.text);
+    // 食い違っていた相手の行が今は無いこともある（確定済みの行を書き換えた編集、確定の前に相手の行を直したとき）。
+    // そのときは書いた行を確定した内容にし、どちらの行も無ければ確定の記録だけ残す（#83・#86）
+    const target = has(chk.conflictLine) ? chk.conflictLine : written ? original.text : null;
     // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる
     let merge: Patch | null = null;
-    if (original.status === 'applied' && lines.some((l) => l.text === original.text)) {
+    if (target === chk.conflictLine && written) {
       merge = {
         id: randomUUID(),
         utteranceId: answer.id,
@@ -743,12 +764,12 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       lines = applyPatch(lines, merge);
     }
     let fix: Patch | null = null;
-    if (body.text !== chk.conflictLine) {
+    if (target !== null && body.text !== target) {
       fix = {
         id: randomUUID(),
         utteranceId: answer.id,
         op: 'replace',
-        line: chk.conflictLine,
+        line: target,
         text: body.text,
         summary: `確認：${note}`,
         status: 'applied',

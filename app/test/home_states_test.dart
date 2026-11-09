@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/home_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ void main() {
     await _pumpHome(tester, MockClient((_) async => _json([], 200)));
 
     expect(find.text('まだノートがありません'), findsOneWidget);
+    expect(find.text('$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。'), findsOneWidget);
     expect(find.text('ノートを作る'), findsOneWidget);
   });
 

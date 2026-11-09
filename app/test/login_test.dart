@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +43,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: client, baseUrl: 'http://api'))));
     await tester.pumpAndSettle();
     expect(find.text('ログインしてください'), findsOneWidget);
+    // 初めて開いた人にも、ログインの前に何の道具かが分かる
+    expect(find.text(appPurpose), findsOneWidget);
     expectInputFontsAtLeast16(tester, count: 2); // ID・パスワード
 
     final id = find.byType(MoonTextInput).at(0);

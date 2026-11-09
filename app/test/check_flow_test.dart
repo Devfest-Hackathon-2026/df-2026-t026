@@ -126,6 +126,50 @@ Map<String, dynamic> _sameState({required String status}) => {
       ],
     };
 
+/// 店長に確認して確定した「塩 小さじ1/2」を、共有された佐藤店長が「塩 小さじ1」に書き換え、
+/// 前の確定と食い違うとして確認に入った state（#86）。食い違いの相手の行はもうノートに無い
+Map<String, dynamic> _rewrittenState() {
+  // リテラルのままだと要素の型が決まっていて足せないので、JSON を通して作り直す
+  final s = jsonDecode(jsonEncode(_state(resolved: true))) as Map<String, dynamic>;
+  (s['lines'] as List)[1] = {'text': '- 塩 小さじ1', 'patchId': 'p3'};
+  (s['utterances'] as List).add({
+    'id': 'u3',
+    'text': '- 塩 小さじ1',
+    'speaker': '佐藤店長',
+    'saidAt': '2026-11-10',
+    'fromEdit': true,
+    'editedBy': 'sato',
+    'createdAt': '2026-11-10T10:00:00Z',
+  });
+  (s['patches'] as List).add({
+    'id': 'p3',
+    'utteranceId': 'u3',
+    'op': 'replace',
+    'line': '- 塩 小さじ1/2',
+    'text': '- 塩 小さじ1',
+    'summary': '書き換え',
+    'status': 'applied',
+    'createdAt': '2026-11-10T10:00:00Z',
+    'appliedAt': '2026-11-10T10:00:00Z',
+  });
+  (s['checks'] as List).add({
+    'id': 'c2',
+    'patchId': 'p3',
+    'utteranceId': 'u3',
+    'kind': 'contradiction',
+    'conflictLine': '- 塩 小さじ1/2',
+    'reason': '店長に確認して確定した内容と両立しません',
+    'ask': {
+      'candidates': [
+        {'who': '店長', 'why': 'お店のやり方を決める立場なので'},
+      ],
+      'question': '小さじ1/2と確認していたのですが、どちらに合わせればよいですか？',
+    },
+    'resolution': null,
+  });
+  return s;
+}
+
 /// どのパスにも state を返す。resolve を受けたら確定後の state にする
 MockClient _client(void Function(Map<String, dynamic>) onResolve) {
   var resolved = false;
@@ -178,6 +222,8 @@ void main() {
     await tester.tap(start);
     await tester.pumpAndSettle();
     expectInputFontsAtLeast16(tester, count: 2); // 確認した相手・メモ
+    expect(find.text('ノートのまま'), findsOneWidget);
+    expect(find.text('書き換える前の内容'), findsNothing);
 
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');
@@ -206,6 +252,41 @@ void main() {
 
     expect(find.text('確認リスト'), findsWidgets);
     expect(find.text('あとで確認（1）'), findsOneWidget);
+  });
+
+  testWidgets('確定済みの行を書き換えた食い違いは、書き換えた行に印を出し、選択肢は「書き換える前の内容」にする', (tester) async {
+    Map<String, dynamic>? resolveBody;
+    final client = MockClient((req) async {
+      if (req.url.path.endsWith('/resolve')) resolveBody = jsonDecode(req.body);
+      return http.Response.bytes(utf8.encode(jsonEncode(_rewrittenState())), 200);
+    });
+    await _pumpManual(tester, client, const Size(1400, 1000));
+
+    // 相手の行（塩 小さじ1/2）はもうノートに無いので、書き換えた行に印を出す
+    expect(find.text('佐藤店長（11/10）：'), findsOneWidget);
+    expect(find.text('食い違い'), findsOneWidget);
+    await tester.tap(find.text('・塩 小さじ1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('塩 小さじ1/2 ／ 塩 小さじ1'));
+    await tester.pumpAndSettle();
+
+    final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    expect(find.text('ノートのまま'), findsNothing);
+    final before = find.text('書き換える前の内容');
+    expect(before, findsOneWidget);
+    await tester.ensureVisible(before);
+    await tester.tap(before);
+    await tester.pumpAndSettle();
+    final confirm = find.widgetWithText(MoonFilledButton, '確認済みにする');
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+
+    expect(resolveBody, containsPair('text', '- 塩 小さじ1/2'));
+    await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
 
   // 狭い画面では選択肢を縦に積む。はみ出すとテストが失敗する
