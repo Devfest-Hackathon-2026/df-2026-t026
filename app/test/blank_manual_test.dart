@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/screens/new_manual_screen.dart';
 import 'package:diff_note/theme.dart';
@@ -55,7 +57,7 @@ void main() {
     expect(find.widgetWithText(MoonTextButton, '行を足す'), findsOneWidget);
   });
 
-  testWidgets('貼った平文を AI に整えさせ、違いを見てから受け入れると、整えた本文で作る', (tester) async {
+  testWidgets('貼った平文を AI に整えさせ、案をモーダルで見てから受け入れると、整えた本文で作る', (tester) async {
     const formatted = '## 仕込み\n- 野菜を切る\n- 塩は小さじ1';
     final sent = <String, Object?>{};
     final client = MockClient((req) async {
@@ -77,35 +79,98 @@ void main() {
     await tester.tap(format);
     await tester.pumpAndSettle();
     expect(sent['/format'], {'text': '仕込み\n野菜を切る 塩は小さじ1'});
-    // 案を見せるだけで、本文はまだ変えない。消える2行と増える3行を並べる
+    // 案はモーダルで見せるだけで、本文はまだ変えない。増減の印を付けず、ノートと同じ見た目で3行並べる
     expect(find.text('AI が整えた案'), findsOneWidget);
     expect(body(), '仕込み\n野菜を切る 塩は小さじ1');
-    expect(find.text('-'), findsNWidgets(2));
-    expect(find.text('+'), findsNWidgets(3));
-
-    // 本文を手で直すと、前の本文への案なので閉じる
-    await tester.enterText(find.byType(EditableText).at(1), '仕込み\n野菜を切る 塩は小さじ1 ');
-    await tester.pump();
-    expect(find.text('AI が整えた案'), findsNothing);
+    expect(find.byType(LineText), findsNWidgets(3));
+    expect(find.text('+'), findsNothing);
 
     // やめると本文は変わらない
-    await tester.tap(format);
-    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(MoonTextButton, 'やめる'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.text('AI が整えた案'), findsNothing);
-    expect(body(), '仕込み\n野菜を切る 塩は小さじ1 ');
+    expect(body(), '仕込み\n野菜を切る 塩は小さじ1');
 
     await tester.tap(format);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(MoonFilledButton, 'この形にする'));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(body(), formatted);
     expect(find.text('AI が整えた案'), findsNothing);
+
+    // 今の本文も、同じ見た目のモーダルで見られる
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートの形で見る'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LineText), findsNWidgets(3));
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '閉じる'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LineText), findsNothing);
 
     await tester.tap(find.widgetWithText(MoonFilledButton, 'この内容で作る'));
     await tester.pumpAndSettle();
     expect(sent['/manuals'], {'title': 'キッチン', 'body': formatted});
+  });
+
+  testWidgets('PDF を選ぶと、読み取った文で本文を置き換え、空の題名には AI の題名を入れる', (tester) async {
+    final sent = <String, Object?>{};
+    final client = MockClient((req) async {
+      if (req.method == 'POST') sent[req.url.path] = jsonDecode(req.body);
+      if (req.url.path == '/read') return _json({'title': 'キッチンマニュアル', 'text': '仕込み\n野菜を切る'}, 200);
+      return _json(_blank, req.method == 'POST' ? 201 : 200);
+    });
+    var picked = [(name: 'manual.pdf', type: '', bytes: Uint8List.fromList([37, 80, 68, 70]))];
+    await _pump(
+      tester,
+      NewManualScreen(api: Api(client: client, baseUrl: 'http://api'), pickFiles: () async => picked),
+      height: 1600,
+    );
+    String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
+    Future<void> pick() async {
+      // メニューを挟まず、押すとすぐ選ぶ
+      await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルから読み取る'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.enterText(find.byType(EditableText).at(1), '書きかけ');
+    await pick();
+    expect(sent['/read'], {
+      'files': [
+        {'mimeType': 'application/pdf', 'data': 'JVBERg=='},
+      ],
+    });
+    expect(text(0), 'キッチンマニュアル');
+    expect(text(1), '仕込み\n野菜を切る');
+
+    // 入れてある題名は変えない
+    await tester.enterText(find.byType(EditableText).first, '仕込み');
+    await pick();
+    expect(text(0), '仕込み');
+
+    // 受け付けない形式は送らない
+    sent.clear();
+    picked = [(name: 'memo.txt', type: 'text/plain', bytes: Uint8List.fromList([1]))];
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルから読み取る'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(sent, isEmpty);
+    expect(find.textContaining('読み取れるのは PDF と画像'), findsOneWidget);
+    // 知らせが消えるまで待つ
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('長い本文も、ノートの形で見るモーダルからはみ出さず、中を送って読める', (tester) async {
+    final client = MockClient((_) async => _json(_blank, 200));
+    await _pump(tester, NewManualScreen(api: Api(client: client, baseUrl: 'http://api')), height: 1600);
+    await tester.enterText(find.byType(EditableText).at(1), [for (var i = 1; i <= 200; i++) '- 決まり$i'].join('\n'));
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートの形で見る'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    Finder inModal(Finder f) => find.descendant(of: find.byType(MoonModal), matching: f);
+    await tester.dragUntilVisible(
+        inModal(find.textContaining('決まり200')), inModal(find.byType(SingleChildScrollView)), const Offset(0, -300));
+    expect(find.widgetWithText(MoonOutlinedButton, '閉じる').hitTestable(), findsOneWidget);
   });
 
   testWidgets('白紙のノートは、直接書くか記録すると書き足されることを案内する', (tester) async {

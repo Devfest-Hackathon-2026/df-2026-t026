@@ -4,7 +4,7 @@ import { beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
 import { hashPassword, sessionIdOf } from '../src/auth.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
@@ -17,7 +17,7 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, format: fakeFormat, listen: fakeListen, dictate: fakeDictate };
+const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, format: fakeFormat, readNote: fakeReadNote, listen: fakeListen, dictate: fakeDictate };
 
 /** demo としてログインした状態にする。ログインそのものは別のテストで確かめる */
 const auth = { Authorization: 'Bearer test-token' };
@@ -436,6 +436,25 @@ test('整形：整えた案を返すだけで、ノートは作らない', async
   assert.deepEqual(json, { text: '## 仕込み\n- 朝は野菜を切る\n- 塩は小さじ1' });
   assert.equal((await call('GET', '/manuals')).json.length, before);
   assert.equal((await call('POST', '/format', { text: ' ' })).status, 400);
+});
+
+test('読み取り：PDF・画像から本文と題名の案を返すだけで、ノートは作らない', async () => {
+  const before = (await call('GET', '/manuals')).json.length;
+  const { status, json } = await call('POST', '/read', { files: [{ mimeType: 'application/pdf', data: 'JVBERg==' }] });
+  assert.equal(status, 200);
+  assert.deepEqual(json, { title: 'キッチンマニュアル', text: '仕込み\n野菜を切る 塩は小さじ1' });
+  assert.equal((await call('GET', '/manuals')).json.length, before);
+  assert.equal((await call('POST', '/read', { files: [] })).status, 400);
+  // 録音はノートの本文にしない
+  assert.equal((await call('POST', '/read', { files: [{ mimeType: 'audio/wav', data: 'AAAA' }] })).status, 400);
+});
+
+test('読み取り：文字が読み取れなければ 422 を返す', async () => {
+  const store = new MemoryStore();
+  await signIn(store);
+  app = createApp({ store, ...ai, readNote: async () => ({ title: '', text: '' }) });
+  const { status } = await call('POST', '/read', { files: [{ mimeType: 'image/png', data: 'iVBORw==' }] });
+  assert.equal(status, 422);
 });
 
 test('起動時のデモの履歴は、反映済みのパッチが順に当たり、食い違いの確認が1件だけ残る', async () => {
