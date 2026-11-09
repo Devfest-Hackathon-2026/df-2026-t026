@@ -605,14 +605,26 @@ class ButtonLoader extends StatelessWidget {
       );
 }
 
-void showToast(BuildContext context, String message, {bool error = false}) {
+/// action は知らせの右に置く操作。押す間を残すため、付けたときは長めに出す
+void showToast(BuildContext context, String message,
+    {bool error = false, ({String label, VoidCallback onTap})? action}) {
   final k = context.tokens;
   MoonToast.show(
     context,
     backgroundColor: k.colors.ink,
     toastShadows: const [],
+    displayDuration: action == null ? null : const Duration(seconds: 6),
     leading: Icon(error ? LucideIcons.circleAlert : LucideIcons.check, color: k.colors.canvas),
     label: Text(message, style: k.text.body.copyWith(color: k.colors.canvas)),
+    trailing: action == null
+        ? null
+        : MoonTextButton(
+            onTap: () {
+              MoonToast.clearToastQueue();
+              action.onTap();
+            },
+            label: Text(action.label, style: k.text.label.copyWith(color: k.colors.canvas)),
+          ),
   );
 }
 

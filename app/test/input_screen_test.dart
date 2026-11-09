@@ -208,6 +208,46 @@ Future<void> _record(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
+/// 照らし合わせた後の知らせの「確かめる」から、書き込む前の確認を開く
+Future<void> _review(WidgetTester tester) async {
+  await tester.tap(find.widgetWithText(MoonTextButton, '確かめる'));
+  await tester.pumpAndSettle();
+}
+
+Map<String, dynamic> _patch(String id, String text) => {
+      'id': id,
+      'utteranceId': 'u2',
+      'op': 'insert',
+      'line': '- レジは現金とカードのみ',
+      'text': text,
+      'summary': '追記',
+      'status': 'proposed',
+      'createdAt': '2026-11-04T10:00:00Z',
+      'appliedAt': null,
+    };
+
+Map<String, dynamic> _check(String id, String patchId, String kind) => {
+      'id': id,
+      'patchId': patchId,
+      'utteranceId': 'u2',
+      'kind': kind,
+      'conflictLine': null,
+      'sameLine': kind == 'same' ? '- レジは現金とカードのみ' : null,
+      'reason': '理由',
+      'ask': null,
+      'resolution': null,
+    };
+
+/// ホールに、追加1行と同じ内容1行を記録した結果
+Map<String, dynamic> _hallWithPatches({String? speaker = '田中さん'}) => {
+      ..._state('m2'),
+      'utterances': [
+        {..._utterance('u2', 'お冷やはすぐ出す', '2026-11-04T10:00:00Z'), 'speaker': speaker},
+      ],
+      'patches': [_patch('p1', '- お冷やはすぐ出す'), _patch('p2', '- レジは現金とカードのみ')],
+      'checks': [_check('c1', 'p1', 'addition'), _check('c2', 'p2', 'same')],
+    };
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -250,6 +290,10 @@ void main() {
 
     expect(sent, containsPair('text', '田中さんから、レジ締めは店長がやると言われた'));
     expect(sent!.containsKey('manualIds'), isFalse);
+    // 食い違いだけなので、確認は開かずに知らせる
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
+    expect(find.text('食い違いが1件あり、確認リストに入れました'), findsOneWidget);
+    await _review(tester);
     expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     // どのノートの話かを題名で分け、上下に並べる
     final modal = find.byType(MoonModal);
@@ -301,7 +345,8 @@ void main() {
     expect(sent.last['manualIds'], ['m1', 'm2']);
     expect(sent.last['text'], '傘は入口に置く');
     expect(sent.last['files'], isEmpty);
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.text('ノートは変えずに、言われた記録として残しました'), findsOneWidget);
+    await _waitToast(tester);
   });
 
   testWidgets('記録先を先に選ぶと、そのノートだけに記録し、選び直せば自動に戻る', (tester) async {
@@ -334,9 +379,7 @@ void main() {
 
     await _record(tester, 'お冷やはすぐ出す');
     expect(sent.single['manualIds'], ['m2']);
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
-    await tester.tap(find.byIcon(LucideIcons.x));
-    await tester.pumpAndSettle();
+    await _waitToast(tester);
 
     // 送った後も記録先は残る。外して決めれば自動に戻る
     await tester.tap(find.widgetWithText(MoonTextButton, '記録先：ホール'));
@@ -348,6 +391,7 @@ void main() {
     expect(find.text('記録先：自動'), findsOneWidget);
     await _record(tester, 'レジ締めは店長');
     expect(sent.last.containsKey('manualIds'), isFalse);
+    await _waitToast(tester);
   });
 
   testWidgets('記録先を2冊選ぶと冊数で出し、狭い画面でもはみ出さない', (tester) async {
@@ -380,6 +424,7 @@ void main() {
       ),
     );
     await _record(tester, '塩は小さじ1/2');
+    await _review(tester);
     expectInputFontsAtLeast16(tester, count: 1); // 書き込む前の確認の、発言者
 
     await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
@@ -407,6 +452,7 @@ void main() {
       ),
     );
     await _record(tester, '塩は小さじ1/2');
+    await _review(tester);
 
     await tester.tap(find.widgetWithText(MoonTextButton, '言われたことを直す'));
     await tester.pump();
@@ -439,6 +485,7 @@ void main() {
       ),
     );
     await _record(tester, '塩は小さじ1/2');
+    await _review(tester);
 
     await tester.tap(find.widgetWithText(MoonChip, '佐藤さん'));
     await tester.pump();
@@ -617,8 +664,7 @@ void main() {
 
     // 一番古いメモの日を、言われた日として送る
     expect(sent, containsPair('today', '2026-11-03'));
-    await tester.tap(find.byIcon(LucideIcons.x).last);
-    await tester.pumpAndSettle();
+    await _waitToast(tester);
     final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
     expect([for (final m in saved) jsonDecode(m)['text']], ['えーと']);
     expect(find.text('入力欄に入れました'), findsNothing);
@@ -713,6 +759,7 @@ void main() {
 
     expect(sent, containsPair('text', '田中さんから、塩は小さじ1/2'));
     expect(sent, containsPair('today', '2026-11-03'));
+    await _review(tester);
     expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     // 確認を出している間も待ち受けは止めない
     expect(mic.hasListener, isTrue);
@@ -935,6 +982,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
+    await _waitToast(tester);
   });
 
   testWidgets('狭い画面ではサイドバーを出さず、上部バーの三本線から出るメニューの「ノート」から一覧へ進む', (tester) async {
@@ -988,36 +1036,36 @@ void main() {
     await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
     await tester.pumpAndSettle();
     expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
+    await _waitToast(tester);
+  });
+
+  testWidgets('発言者が分かっていれば、確認を開かずに追加は書き込み、同じ内容は記録だけ残して知らせる', (tester) async {
+    final posted = <String>[];
+    await _pumpInput(
+      tester,
+      _client(
+        (body) async => _json({
+          'text': body['text'],
+          'results': [
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _hallWithPatches()},
+          ],
+        }, 201),
+        onOther: (req) {
+          if (req.method == 'POST') posted.add(req.url.path);
+        },
+      ),
+    );
+    await _record(tester, '田中さんから、お冷やはすぐ出すと言われた');
+
+    expect(posted, ['/manuals/m2/patches/p1/apply', '/manuals/m2/patches/p2/discard']);
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
+    expect(find.text('ノートに1行書き込みました'), findsOneWidget);
+    await _waitToast(tester);
   });
 
   testWidgets('スマホの幅でも、書き込む前の確認のボタンがはみ出さない', (tester) async {
-    Map<String, dynamic> patch(String id, String text) => {
-          'id': id,
-          'utteranceId': 'u2',
-          'op': 'insert',
-          'line': '- レジは現金とカードのみ',
-          'text': text,
-          'summary': '追記',
-          'status': 'proposed',
-          'createdAt': '2026-11-04T10:00:00Z',
-          'appliedAt': null,
-        };
-    Map<String, dynamic> check(String id, String patchId, String kind) => {
-          'id': id,
-          'patchId': patchId,
-          'utteranceId': 'u2',
-          'kind': kind,
-          'conflictLine': null,
-          'sameLine': kind == 'same' ? '- レジは現金とカードのみ' : null,
-          'reason': '理由',
-          'ask': null,
-          'resolution': null,
-        };
-    final state = {
-      ..._state('m2'),
-      'patches': [patch('p1', '- お冷やはすぐ出す'), patch('p2', '- レジは現金とカードのみ')],
-      'checks': [check('c1', 'p1', 'addition'), check('c2', 'p2', 'same')],
-    };
+    // 発言者が分からないと、照らし合わせた後にそのまま確認が開く
+    final state = _hallWithPatches(speaker: null);
     await _pumpInput(
       tester,
       _client((body) async => _json({
