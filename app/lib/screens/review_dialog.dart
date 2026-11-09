@@ -27,17 +27,18 @@ Future<void> showReview(BuildContext context, List<ReviewTarget> targets) => sho
           ReviewDialog(targets: targets, listSettings: aboveNote(context, fromNote: context.widget is ManualScreen)),
     );
 
-/// 記録した後、迷う所が無ければ確認を開かずに書き込み、知らせの「確かめる」から確認を開けるようにする。
-/// 発言者が分からないか、分類の付いていない差分があれば確認を開く。食い違いは確認リストに入っているので触らない
-Future<void> writeOrReview(BuildContext context, List<ReviewTarget> targets) async {
+/// 記録した後、迷う所が無ければ確認を開かずに書き込み、true を返す。結果は呼んだ側（入力ページの結果のカード）が見せる。
+/// 発言者が分からないか、分類の付いていない差分があれば確認を開き、閉じたら false を返す。食い違いは確認リストに入っているので触らない
+Future<bool> writeOrReview(BuildContext context, List<ReviewTarget> targets) async {
   final clear = targets.every((t) {
     final s = t.c.state!;
     return s.utterance(t.utteranceId).speaker != null &&
         s.patchesOf(t.utteranceId).every((p) => p.status != 'proposed' || s.checkOf(p.id) != null);
   });
-  if (!clear) return showReview(context, targets);
-  var written = 0;
-  var conflicts = 0;
+  if (!clear) {
+    await showReview(context, targets);
+    return false;
+  }
   // 同じノートの差分は前の書き込みの結果に重ねるので順に送る。ノートが違えば並べて送る
   await Future.wait([
     for (final t in targets)
@@ -49,25 +50,15 @@ Future<void> writeOrReview(BuildContext context, List<ReviewTarget> targets) asy
           switch (kind) {
             case Kind.addition || Kind.qualification:
               await t.c.applyPatch(p.id);
-              written++;
             case Kind.same:
               await t.c.discardPatch(p.id);
+            // 確認リストに入っているので書き込まない
             case Kind.contradiction:
-              conflicts++;
           }
         }
       }(),
   ]);
-  if (!context.mounted) return;
-  final message = [
-    if (written > 0) 'ノートに$written行書き込みました',
-    if (conflicts > 0) '食い違いが$conflicts件あり、確認リストに入れました',
-  ].join('。');
-  showToast(
-    context,
-    message.isEmpty ? 'ノートは変えずに、言われた記録として残しました' : message,
-    action: (label: '確かめる', onTap: () => context.mounted ? showReview(context, targets) : null),
-  );
+  return true;
 }
 
 /// 差分化と分類の結果を見て、発言者と日付を確かめてから反映する。
