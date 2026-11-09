@@ -54,7 +54,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(sent, {'title': '自分用メモ', 'body': ''});
     expect(find.byType(ManualScreen), findsOneWidget);
-    expect(find.widgetWithText(MoonTextButton, '行を足す'), findsOneWidget);
+    expect(find.widgetWithText(MoonOutlinedButton, '行を足す'), findsOneWidget);
   });
 
   testWidgets('貼った平文を AI に整えさせ、案をモーダルで見てから受け入れると、整えた本文で作る', (tester) async {

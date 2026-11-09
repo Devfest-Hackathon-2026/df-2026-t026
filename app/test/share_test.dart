@@ -161,7 +161,7 @@ void main() {
     await tester.tap(_outlined('閉じる'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(MoonTextButton, '行を足す'));
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 火を止めてから味噌を溶く');
     await tester.pump();
