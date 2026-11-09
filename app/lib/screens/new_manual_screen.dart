@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
-import '../history.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
@@ -183,9 +182,9 @@ class _NewManualScreenState extends State<NewManualScreen> {
                 SizedBox(height: k.space.lg),
                 Text('AI が整えた案', style: k.text.heading),
                 SizedBox(height: k.space.xs),
-                Text('本文はまだ変わっていません。違いを見て、よければこの形にしてください', style: k.text.small),
+                Text('本文はまだ変わっていません。よければこの形にしてください', style: k.text.small),
                 SizedBox(height: k.space.sm),
-                _SuggestionDiff(lineDiff(_body.text.trim().split('\n'), s.split('\n'))),
+                _Suggestion(s.split('\n')),
                 SizedBox(height: k.space.sm),
                 Row(children: [
                   MoonFilledButton(onTap: _accept, label: const Text('この形にする')),
@@ -224,40 +223,23 @@ class _OutlinedLoader extends StatelessWidget {
   }
 }
 
-/// 今の本文と整えた案の違いを、増えた行（緑）・消えた行（赤）で見せる
-class _SuggestionDiff extends StatelessWidget {
-  const _SuggestionDiff(this.lines);
-  final List<DiffLine> lines;
+/// 整えた案を、ノートと同じ見た目でそのまま見せる。増えた行・消えた行の印は、差分を見慣れない人に読みにくいので付けない
+class _Suggestion extends StatelessWidget {
+  const _Suggestion(this.lines);
+  final List<String> lines;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final c = k.colors;
     return Container(
       decoration: BoxDecoration(
-        color: c.canvas,
-        border: Border.all(color: c.rule, width: k.hairline),
+        color: k.colors.canvas,
+        border: Border.all(color: k.colors.rule, width: k.hairline),
         borderRadius: k.radius.surface,
       ),
-      clipBehavior: Clip.antiAlias,
+      padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final l in lines)
-          Builder(builder: (_) {
-            final (mark, bg, fg) = switch (l.change) {
-              LineChange.added => ('+', c.addedBg, c.added),
-              // U+2212 は同梱フォントに無いので ASCII にする
-              LineChange.removed => ('-', c.removedBg, c.removed),
-              LineChange.kept => (' ', null, c.ink),
-            };
-            return Container(
-              color: bg,
-              padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.xs),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: k.space.lg, child: Text(mark, style: k.text.body.copyWith(color: fg))),
-                Expanded(child: LineText(l.text, color: fg, compact: true)),
-              ]),
-            );
-          }),
+        for (final l in lines) Padding(padding: EdgeInsets.symmetric(vertical: k.space.xs), child: LineText(l)),
       ]),
     );
   }

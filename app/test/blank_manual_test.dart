@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/screens/new_manual_screen.dart';
 import 'package:diff_note/theme.dart';
@@ -78,11 +79,11 @@ void main() {
     await tester.tap(format);
     await tester.pumpAndSettle();
     expect(sent['/format'], {'text': '仕込み\n野菜を切る 塩は小さじ1'});
-    // 案を見せるだけで、本文はまだ変えない。消える2行と増える3行を並べる
+    // 案を見せるだけで、本文はまだ変えない。案は増減の印を付けず、ノートと同じ見た目で3行並べる
     expect(find.text('AI が整えた案'), findsOneWidget);
     expect(body(), '仕込み\n野菜を切る 塩は小さじ1');
-    expect(find.text('-'), findsNWidgets(2));
-    expect(find.text('+'), findsNWidgets(3));
+    expect(find.byType(LineText), findsNWidgets(3));
+    expect(find.text('+'), findsNothing);
 
     // 本文を手で直すと、前の本文への案なので閉じる
     await tester.enterText(find.byType(EditableText).at(1), '仕込み\n野菜を切る 塩は小さじ1 ');
