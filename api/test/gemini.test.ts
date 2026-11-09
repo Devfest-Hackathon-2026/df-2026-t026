@@ -157,7 +157,7 @@ test('直接編集の分類：白紙のノートでも、満たせない行番�
 });
 
 test('直接編集の分類：矛盾なら衝突相手の行を文字列で返す', async () => {
-  const { generate } = stub({ kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask });
+  const { generate, calls } = stub({ kind: 'contradiction', conflictLineNo: 2, sameLineNo: null, reason: '量が違う', ask });
   const r = await checkWithGemini(
     {
       lines: lines.map((text) => ({ text, note: null })),
@@ -168,6 +168,7 @@ test('直接編集の分類：矛盾なら衝突相手の行を文字列で返�
     generate,
   );
   assert.deepEqual([r.kind, r.conflictLine], ['contradiction', '- 塩 小さじ1']);
+  assert.equal(calls[0].hedgeMs, 8_000);
 });
 
 test('書き起こし：ファイルを添えて呼ぶ', async () => {
