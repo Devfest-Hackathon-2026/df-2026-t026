@@ -66,7 +66,7 @@ class ManualSummary {
   final int openCount;
 }
 
-/// 資料の一覧の1件（ADR 0016）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
+/// 資料の一覧の1件（ADR 0019）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
 class MaterialSummary {
   MaterialSummary.fromJson(Map<String, dynamic> j)
       : id = j['id'],
@@ -74,7 +74,8 @@ class MaterialSummary {
         pageCount = j['pageCount'],
         lineCount = j['lineCount'],
         tokens = j['tokens'],
-        createdAt = j['createdAt'];
+        createdAt = j['createdAt'],
+        addedBy = j['addedBy'] == null ? null : _person(j['addedBy']);
 
   final String id;
   final String title;
@@ -86,6 +87,9 @@ class MaterialSummary {
 
   /// 足した日時（ISO 8601）
   final String createdAt;
+
+  /// 足した人と、その時点の名前。前からある資料には無い（ADR 0018 の記録した人と同じ形）
+  final Person? addedBy;
 }
 
 /// 資料の中身。lines の位置 + 1 が行番号（ページをまたいで通し）

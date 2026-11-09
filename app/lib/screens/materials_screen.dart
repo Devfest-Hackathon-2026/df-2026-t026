@@ -13,18 +13,19 @@ import 'material_screen.dart';
 import 'sidebar.dart';
 import 'tab_bar.dart';
 
-/// 資料の題名の下に並べるもの：ページ数（貼り付けた文ならそう出す）と足した日。一覧と資料の中でそろえる
+/// 資料の題名の下に並べるもの：ページ数（貼り付けた文ならそう出す）と、誰がいつ足したか。一覧と資料の中でそろえる
 List<Widget> materialMeta(BuildContext context, MaterialSummary m) {
   final k = context.tokens;
   final day = fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(m.createdAt).toLocal()));
   return [
     Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount}ページ', style: k.text.small),
-    Text('$day に足した', style: k.text.small),
+    // 前からある資料には足した人が無い
+    Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name} が $day に足した', style: k.text.small),
   ];
 }
 
-/// ノートに付けた資料（書き換えない原本）の一覧（ADR 0016）。ノートのページの上部バー「資料」から開く。
-/// 共有された人は見るだけで、足す・消すは持ち主だけ
+/// ノートに付けた資料（書き換えない原本）の一覧（ADR 0019）。ノートのページの上部バー「資料」から開く。
+/// 共有された人も、持ち主と同じく足す・消すができる（ADR 0016 の共同編集に合わせる）
 class MaterialsScreen extends StatefulWidget {
   const MaterialsScreen({super.key, required this.c, this.pickFiles = pickWithFilePicker});
   final ManualController c;
@@ -40,8 +41,6 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
   ManualController get c => widget.c;
 
   late Future<List<MaterialSummary>> _materials = c.api.listMaterials(c.manualId);
-
-  bool get _mine => c.state!.sharedBy == null;
 
   @override
   void initState() {
@@ -97,7 +96,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
         PageTitle(
           '資料',
           meta: [if (materials.isNotEmpty) Text('${materials.length} 冊', style: k.text.small)],
-          trailing: _mine && materials.isNotEmpty ? _addButton() : null,
+          trailing: materials.isNotEmpty ? _addButton() : null,
         ),
         SizedBox(height: k.space.xl),
         if (materials.isEmpty)
@@ -147,13 +146,11 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
       padding: EdgeInsets.all(k.space.xxl),
       child: Column(children: [
         Text('まだ資料はありません', style: k.text.heading),
-        if (_mine) ...[
-          SizedBox(height: k.space.sm),
-          Text('店のマニュアルや授業の資料を足すと、言われたことと食い違っていないかも確かめます',
-              style: k.text.small, textAlign: TextAlign.center),
-          SizedBox(height: k.space.xl),
-          _addButton(),
-        ],
+        SizedBox(height: k.space.sm),
+        Text('店のマニュアルや授業の資料を足すと、言われたことと食い違っていないかも確かめます',
+            style: k.text.small, textAlign: TextAlign.center),
+        SizedBox(height: k.space.xl),
+        _addButton(),
       ]),
     );
   }

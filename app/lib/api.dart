@@ -75,7 +75,7 @@ class Api {
   /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。消すと changes が増え、サイドバーや一覧が読み直す
   Future<void> deleteManual(String id) async => _send('DELETE', '/manuals/$id');
 
-  /// ノートに付けた資料の一覧。足した順（ADR 0016）
+  /// ノートに付けた資料の一覧。足した順（ADR 0019）
   Future<List<MaterialSummary>> listMaterials(String manualId) async =>
       [for (final m in await _send('GET', '/manuals/$manualId/materials')) MaterialSummary.fromJson(m)];
 
@@ -83,7 +83,7 @@ class Api {
   Future<MaterialBody> getMaterial(String manualId, String materialId) async =>
       MaterialBody.fromJson(await _send('GET', '/manuals/$manualId/materials/$materialId'));
 
-  /// 資料を足す。持ち主だけ。貼り付けた文（text）か、PDF 1つ・画像10枚までのファイルのどちらか。
+  /// 資料を足す。共有された人も足せる。貼り付けた文（text）か、PDF 1つ・画像10枚までのファイルのどちらか。
   /// ファイルなら AI が読み取り、題名が空なら AI が付けた題名にする
   Future<MaterialSummary> addMaterial(String manualId,
           {String title = '', String text = '', List<Attachment> files = const []}) async =>
@@ -95,7 +95,7 @@ class Api {
         ],
       }));
 
-  /// 資料を1冊消す。持ち主だけ。本文は空（204）
+  /// 資料を1冊消す。共有された人も消せる。本文は空（204）
   Future<void> deleteMaterial(String manualId, String materialId) async =>
       _send('DELETE', '/manuals/$manualId/materials/$materialId');
 

@@ -17,7 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
-// 資料の一覧・足す・中を見る・消す（ADR 0016、設計書 docs/design/0016-reference-materials.md の §6・§10）。
+// 資料の一覧・足す・中を見る・消す（ADR 0019 と、その設計書の §6・§10）。
 // API は設計書 §6 の形に合わせた偽（MockClient）
 
 http.Response _json(Object? body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -25,7 +25,8 @@ http.Response _json(Object? body, [int status = 200]) => http.Response.bytes(utf
 const _narrow = Size(390, 844);
 const _wide = Size(1440, 900);
 
-/// 店舗マニュアル（PDF 2ページ）と、衛生の手引き（貼り付けた文）。日付はどの時差でも同じ日になる時刻にする
+/// 店舗マニュアル（PDF 2ページ、かなでが足した）と、衛生の手引き（貼り付けた文、足した人が無い前からある資料）。
+/// 日付はどの時差でも同じ日になる時刻にする
 List<Map<String, dynamic>> _defaultMaterials() => [
       {
         'id': 'mat1',
@@ -33,6 +34,7 @@ List<Map<String, dynamic>> _defaultMaterials() => [
         'pageCount': 2,
         'tokens': 120,
         'createdAt': '2026-11-10T10:00:00.000Z',
+        'addedBy': {'id': 'kanade', 'name': 'かなで'},
         'lines': [
           {'page': 1, 'text': '## 開店前'},
           {'page': 1, 'text': '- 冷蔵庫の温度を記録する'},
@@ -53,6 +55,7 @@ List<Map<String, dynamic>> _defaultMaterials() => [
 
 Map<String, dynamic> _summary(Map<String, dynamic> m) => {
       for (final k in const ['id', 'title', 'pageCount', 'tokens', 'createdAt']) k: m[k],
+      if (m['addedBy'] != null) 'addedBy': m['addedBy'],
       'lineCount': (m['lines'] as List).length,
     };
 
@@ -95,6 +98,7 @@ class _Server {
       'pageCount': files.isEmpty ? null : 3,
       'tokens': 10,
       'createdAt': '2026-11-10T11:00:00.000Z',
+      'addedBy': {'id': 'kanade', 'name': 'かなで'},
       'lines': [
         for (final l in (body['text'] as String).split('\n')) {'page': null, 'text': l},
       ],
@@ -236,12 +240,12 @@ void main() {
       });
     }
 
-    testWidgets('一覧：題名・ページ数（貼り付けた文ならそう出す）・足した日。持ち主には題名の右に「資料を足す」（$size）', (tester) async {
+    testWidgets('一覧：題名・ページ数（貼り付けた文ならそう出す）・誰がいつ足したか（前からある資料は日だけ）。題名の右に「資料を足す」（$size）', (tester) async {
       await _pump(tester, size: size);
       expect(find.text('2 冊'), findsOneWidget);
       expect(find.text('店舗マニュアル'), findsOneWidget);
       expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('11/10 に足した'), findsOneWidget);
+      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
       expect(find.text('衛生の手引き'), findsOneWidget);
       expect(find.text('貼り付けた文'), findsOneWidget);
       expect(find.text('11/9 に足した'), findsOneWidget);
@@ -252,16 +256,30 @@ void main() {
           greaterThan(tester.getRect(find.descendant(of: find.byType(PageTitle), matching: find.text('資料'))).right));
     });
 
-    testWidgets('共有された人には「資料を足す」も、資料の中の「…」（資料を消す）も出ない（$size）', (tester) async {
-      await _pump(tester, size: size, shared: true);
+    testWidgets('共有された人にも「資料を足す」と、資料の中の「…」→「資料を消す」が出て、消せる（$size）', (tester) async {
+      final server = await _pump(tester, size: size, shared: true);
       expect(find.text('店舗マニュアル'), findsOneWidget);
-      expect(_addButton(), findsNothing);
+      expect(_addButton(), findsOneWidget);
+      await _openAdd(tester);
+      await tester.tap(find.widgetWithText(MoonTextButton, 'やめる'));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text('店舗マニュアル'));
       await tester.pumpAndSettle();
       expect(find.byType(MaterialScreen), findsOneWidget);
       expect(find.text('・冷蔵庫の温度を記録する'), findsOneWidget);
-      expect(_more(), findsNothing);
-      expect(find.text('資料を消す'), findsNothing);
+      await tester.tap(_more());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('資料を消す'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(MoonFilledButton, '消す'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('資料を消しました'), findsOneWidget);
+      await _waitToast(tester);
+      expect(server.deletes, ['/manuals/m1/materials/mat1']);
+      expect(find.byType(MaterialsScreen), findsOneWidget);
+      expect(find.text('店舗マニュアル'), findsNothing);
     });
 
     testWidgets('資料の中：ページの変わり目に罫線と「p.2」。行はノートと同じ見た目（$size）', (tester) async {
@@ -272,7 +290,7 @@ void main() {
       // 題名と、ページ数・足した日
       expect(find.descendant(of: find.byType(PageTitle), matching: find.text('店舗マニュアル')), findsOneWidget);
       expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('11/10 に足した'), findsOneWidget);
+      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
       expect(find.text('開店前'), findsOneWidget);
       expect(find.text('p.1'), findsOneWidget);
       expect(find.text('p.2'), findsOneWidget);
@@ -419,21 +437,16 @@ void main() {
     });
   }
 
-  testWidgets('資料が無いとき、持ち主には何ができるかと「資料を足す」を出す', (tester) async {
-    await _pump(tester, materials: []);
-    expect(find.text('まだ資料はありません'), findsOneWidget);
-    expect(find.text('店のマニュアルや授業の資料を足すと、言われたことと食い違っていないかも確かめます'), findsOneWidget);
-    expect(_addButton(), findsOneWidget);
-    expect(find.textContaining('冊'), findsNothing);
-    await _openAdd(tester);
-  });
-
-  testWidgets('資料が無いとき、共有された人には無いことだけを出す', (tester) async {
-    await _pump(tester, materials: [], shared: true);
-    expect(find.text('まだ資料はありません'), findsOneWidget);
-    expect(find.textContaining('店のマニュアル'), findsNothing);
-    expect(_addButton(), findsNothing);
-  });
+  for (final shared in const [false, true]) {
+    testWidgets('資料が無いとき、何ができるかと「資料を足す」を出す（${shared ? '共有された' : '自分の'}ノート）', (tester) async {
+      await _pump(tester, materials: [], shared: shared);
+      expect(find.text('まだ資料はありません'), findsOneWidget);
+      expect(find.text('店のマニュアルや授業の資料を足すと、言われたことと食い違っていないかも確かめます'), findsOneWidget);
+      expect(_addButton(), findsOneWidget);
+      expect(find.textContaining('冊'), findsNothing);
+      await _openAdd(tester);
+    });
+  }
 
   testWidgets('一覧の読み込み中と、読み込めなかったとき（もう一度読み込める）', (tester) async {
     final server = _Server();
@@ -532,6 +545,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('・手を洗う'), findsOneWidget);
     expect(find.text('貼り付けた文'), findsOneWidget);
+    // 足した人が無い前からある資料は、日だけ
+    expect(find.text('11/9 に足した'), findsOneWidget);
     expect(find.textContaining('p.'), findsNothing);
     expect(find.descendant(of: find.byType(MaterialScreen), matching: find.byType(Rule)), findsNothing);
   });

@@ -151,7 +151,7 @@ class _ManualScreenState extends State<ManualScreen> {
 
   void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
 
-  /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（資料の ADR 0016）
+  /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（ADR 0019）
   void _openMaterials() => Navigator.push(
       context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => MaterialsScreen(c: c)));
 
@@ -185,7 +185,7 @@ class _ManualScreenState extends State<ManualScreen> {
               trailing: s == null
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
-                      // 資料は共有された人も見られる。タブバーに無いので、狭い画面でも出す（資料の ADR 0016）
+                      // 資料は共有された人も見て足せる。タブバーに無いので、狭い画面でも出す（ADR 0019）
                       MoonOutlinedButton(
                         buttonSize: MoonButtonSize.sm,
                         onTap: _openMaterials,

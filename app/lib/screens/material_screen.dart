@@ -10,7 +10,7 @@ import 'common.dart';
 import 'materials_screen.dart';
 import 'sidebar.dart';
 
-/// 資料1冊の中（ADR 0016）。書き起こした文を、ページの区切りつきで1行ずつ見せる。
+/// 資料1冊の中（ADR 0019）。書き起こした文を、ページの区切りつきで1行ずつ見せる。
 /// 資料は書き換えないので、行を押しても編集の欄は開かない
 class MaterialScreen extends StatefulWidget {
   const MaterialScreen({super.key, required this.c, required this.materialId, this.lineNo});
@@ -36,8 +36,6 @@ class _MaterialScreenState extends State<MaterialScreen> {
   final _lineKey = GlobalKey();
   late var _toLine = widget.lineNo != null;
 
-  bool get _mine => c.state!.sharedBy == null;
-
   Future<MaterialBody> _load() => c.api.getMaterial(c.manualId, widget.materialId);
 
   void _reload() => setState(() {
@@ -54,7 +52,7 @@ class _MaterialScreenState extends State<MaterialScreen> {
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: [c.state!.title, '資料', m?.title ?? ''],
-              trailing: _mine && m != null ? _moreMenu(m) : null,
+              trailing: m == null ? null : _moreMenu(m),
             ),
             Expanded(child: _body(snap)),
           ]))),
@@ -130,7 +128,7 @@ class _MaterialScreenState extends State<MaterialScreen> {
     return KeyedSubtree(key: _lineKey, child: ColoredBox(color: k.colors.found, child: row));
   }
 
-  /// 上部バーの「…」（その他）。ノートのページの「…」と同じ形。持ち主だけに出す
+  /// 上部バーの「…」（その他）。ノートのページの「…」と同じ形。共有された人にも出す
   Widget _moreMenu(MaterialBody m) {
     final k = context.tokens;
     return MoonDropdown(
