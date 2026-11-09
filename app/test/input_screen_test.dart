@@ -304,6 +304,65 @@ void main() {
     expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
   });
 
+  testWidgets('記録先を先に選ぶと、そのノートだけに記録し、選び直せば自動に戻る', (tester) async {
+    final sent = <Map<String, dynamic>>[];
+    await _pumpInput(
+      tester,
+      _client((body) async {
+        sent.add(body);
+        return _json({
+          'text': body['text'],
+          'results': [
+            {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
+          ],
+        }, 201);
+      }),
+    );
+    expect(find.text('記録先：自動'), findsOneWidget);
+    // 記録先を足しても、マイクは入力欄の右端に置いたまま（余白の分だけ内側）
+    final mic = tester.getRect(find.widgetWithIcon(MoonButton, LucideIcons.mic));
+    final area = tester.getRect(find.byType(MoonTextArea));
+    expect(area.right - mic.right, lessThan(16));
+    await tester.tap(find.widgetWithText(MoonTextButton, '記録先：自動'));
+    await tester.pumpAndSettle();
+    expect(find.text('選ばなければ、関係するノートを AI が選びます'), findsOneWidget);
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
+    await tester.pumpAndSettle();
+    expect(find.text('記録先：ホール'), findsOneWidget);
+
+    await _record(tester, 'お冷やはすぐ出す');
+    expect(sent.single['manualIds'], ['m2']);
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.pumpAndSettle();
+
+    // 送った後も記録先は残る。外して決めれば自動に戻る
+    await tester.tap(find.widgetWithText(MoonTextButton, '記録先：ホール'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
+    await tester.pumpAndSettle();
+    expect(find.text('記録先：自動'), findsOneWidget);
+    await _record(tester, 'レジ締めは店長');
+    expect(sent.last.containsKey('manualIds'), isFalse);
+  });
+
+  testWidgets('記録先を2冊選ぶと冊数で出し、狭い画面でもはみ出さない', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})), size: const Size(360, 800));
+    await tester.tap(find.widgetWithText(MoonTextButton, '記録先：自動'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('キッチン')));
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
+    await tester.pumpAndSettle();
+    expect(find.text('記録先：2冊'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('差分の確認を閉じるときに、発言者の修正を保存する', (tester) async {
     Map<String, dynamic>? editBody;
     await _pumpInput(
