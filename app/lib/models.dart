@@ -275,9 +275,32 @@ class ManualState {
   List<Check> get openChecks => checks.where((c) => c.isOpen).toList();
   List<Check> get resolvedChecks => checks.where((c) => c.resolution != null).toList();
 
-  /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く
-  Check? confirmationFor(ManualLine line) =>
-      resolvedChecks.where((c) => c.resolution!.text == line.text).lastOrNull;
+  /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く。
+  /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ。確認待ちの食い違いがあれば引き継がない
+  Check? confirmationFor(ManualLine line) {
+    final direct = _confirmedAs(line.text);
+    if (direct != null || openChecksFor(line).isNotEmpty) return direct;
+    return _beforeQualification(line.patchId);
+  }
+
+  Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
+
+  /// 補足の差分をさかのぼって、書き換える前の行の確認を探す。食い違いの確定・追記・直接の編集で書き換えた行では止める
+  Check? _beforeQualification(String? patchId) {
+    final p = patchId == null ? null : patch(patchId);
+    if (p == null || p.op != 'replace' || p.line == null || p.appliedAt == null) return null;
+    if (checkOf(p.id)?.kind != Kind.qualification || utterance(p.utteranceId).fromEdit) return null;
+    final before = _confirmedAs(p.line!);
+    if (before != null) return before;
+    // 書き換える前の行をつくった差分。行は patchId しか持たないので文面で探す。
+    // それより前に反映したものに限って輪にならないようにし、並びは記録順なので反映した順に並べ直す
+    final from = (patches
+            .where((x) => x.status == 'applied' && x.text == p.line && x.appliedAt!.compareTo(p.appliedAt!) < 0)
+            .toList()
+          ..sort((a, b) => a.appliedAt!.compareTo(b.appliedAt!)))
+        .lastOrNull;
+    return _beforeQualification(from?.id);
+  }
 
   /// この行と同じことを言った記録。行の裏付けとして見せる
   List<Check> sameChecksFor(ManualLine line) =>

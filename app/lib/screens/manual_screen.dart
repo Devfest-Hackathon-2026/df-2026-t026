@@ -352,7 +352,11 @@ class _ManualScreenState extends State<ManualScreen> {
     // 持ち主が直接書いた行は本人の文なので、色線も発言者も付けない。共有された人が直した行は、口頭と同じく誰が直したかを出す
     final byOther = said != null && (!said.fromEdit || said.editedBy != null);
     final bar = open.isNotEmpty ? k.colors.pending : (byOther || confirmed != null ? k.colors.added : null);
+    // 確認したあとに補足で書き換わった行は、補足を言った人に加えて、もとの確認も見せる
+    final afterQualification = confirmed != null && confirmed.resolution!.text != line.text;
     final marks = <Widget>[
+      if (byOther && (confirmed == null || afterQualification))
+        Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
       // 確認して決めた行は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる。押すと確認の記録を開く
       // 「に確認」も Speaker の中に入れて、どこを押しても確認の記録を開く（下の行の書き換えの欄は開かない）
       if (confirmed != null)
@@ -361,9 +365,7 @@ class _ManualScreenState extends State<ManualScreen> {
           day: confirmed.resolution!.decidedAt,
           after: 'に確認',
           onTap: () => _openCheck(confirmed),
-        )
-      else if (byOther)
-        Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
+        ),
       if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),
       for (final c in s.sameChecksFor(line))
         Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
