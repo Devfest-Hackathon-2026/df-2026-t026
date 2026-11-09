@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/common.dart';
+import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/history_screen.dart';
 import 'package:diff_note/screens/home_screen.dart';
@@ -173,6 +174,46 @@ void main() {
       final history = find.byType(HistoryScreen);
       expect(find.descendant(of: history, matching: find.byType(ConfirmStamp)), findsNothing);
       expect(find.descendant(of: history, matching: find.textContaining('11/7 に確認')), findsWidgets);
+    });
+  });
+
+  // レビュー27 の中・実装20
+  group('「店長 11/7 に確認」はひとまとまりで押せる', () {
+    for (final size in const [Size(390, 844), Size(1440, 900)]) {
+      testWidgets('「に確認」を押しても確認の記録が開き、書き換えの欄は開かない（$size）', (tester) async {
+        _size(tester, size);
+        await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _confirmedApi(), manualId: 'm1')));
+        await tester.pumpAndSettle();
+        final manual = find.byType(ManualScreen);
+
+        await tester.tap(find.descendant(of: manual, matching: find.text('に確認')));
+        await tester.pump();
+        // 書き換えの欄（行を押すと出る入力欄）は開かない
+        expect(find.descendant(of: manual, matching: find.byType(MoonTextInput)), findsNothing);
+        await tester.pumpAndSettle();
+        final big = tester.widgetList<ConfirmStamp>(find.byType(ConfirmStamp)).where((s) => !s.compact);
+        expect(big, isNotEmpty);
+        expect(find.byType(size.width < 900 ? CheckScreen : CheckListScreen), findsOneWidget);
+      });
+    }
+
+    testWidgets('確認リストの「確認済み」の行も、小さい斜めの印でなく「店長 11/7 に確認」', (tester) async {
+      _size(tester, const Size(390, 844));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _confirmedApi(), manualId: 'm1')));
+      await tester.pumpAndSettle();
+      final st = tester.state(find.byType(ManualScreen));
+      final c = (st as dynamic).c;
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckListScreen(c: c)));
+      await tester.pumpAndSettle();
+
+      final list = find.byType(CheckListScreen);
+      expect(find.text('確認済み（1）'), findsOneWidget);
+      expect(find.descendant(of: list, matching: find.byType(ConfirmStamp)), findsNothing);
+      final who = find.descendant(of: list, matching: find.widgetWithText(Speaker, '店長'));
+      expect(who, findsOneWidget);
+      expect(find.descendant(of: who, matching: find.text('に確認')), findsOneWidget);
+      // 決まったことは、その下に今までどおり出す
+      expect(find.text('1/2で統一'), findsOneWidget);
     });
   });
 }

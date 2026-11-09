@@ -168,11 +168,10 @@ class _CheckListScreenState extends State<CheckListScreen> {
       body: [
         Text('${plain(chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}', style: k.text.small),
         SizedBox(height: k.space.sm),
-        Row(children: [
-          ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
-          SizedBox(width: k.space.sm),
-          Expanded(child: Text(r.note, style: k.text.body)),
-        ]),
+        // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
+        Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認'),
+        SizedBox(height: k.space.xs),
+        Text(r.note, style: k.text.body),
         if (r.note != plain(r.text)) ...[
           SizedBox(height: k.space.xs),
           Text('確定した内容：${plain(r.text)}', style: k.text.small),

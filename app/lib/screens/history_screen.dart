@@ -353,10 +353,7 @@ class _Who extends StatelessWidget {
     final r = x.onBranch ? null : x.check?.resolution;
     // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
     if (r != null) {
-      return Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        Speaker(name: r.decidedBy, day: r.decidedAt),
-        Text('に確認', style: k.text.small),
-      ]);
+      return Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認');
     }
     if (x.said case final u?) return Speaker(name: u.speaker, day: u.saidAt);
     return Text(_createdDay(x), style: k.text.small);
