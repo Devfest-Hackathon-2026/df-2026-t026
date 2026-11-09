@@ -126,8 +126,8 @@ void main() {
       expect(_confirmationOfFirstLine(j)?.id, 'c1');
     });
 
-    test('確認待ちの食い違いがある行は、古い確認を引き継がない', () {
-      expect(_confirmationOfFirstLine(_pendingAfterQualification()), isNull);
+    test('確認待ちの食い違いがある行も、もとの確認を引き継ぐ', () {
+      expect(_confirmationOfFirstLine(_pendingAfterQualification())?.id, 'c1');
     });
 
     test('補足のあとに食い違いを確定した行は、その確定の記録を出す', () {
@@ -184,7 +184,7 @@ void main() {
       });
     }
 
-    testWidgets('確認待ちの食い違いがある行には、古い「に確認」を出さない', (tester) async {
+    testWidgets('確認待ちの食い違いがある行には、「食い違い」と、もとの「11/5 店長に確認」の両方を出す', (tester) async {
       _size(tester, const Size(390, 844));
       await tester.pumpWidget(
           MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(_pendingAfterQualification()), manualId: 'm1')));
@@ -192,7 +192,15 @@ void main() {
 
       final marks = _marksOf(_weekend);
       expect(find.descendant(of: marks, matching: find.text('食い違い')), findsOneWidget);
-      expect(find.descendant(of: marks, matching: find.text('に確認')), findsNothing);
+      final confirmed = find.descendant(of: marks, matching: find.widgetWithText(Speaker, 'に確認'));
+      expect(find.descendant(of: confirmed, matching: find.text('11/5')), findsOneWidget);
+
+      // 「に確認」を押すと、確認リストでなく、その確認の記録が開く
+      await tester.tap(find.descendant(of: confirmed, matching: find.text('に確認')));
+      await tester.pumpAndSettle();
+      final big = tester.widgetList<ConfirmStamp>(find.byType(ConfirmStamp)).where((s) => !s.compact);
+      expect(big, isNotEmpty);
+      expect(find.byType(CheckScreen), findsOneWidget);
     });
   });
 }

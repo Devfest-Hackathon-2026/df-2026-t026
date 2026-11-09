@@ -276,12 +276,8 @@ class ManualState {
   List<Check> get resolvedChecks => checks.where((c) => c.resolution != null).toList();
 
   /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く。
-  /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ。確認待ちの食い違いがあれば引き継がない
-  Check? confirmationFor(ManualLine line) {
-    final direct = _confirmedAs(line.text);
-    if (direct != null || openChecksFor(line).isNotEmpty) return direct;
-    return _beforeQualification(line.patchId);
-  }
+  /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ
+  Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
 
   Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
 
