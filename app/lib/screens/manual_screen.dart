@@ -300,13 +300,16 @@ class _ManualScreenState extends State<ManualScreen> {
     final oral = said != null && !said.fromEdit;
     final bar = open.isNotEmpty ? k.colors.pending : (oral || confirmed != null ? k.colors.added : null);
     final marks = <Widget>[
+      // 確認して決めた行は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる。押すと確認の記録を開く
       if (confirmed != null)
-        ConfirmStamp(
-          compact: true,
-          who: confirmed.resolution!.decidedBy,
-          day: confirmed.resolution!.decidedAt,
-          onTap: () => _openCheck(confirmed),
-        )
+        Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          Speaker(
+            name: confirmed.resolution!.decidedBy,
+            day: confirmed.resolution!.decidedAt,
+            onTap: () => _openCheck(confirmed),
+          ),
+          Text('に確認', style: k.text.small),
+        ])
       else if (oral)
         Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
       if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),

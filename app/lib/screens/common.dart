@@ -297,7 +297,11 @@ class Speaker extends StatelessWidget {
       Text(fmtDay(day), style: k.text.small),
     ]);
     if (onTap == null) return row;
-    return MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(onTap: onTap, child: row));
+    // アイコンと名前の間のすき間を押しても、下の行（押すと書き換えの欄が開く）でなく、こちらが受ける
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: row),
+    );
   }
 }
 

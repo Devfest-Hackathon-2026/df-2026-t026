@@ -283,7 +283,13 @@ class _Who extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final r = x.onBranch ? null : x.check?.resolution;
-    if (r != null) return ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt);
+    // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
+    if (r != null) {
+      return Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        Speaker(name: r.decidedBy, day: r.decidedAt),
+        Text('に確認', style: k.text.small),
+      ]);
+    }
     if (x.said case final u?) return Speaker(name: u.speaker, day: u.saidAt);
     return Text(_createdDay(x), style: k.text.small);
   }
@@ -292,11 +298,12 @@ class _Who extends StatelessWidget {
 /// グラフの1行に置く、誰が・いつ。アバターを外し、本文と一緒に省けるよう文の一部にする
 InlineSpan _whoSpan(AppTokens k, Commit x) {
   final r = x.onBranch ? null : x.check?.resolution;
+  // 確定した版は、小さい確認印でなく、誰に確認したかを文で添える
   if (r != null) {
-    return WidgetSpan(
-      alignment: PlaceholderAlignment.middle,
-      child: ConfirmStamp(compact: true, who: r.decidedBy, day: r.decidedAt),
-    );
+    return TextSpan(children: [
+      TextSpan(text: r.decidedBy, style: k.text.small.copyWith(color: k.colors.ink)),
+      TextSpan(text: '  ${fmtDay(r.decidedAt)} に確認'),
+    ]);
   }
   if (x.said case final u?) {
     return TextSpan(children: [
