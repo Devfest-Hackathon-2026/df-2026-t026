@@ -6,7 +6,7 @@ import { checkWithGemini } from '../src/conflict/check.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
-import { httpOptions, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
+import { httpOptions, isItem, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
 
@@ -63,6 +63,11 @@ test('差分化：見出しや範囲外の行を置き換えようとしたら�
   for (const lineNo of [1, 3, 6]) {
     await assert.rejects(assessWith([item({ op: 'replace', lineNo })]).run());
   }
+});
+
+test('マークダウンの見出し（# 〜 ######）と区切り線は、書き換えや衝突の相手にしない', () => {
+  for (const l of ['# 店', '## 味噌汁', '### 仕込み', '---', '* * *']) assert.equal(isItem(l), false, l);
+  for (const l of ['- 塩 小さじ1', '#3番テーブルは予約席', '1. 手を洗う', '**塩** 小さじ1']) assert.equal(isItem(l), true, l);
 });
 
 test('分類：矛盾でなければ衝突相手と確認先は返さない', async () => {

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:record/record.dart';
 
@@ -13,33 +12,31 @@ import '../theme.dart';
 import '../web/screen.dart';
 import 'common.dart';
 
-/// 直近のメモとして並べる数
-const _recentCount = 5;
-
-/// リワインド。勤務中に開いたままにして常時待ち受け、言われた後に押すと直前の発話を切り出して未整理メモにためる（ADR 0005）。
-/// 誤って触れても待ち受けが止まらないよう、入力ページとは別のページにし、ほかへ移る導線を置かない
-class RewindScreen extends StatefulWidget {
-  const RewindScreen({
+/// リワインドの待ち受けの面。入力ページでトグルを ON にしている間だけ書く欄の代わりに出し、常時待ち受ける。
+/// 言われた後に押すと直前の発話を切り出して未整理メモにためる（ADR 0005）
+class RewindPanel extends StatefulWidget {
+  const RewindPanel({
     super.key,
     required this.api,
     required this.newRecorder,
-    required this.memos,
     required this.onMemo,
+    required this.onCapturing,
   });
   final Api api;
   final AudioRecorder Function() newRecorder;
 
-  /// 入力ページが持つ未整理メモ。ここでは読むだけで、足すのは onMemo に任せる
-  final List<Memo> memos;
-
-  /// 書き起こせたメモを入力ページに渡す。閉じた後に書き起こしが返っても取りこぼさないため
+  /// 書き起こせたメモを入力ページに渡す。トグルを OFF にした後に書き起こしが返っても取りこぼさないため
   final ValueChanged<Memo> onMemo;
 
+  /// 話し終わりを待っている間か。その間はトグルで待ち受けを止めさせない
+  final ValueChanged<bool> onCapturing;
+
   @override
-  State<RewindScreen> createState() => _RewindScreenState();
+  State<RewindPanel> createState() => _RewindPanelState();
 }
 
-class _RewindScreenState extends State<RewindScreen> {
+// 入力ページは ListView なので、スクロールして面が見えなくなっても待ち受けを止めないよう保持する
+class _RewindPanelState extends State<RewindPanel> with AutomaticKeepAliveClientMixin {
   CaptureRecorder? _listener;
   var _starting = false;
 
@@ -55,11 +52,14 @@ class _RewindScreenState extends State<RewindScreen> {
   late final void Function() _stopWatchingScreen;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
     // 画面に戻ったら、待ち受けのマイクが止められていないかを確かめる
     _stopWatchingScreen = onScreenShown(() => _listener?.checkAlive());
-    // 入力ページのトグルを押した操作で開くので、ブラウザはそのままマイクを開ける
+    // トグルを押した操作で出るので、ブラウザはそのままマイクを開ける
     _startListening();
   }
 
@@ -100,16 +100,21 @@ class _RewindScreenState extends State<RewindScreen> {
     c.stop();
   }
 
+  void _setCapturing(bool v) {
+    setState(() => _capturing = v);
+    widget.onCapturing(v);
+  }
+
   /// 言われた後に押す。話し終わりを待って直前の発話だけを切り出す。書き起こしは裏で行い、
   /// 待ち受けを止めず確認も出さないので、切り出し終われば続けて押せる
   Future<void> _capture() async {
     final c = _listener;
     if (c == null || _capturing) return;
     final at = DateTime.now();
-    setState(() => _capturing = true);
+    _setCapturing(true);
     final wav = await c.capture();
     if (!mounted) return;
-    setState(() => _capturing = false);
+    _setCapturing(false);
     if (wav == null) {
       showError(context, '声が入っていませんでした。言われた直後にもう一度押してください');
       return;
@@ -129,45 +134,10 @@ class _RewindScreenState extends State<RewindScreen> {
     }
   }
 
+  /// ボタンは常に1つにし、待ち受けの状態に合わせて文字と押したときの動きを変える
   @override
   Widget build(BuildContext context) {
-    final k = context.tokens;
-    return Scaffold(
-      body: GridBackground(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const TopBar(crumbs: ['DiffNote（仮）', 'リワインド']),
-            Expanded(
-              child: Narrow(
-                child: ListView(
-                  padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
-                  children: [
-                    PageTitle(
-                      'リワインド',
-                      // 入力ページと同じ題名の右にトグルを置き、OFF にすると入力ページへ戻る
-                      trailing: MoonSwitch(
-                        value: true,
-                        semanticLabel: 'リワインド',
-                        // 切り出しの途中で待ち受けを止めない
-                        onChanged: _capturing ? null : (_) => Navigator.maybePop(context),
-                      ),
-                    ),
-                    SizedBox(height: k.space.xl),
-                    _listening(),
-                    ..._stock(),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 待ち受けの面。ボタンは常に1つにし、待ち受けの状態に合わせて文字と押したときの動きを変える
-  Widget _listening() {
+    super.build(context);
     final k = context.tokens;
     final c = _listener;
     final (label, onTap) = switch (c) {
@@ -193,63 +163,35 @@ class _RewindScreenState extends State<RewindScreen> {
                 backgroundColor: k.colors.rule,
               ),
             ),
-            SizedBox(height: k.space.xl),
-          ] else if (_notice != null && !_starting) ...[
+          ] else if (_notice != null && !_starting)
             Text(_notice!, style: k.text.body),
-            SizedBox(height: k.space.xl),
-          ],
-          // 指導中に画面を見なくても押せるよう、幅いっぱいの大きなボタンにする
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.xl,
-            isFullWidth: true,
-            onTap: onTap,
-            leading: onTap == null ? const ButtonLoader() : null,
-            label: Text(label),
+          SizedBox(height: k.space.xl),
+          // 指導中に画面を見なくても押せるよう、大きな丸いボタンにする
+          Center(
+            child: MoonFilledButton(
+              width: k.rewindButton,
+              height: k.rewindButton,
+              borderRadius: k.radius.round,
+              onTap: onTap,
+              label: SizedBox(
+                width: k.rewindButton - k.space.xl * 2,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  if (onTap == null) ...[const ButtonLoader(), SizedBox(height: k.space.sm)],
+                  Text(label, textAlign: TextAlign.center, style: k.text.heading.copyWith(color: k.colors.canvas)),
+                ]),
+              ),
+            ),
           ),
+          // 押せたかを確かめられるよう、書き起こし中の数を出す
+          if (_transcribing > 0) ...[
+            SizedBox(height: k.space.lg),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusTag('書き起こし中 $_transcribing 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+            ),
+          ],
         ],
       ),
     );
-  }
-
-  /// 直近にためたメモ。書き起こし中の数も出し、押せたかを確かめられるようにする
-  List<Widget> _stock() {
-    final k = context.tokens;
-    final memos = widget.memos;
-    if (memos.isEmpty && _transcribing == 0) return [];
-    return [
-      SizedBox(height: k.space.xxl),
-      Wrap(
-        spacing: k.space.sm,
-        runSpacing: k.space.xs,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text('未整理メモ', style: k.text.title),
-          if (_transcribing > 0) StatusTag('書き起こし中 $_transcribing 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-        ],
-      ),
-      Padding(
-        padding: EdgeInsets.only(top: k.space.sm),
-        child: Wrap(
-          spacing: k.space.lg,
-          runSpacing: k.space.xl,
-          children: [
-            for (final m in memos.reversed.take(_recentCount))
-              SizedBox(
-                width: k.stickyWidth,
-                child: StickyNote(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.body),
-                      SizedBox(height: k.space.sm),
-                      Text(m.text, style: k.text.body),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ];
   }
 }

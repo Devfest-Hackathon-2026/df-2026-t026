@@ -53,8 +53,9 @@ class _ManualScreenState extends State<ManualScreen> {
   Future<void> _save(ManualState s, {bool delete = false}) async {
     final e = _editing!;
     final line = e.at == null ? null : s.lines[e.at!].text;
-    final text = delete ? '' : _draft.text.trim();
-    if (!delete && text.isEmpty) return;
+    // 行頭の空白はマークダウンの入れ子なので残す
+    final text = delete ? '' : _draft.text.trimRight();
+    if (!delete && text.trim().isEmpty) return;
     if (!e.insert && !delete && text == line) {
       _cancelEdit();
       return;
@@ -63,8 +64,8 @@ class _ManualScreenState extends State<ManualScreen> {
     try {
       final p = await c.edit(delete ? 'delete' : (e.insert ? 'insert' : 'replace'), line: line, text: text);
       setState(() => _editing = null);
-      // 見出しは主張ではないので確かめない
-      if (!delete && !text.startsWith('## ')) _check(p);
+      // 見出しと区切り線は主張ではないので確かめない
+      if (!delete && !isHeading(text) && !isRule(text)) _check(p);
     } on ApiException catch (err) {
       if (mounted) showError(context, err);
     } finally {
@@ -231,7 +232,7 @@ class _ManualScreenState extends State<ManualScreen> {
         MoonTextInput(
           controller: _draft,
           autofocus: true,
-          hintText: '例: - 塩 小さじ1（見出しは「## 」で始める）',
+          hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
           onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _save(s),
         ),
@@ -274,7 +275,7 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _line(ManualState s, ManualLine line, int i) {
     final k = context.tokens;
     if (line.text.trim().isEmpty) return SizedBox(height: k.space.sm);
-    if (line.text.startsWith('## ')) {
+    if (isHeading(line.text)) {
       return _editable(
         s,
         i,

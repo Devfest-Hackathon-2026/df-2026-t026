@@ -261,15 +261,12 @@ class _CommitDetail extends StatelessWidget {
       LineChange.removed => ('-', c.removedBg, c.removed),
       LineChange.kept => (' ', null, c.ink),
     };
-    final base = l.text.startsWith('## ') ? k.text.heading : k.text.body;
     return Container(
       color: bg,
       padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.xs),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SizedBox(width: k.space.lg, child: Text(mark, style: k.text.body.copyWith(color: fg))),
-        Expanded(
-          child: Text(l.text.startsWith('- ') ? '・${l.text.substring(2)}' : plain(l.text), style: base.copyWith(color: fg)),
-        ),
+        Expanded(child: LineText(l.text, color: fg, compact: true)),
       ]),
     );
   }
