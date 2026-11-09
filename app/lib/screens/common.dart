@@ -219,8 +219,11 @@ class PageTitle extends StatelessWidget {
 
 /// ノートの1行をマークダウンとして描く
 class LineText extends StatelessWidget {
-  const LineText(this.line, {super.key, this.color, this.compact = false});
+  const LineText(this.line, {super.key, this.color, this.compact = false, this.mark});
   final String line;
+
+  /// 地を付けて見せる言葉（ノートを探して開いたとき）。英字の大文字・小文字は区別しない
+  final String? mark;
 
   /// 差分の増減など、文字の色を変えるとき
   final Color? color;
@@ -260,8 +263,24 @@ class LineText extends StatelessWidget {
           if (n is md.Element && n.children != null)
             TextSpan(children: _spans(k, n.children!, _style(k, n.tag, s)))
           else
-            TextSpan(text: n.textContent, style: s),
+            ..._marked(k, n.textContent, s),
       ];
+
+  // 太字などの印をまたいだ所には付けない（印ごとに分かれた文字の中だけで探す）
+  List<TextSpan> _marked(AppTokens k, String text, TextStyle s) {
+    final q = mark?.toLowerCase() ?? '';
+    if (q.isEmpty) return [TextSpan(text: text, style: s)];
+    final lower = text.toLowerCase();
+    final spans = <TextSpan>[];
+    var at = 0;
+    for (var i = lower.indexOf(q); i >= 0; i = lower.indexOf(q, at)) {
+      spans
+        ..add(TextSpan(text: text.substring(at, i), style: s))
+        ..add(TextSpan(text: text.substring(i, i + q.length), style: s.copyWith(backgroundColor: k.colors.found)));
+      at = i + q.length;
+    }
+    return spans..add(TextSpan(text: text.substring(at), style: s));
+  }
 
   // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0009）
   TextStyle _style(AppTokens k, String tag, TextStyle s) => switch (tag) {

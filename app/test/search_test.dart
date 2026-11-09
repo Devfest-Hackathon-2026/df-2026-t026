@@ -29,7 +29,7 @@ Map<String, dynamic> _state(String id, String title, List<String> lines, {bool s
 Api _api() {
   final states = {
     'm1': _state('m1', 'キッチン', ['## 下ごしらえ', '- 塩 小さじ1', '---', '- 砂糖 大さじ2']),
-    'm2': _state('m2', 'ホール', ['- **塩**をテーブルに置く']),
+    'm2': _state('m2', 'ホール', ['- **塩**をテーブルに置く', for (var i = 0; i < 60; i++) '- 段取り$i', '- 閉店後に床を拭く']),
     's1': _state('s1', '洗い場', ['- Soap を使う'], shared: true),
   };
   return Api(
@@ -122,11 +122,22 @@ void main() {
     expect(find.text('「-」が書かれたノートはありません'), findsOneWidget);
   });
 
-  testWidgets('当たった行を押すと、そのノートを開く', (tester) async {
+  testWidgets('当たった行を押すと、そのノートを開いてその行まで送り、探した言葉に地を付ける', (tester) async {
     await _pump(tester);
-    await _type(tester, '砂糖');
-    await tester.tap(_inResults('砂糖 大さじ2'));
+    await _type(tester, '床');
+    await tester.tap(_inResults('閉店後に床を拭く'));
     await tester.pumpAndSettle();
     expect(find.byType(ManualScreen), findsOneWidget);
+
+    // 本文の下の方の行でも、画面の中に見えている
+    final line = find.text('・閉店後に床を拭く', findRichText: true);
+    expect(tester.getRect(line).top, inInclusiveRange(0, 900));
+    final k = appTheme().extension<AppTokens>()!;
+    final spans = <TextSpan>[];
+    tester.widget<RichText>(line).text.visitChildren((s) {
+      if (s is TextSpan && s.text != null) spans.add(s);
+      return true;
+    });
+    expect([for (final s in spans) if (s.style?.backgroundColor == k.colors.found) s.text], ['床']);
   });
 }

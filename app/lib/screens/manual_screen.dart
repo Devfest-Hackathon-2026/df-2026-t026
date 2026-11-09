@@ -16,9 +16,12 @@ import 'tab_bar.dart';
 
 /// マニュアル1冊の画面：文書面（現行マニュアル）と、記録した発言のパネル。食い違いは確認リスト（別の画面）にまとめる
 class ManualScreen extends StatefulWidget {
-  const ManualScreen({super.key, required this.api, required this.manualId});
+  const ManualScreen({super.key, required this.api, required this.manualId, this.found});
   final Api api;
   final String manualId;
+
+  /// 「ノートを探す」から開いたときの、押した行の番号と探した言葉。その行まで送り、言葉に地を付ける
+  final ({int line, String query})? found;
 
   @override
   State<ManualScreen> createState() => _ManualScreenState();
@@ -37,6 +40,10 @@ class _ManualScreenState extends State<ManualScreen> {
 
   /// 食い違いを確かめている編集（パッチの ID）
   final _checking = <String>{};
+
+  /// 探して開いた行。開いて最初に読めたときに1度だけ、その行まで送る
+  final _foundKey = GlobalKey();
+  late var _toFound = widget.found != null;
 
   @override
   void dispose() {
@@ -110,6 +117,12 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
+        if (s != null && _toFound) {
+          _toFound = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_foundKey.currentContext case final ctx?) Scrollable.ensureVisible(ctx, alignment: 0.3);
+          });
+        }
         // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
         final narrow = s != null && !showsSidebar(context);
         // 共有の相手を変えられるのは持ち主だけ。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0013）
@@ -217,7 +230,12 @@ class _ManualScreenState extends State<ManualScreen> {
                 child: Text('まだ白紙です。ここに直接書くか、入力ページで教わったことを記録すると書き足されます。', style: k.text.small),
               ),
             for (final (i, line) in s.lines.indexed) ...[
-              if (_editing == (at: i, insert: false)) _editor(s) else _line(s, line, i),
+              if (_editing == (at: i, insert: false))
+                _editor(s)
+              else if (i == _foundLine(s))
+                KeyedSubtree(key: _foundKey, child: _line(s, line, i))
+              else
+                _line(s, line, i),
               if (_editing == (at: i, insert: true)) _editor(s),
             ],
             if (_editing == (at: null, insert: true))
@@ -240,6 +258,18 @@ class _ManualScreenState extends State<ManualScreen> {
         ),
       ),
     ));
+  }
+
+  /// 探して押した行。探した後に行がずれていたら、言葉を含む最初の行にする
+  int? _foundLine(ManualState s) {
+    final f = widget.found;
+    if (f == null) return null;
+    bool has(int i) => plain(s.lines[i].text).toLowerCase().contains(f.query.toLowerCase());
+    if (f.line < s.lines.length && has(f.line)) return f.line;
+    for (var i = 0; i < s.lines.length; i++) {
+      if (has(i)) return i;
+    }
+    return null;
   }
 
   bool _fromEdit(ManualState s, ManualLine line) =>
@@ -304,7 +334,7 @@ class _ManualScreenState extends State<ManualScreen> {
         i,
         Padding(
           padding: EdgeInsets.fromLTRB(k.gutter, k.space.xl, 0, k.space.xs),
-          child: LineText(line.text),
+          child: LineText(line.text, mark: widget.found?.query),
         ),
       );
     }
@@ -364,7 +394,7 @@ class _ManualScreenState extends State<ManualScreen> {
               spacing: k.space.md,
               runSpacing: k.space.xs,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: [LineText(line.text), ...marks],
+              children: [LineText(line.text, mark: widget.found?.query), ...marks],
             ),
           ),
         ),
