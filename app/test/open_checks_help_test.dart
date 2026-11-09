@@ -155,7 +155,8 @@ void main() {
         await tester.pumpWidget(MaterialApp(theme: appTheme(), home: const HelpScreen()));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        expect(find.descendant(of: find.byType(PageTitle), matching: find.text('使い方（暫定）')), findsOneWidget);
+        expect(find.descendant(of: find.byType(PageTitle), matching: find.text('使い方')), findsOneWidget);
+        expect(find.textContaining('暫定'), findsNothing);
 
         // 下までスクロールして、全部の画像がその幅のものを指し、はみ出しが無いことを見る
         final seen = <String>{};

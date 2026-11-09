@@ -9,6 +9,9 @@ import '../models.dart';
 import '../theme.dart';
 import 'sidebar.dart';
 
+/// 何の道具かを言う一文。ログイン・入力ページ・ノートが無いときの案内で同じ文を出す。中央揃えの案内でも読点で折れるよう、改行を入れておく
+const appPurpose = '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。';
+
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
   final p = ymd.split('-');
