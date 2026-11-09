@@ -10,6 +10,7 @@ import 'check_list_screen.dart';
 import 'common.dart';
 import 'history_screen.dart';
 import 'home_screen.dart';
+import 'materials_screen.dart';
 import 'review_dialog.dart';
 import 'share_dialog.dart';
 import 'sidebar.dart';
@@ -150,6 +151,10 @@ class _ManualScreenState extends State<ManualScreen> {
 
   void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
 
+  /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（資料の ADR 0016）
+  void _openMaterials() => Navigator.push(
+      context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => MaterialsScreen(c: c)));
+
   void _open(NoteTab tab, Widget screen) => showsSidebar(context)
       ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
       : openNoteTab(context, c, from: NoteTab.note, to: tab);
@@ -180,6 +185,13 @@ class _ManualScreenState extends State<ManualScreen> {
               trailing: s == null
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
+                      // 資料は共有された人も見られる。タブバーに無いので、狭い画面でも出す（資料の ADR 0016）
+                      MoonOutlinedButton(
+                        buttonSize: MoonButtonSize.sm,
+                        onTap: _openMaterials,
+                        label: const Text('資料'),
+                      ),
+                      SizedBox(width: context.tokens.space.sm),
                       if (!narrow) ...[
                         MoonOutlinedButton(
                           buttonSize: MoonButtonSize.sm,
@@ -723,7 +735,7 @@ class _DeleteDialogState extends State<_DeleteDialog> {
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Text('このノートを消しますか？', style: k.text.title),
               SizedBox(height: k.space.md),
-              Text('「${widget.title}」と、記録・確認・履歴がすべて消えます。共有している人からも見えなくなります。元に戻せません。',
+              Text('「${widget.title}」と、資料・記録・確認・履歴がすべて消えます。共有している人からも見えなくなります。元に戻せません。',
                   style: k.text.body),
               SizedBox(height: k.space.xl),
               Row(children: [

@@ -66,6 +66,37 @@ class ManualSummary {
   final int openCount;
 }
 
+/// 資料の一覧の1件（ADR 0016）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
+class MaterialSummary {
+  MaterialSummary.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        title = j['title'],
+        pageCount = j['pageCount'],
+        lineCount = j['lineCount'],
+        tokens = j['tokens'],
+        createdAt = j['createdAt'];
+
+  final String id;
+  final String title;
+
+  /// 貼り付けた文なら null
+  final int? pageCount;
+  final int lineCount;
+  final int tokens;
+
+  /// 足した日時（ISO 8601）
+  final String createdAt;
+}
+
+/// 資料の中身。lines の位置 + 1 が行番号（ページをまたいで通し）
+class MaterialBody extends MaterialSummary {
+  MaterialBody.fromJson(super.j)
+      : lines = [for (final l in j['lines']) (page: l['page'] as int?, text: l['text'] as String)],
+        super.fromJson();
+
+  final List<({int? page, String text})> lines;
+}
+
 class ManualLine {
   ManualLine(this.text, this.patchId);
 

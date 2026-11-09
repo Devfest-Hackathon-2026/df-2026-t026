@@ -155,7 +155,7 @@ void main() {
     await _pump(tester);
     await _openDialog(tester);
     expect(find.text('このノートを消しますか？'), findsOneWidget);
-    expect(find.text('「キッチン」と、記録・確認・履歴がすべて消えます。共有している人からも見えなくなります。元に戻せません。'), findsOneWidget);
+    expect(find.text('「キッチン」と、資料・記録・確認・履歴がすべて消えます。共有している人からも見えなくなります。元に戻せません。'), findsOneWidget);
     final k = appTheme().extension<AppTokens>()!;
     expect(tester.widget<MoonFilledButton>(_deleteButton()).backgroundColor, k.colors.removed);
     expect(find.widgetWithText(MoonOutlinedButton, 'やめる'), findsOneWidget);
