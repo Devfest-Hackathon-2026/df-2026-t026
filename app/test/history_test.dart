@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'package:diff_note/api.dart';
 import 'package:diff_note/history.dart';
 import 'package:diff_note/models.dart';
+import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -231,10 +233,13 @@ void main() {
       expect(find.textContaining('だしは煮干し ／ だしは昆布'), findsOneWidget);
       expect(find.text('あとで確認'), findsOneWidget);
       expect(find.text('確認済み'), findsOneWidget);
-      // 1件を同じ高さの1行に詰め、行の間で線を途切れさせずに幹と枝の形を見せる
+      // 狭い画面では文を2行まで出すので、行の高さは文に合わせて伸びる。グラフは行の高さいっぱいに描いて線を途切れさせない。
+      // どの行も指で押しやすい高さ（44 以上）にする
       final graph = find.byWidgetPredicate((w) => w is CustomPaint && '${w.painter.runtimeType}' == '_GraphPainter');
       expect(graph, findsNWidgets(5));
-      expect({for (final e in graph.evaluate()) e.size!.height}, hasLength(1));
+      for (final e in graph.evaluate()) {
+        expect(e.size!.height, greaterThanOrEqualTo(44));
+      }
 
       await tester.tap(find.textContaining('1/2で統一'));
       await tester.pumpAndSettle();
@@ -260,6 +265,77 @@ void main() {
       // 行の中では「行」を外し、詳細では付ける
       expect(find.text('+3'), findsOneWidget);
       expect(find.text('+3 行'), findsOneWidget);
+    });
+
+    // 違和感 #9・#10: 履歴の行を押せると分かる見た目にする
+    Finder graphs() => find.byWidgetPredicate((w) => w is CustomPaint && '${w.painter.runtimeType}' == '_GraphPainter');
+    Finder chevrons() => find.byWidgetPredicate((w) => w is Icon && w.icon == LucideIcons.chevronRight);
+    // 行の文（誰が・いつ + 本文）。枝の行は「ノートの行 ／ 言われた行」から始まる
+    Finder rowText(String part) => find.byWidgetPredicate((w) => w is RichText && w.text.toPlainText().contains(part));
+
+    for (final width in const [390.0, 1000.0]) {
+      testWidgets('どの行にも右端に「›」があり、「›」を押しても版の詳細が開く（$width）', (tester) async {
+        await pump(tester, width);
+
+        expect(chevrons(), findsNWidgets(5));
+        // 「›」は行の右端（文より右）
+        final text = tester.getRect(rowText('ノートを作った'));
+        final last = tester.getRect(chevrons().last);
+        expect(last.left, greaterThan(text.right));
+        expect((last.center.dy - tester.getRect(graphs().last).center.dy).abs(), lessThan(1));
+
+        await tester.tap(chevrons().last);
+        await tester.pumpAndSettle();
+        expect(find.text('この版のノート'), findsOneWidget);
+        expect(find.text('+3 行'), findsOneWidget);
+      });
+    }
+
+    testWidgets('狭い画面：文は2行まで出し、増減や札は文の下の行に回す', (tester) async {
+      await pump(tester, 390);
+
+      for (final part in ['ノートを作った', 'だしは煮干し ／ だしは昆布']) {
+        final t = tester.widget<RichText>(rowText(part));
+        expect(t.maxLines, 2);
+      }
+      // 札は文の下（文の左端にそろえる）
+      final text = tester.getRect(rowText('だしは煮干し ／ だしは昆布'));
+      final tag = tester.getRect(find.ancestor(of: find.text('あとで確認'), matching: find.byType(StatusTag)));
+      expect(tag.top, greaterThanOrEqualTo(text.bottom));
+      expect(tag.left, closeTo(text.left, 1));
+      // 増減も文の下
+      final made = tester.getRect(rowText('ノートを作った'));
+      expect(tester.getRect(find.text('+3')).top, greaterThanOrEqualTo(made.bottom));
+    });
+
+    testWidgets('広い画面：今までどおり1行で同じ高さ。札は文の横', (tester) async {
+      await pump(tester, 1000);
+
+      expect(tester.widget<RichText>(rowText('ノートを作った')).maxLines, 1);
+      expect({for (final e in graphs().evaluate()) e.size!.height}, {40});
+      final text = tester.getRect(rowText('だしは煮干し ／ だしは昆布'));
+      final tag = tester.getRect(find.text('あとで確認').first);
+      expect((tag.center.dy - text.center.dy).abs(), lessThan(2));
+      expect(tag.left, greaterThan(text.right));
+    });
+
+    testWidgets('行を押している間は地の色が濃くなり、離すと戻る', (tester) async {
+      await pump(tester, 390);
+      final k = appTheme().extension<AppTokens>()!;
+      Color? bg() {
+        final box = find.ancestor(of: rowText('ノートを作った'), matching: find.byType(Container)).first;
+        return (tester.widget<Container>(box).decoration as BoxDecoration?)?.color;
+      }
+
+      expect(bg(), isNull);
+      final g = await tester.startGesture(tester.getCenter(rowText('ノートを作った')));
+      await tester.pump();
+      expect(bg(), k.colors.pressed);
+      await g.cancel();
+      await tester.pump();
+      expect(bg(), isNull);
+      // 押した色は hover より濃い
+      expect(k.colors.pressed.a, greaterThan(k.colors.hover.a));
     });
   });
 }
