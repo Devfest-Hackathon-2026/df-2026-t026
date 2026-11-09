@@ -374,6 +374,7 @@ void main() {
     await pumpCheck(tester, shared: false, people: [
       {'id': 'sato', 'name': '佐藤店長'},
       {'id': 'haruto', 'name': 'はると'},
+      {'id': 'kim', 'name': 'kim'},
     ]);
     expect(find.text('ほかの人'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする'));
@@ -391,8 +392,12 @@ void main() {
     await tester.tap(find.ancestor(of: find.text('佐藤店長（sato）'), matching: find.byType(MoonChip)));
     await tester.pump();
     expect(tester.widget<EditableText>(field).controller.text, '佐藤店長');
-    // 選んだあとは絞った候補を消す
+    // 名前で当たった人には ID を添えない
     expect(find.text('佐藤店長（sato）'), findsNothing);
+    // 名前を決めていない人（名前が ID のまま）も、ID を打つと欄の下に出る
+    await tester.enterText(field, 'kim');
+    await tester.pump();
+    expect(find.widgetWithText(MoonChip, 'kim'), findsNWidgets(2)); // 2 の「ほかの人」と、欄の下
   });
 
   testWidgets('確認のページ（持ち主）：共有していなくても、このノートで言ったことのある人から確認した相手を選べる', (tester) async {

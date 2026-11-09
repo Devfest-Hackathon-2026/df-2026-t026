@@ -100,14 +100,11 @@ class _CheckDetailState extends State<CheckDetail> {
   }
 
   /// 確認した相手の欄に打った言葉で、名前かログイン ID にその言葉を含む人。ID で当たった人には ID を添える。
-  /// 空のときや、候補の名前をそのまま選んだときは絞らない
   List<({String name, String? id})> get _matchedPeople {
-    final people = _people;
-    final typed = _decidedBy.text.trim();
-    final q = typed.toLowerCase();
-    if (q.isEmpty || people.containsKey(typed)) return const [];
+    final q = _decidedBy.text.trim().toLowerCase();
+    if (q.isEmpty) return const [];
     return [
-      for (final MapEntry(key: name, value: id) in people.entries)
+      for (final MapEntry(key: name, value: id) in _people.entries)
         if (name.toLowerCase().contains(q)) (name: name, id: null)
         else if (id != null && id.toLowerCase().contains(q)) (name: name, id: id),
     ].take(_maxPeople).toList();
