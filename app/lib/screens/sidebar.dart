@@ -166,7 +166,7 @@ class _SidebarState extends State<_Sidebar> {
                 // アプリ名。サイドバーの中で一番太く大きい文字にする。押せない（最初の画面へは「言われたことを記録」で戻る）
                 Padding(
                   padding: EdgeInsets.fromLTRB(k.space.sm, 0, k.space.sm, k.space.md),
-                  child: Text('DiffNote（仮）', maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.title),
+                  child: Text('DiffNote', maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.title),
                 ),
                 // 新しく書き始める所なので、チャットの「新しいチャット」と同じペンと四角のアイコンを付け、いちばん上に置く（違和感 #4）
                 _item(

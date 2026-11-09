@@ -103,16 +103,16 @@ void main() {
         await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
         await tester.pumpAndSettle();
         expect(_inTopBar(find.text('ノートを作る')), findsOneWidget);
-        expect(_inTopBar(find.text('DiffNote（仮）')), findsNothing);
+        expect(_inTopBar(find.text('DiffNote')), findsNothing);
         expect(_inTopBar(find.text(' / ')), findsNothing);
       });
     }
 
-    testWidgets('広い幅（サイドバーが出る）では、パンくずの先頭に「DiffNote（仮）」を出さない（アプリ名はサイドバーの一番上）', (tester) async {
+    testWidgets('広い幅（サイドバーが出る）では、パンくずの先頭に「DiffNote」を出さない（アプリ名はサイドバーの一番上）', (tester) async {
       _size(tester, const Size(1440, 900));
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
       await tester.pumpAndSettle();
-      expect(_inTopBar(find.text('DiffNote（仮）')), findsNothing);
+      expect(_inTopBar(find.text('DiffNote')), findsNothing);
       expect(_inTopBar(find.text(' / ')), findsNothing);
       expect(_inTopBar(find.text('ノートを作る')), findsOneWidget);
     });
