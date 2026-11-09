@@ -348,8 +348,9 @@ void main() {
     expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
   });
 
-  Future<_Server> pumpCheck(WidgetTester tester, {required bool shared, Map<String, dynamic>? resolution}) async {
-    final server = _Server(shared: shared);
+  Future<_Server> pumpCheck(WidgetTester tester,
+      {required bool shared, Map<String, dynamic>? resolution, List<Map<String, dynamic>> people = const []}) async {
+    final server = _Server(shared: shared)..people.addAll(people);
     final state = server.state;
     if (resolution != null) (state['checks'] as List).first['resolution'] = resolution;
     final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
@@ -367,6 +368,57 @@ void main() {
     expect(find.text('どちらですか？'), findsOneWidget);
     expect(_outlined('聞いた結果を記録する'), findsOneWidget);
     expect(find.text('答えて確定する'), findsNothing);
+  });
+
+  testWidgets('確認のページ（持ち主）：2 と 3 のどちらでも、共有している人を選べ、名前かログイン ID を打って絞れる', (tester) async {
+    await pumpCheck(tester, shared: false, people: [
+      {'id': 'sato', 'name': '佐藤店長'},
+      {'id': 'haruto', 'name': 'はると'},
+      {'id': 'kim', 'name': 'kim'},
+    ]);
+    String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
+
+    // 2：AI の候補が入っているときは絞らず、共有している人を先に並べる
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(text(0), '店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsOneWidget);
+    // 2 の欄にログイン ID を打つと絞り、ID で当たった人には ID を添える。押すと名前が入る
+    await tester.enterText(find.byType(EditableText).first, 'sat');
+    await tester.pump();
+    expect(find.text('佐藤店長（sato）'), findsOneWidget);
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNothing);
+    await tester.tap(find.ancestor(of: find.text('佐藤店長（sato）'), matching: find.byType(MoonChip)));
+    await tester.pump();
+    expect(text(0), '佐藤店長');
+
+    // 3 にも同じ人が入っていて、同じように選べる
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(text(1), '佐藤店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNWidgets(2));
+    await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする').last);
+    await tester.pump();
+    expect([text(0), text(1)], ['はると', 'はると']);
+
+    // 3 の欄に打っても絞れる。名前を決めていない人（名前が ID のまま）は、ID を打つとそのまま選んだ形になる
+    await tester.enterText(find.byType(EditableText).at(1), 'haru');
+    await tester.pump();
+    expect(find.text('はると（haruto）'), findsNWidgets(2));
+    await tester.enterText(find.byType(EditableText).at(1), 'kim');
+    await tester.pump();
+    expect(find.widgetWithText(MoonChip, 'kim'), findsNWidgets(2));
+    expect(text(0), 'kim');
+  });
+
+  testWidgets('確認のページ（持ち主）：共有していなくても、このノートで言ったことのある人から確認した相手を選べる', (tester) async {
+    await pumpCheck(tester, shared: false);
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(find.bySemanticsLabel('確認した相手を佐藤店長にする'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('確認した相手を田中さんにする'));
+    await tester.pump();
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<EditableText>(find.byType(EditableText).first).controller.text, '田中さん');
   });
 
   testWidgets('確認のページ（共有された人）：誰に確認するか・聞き方の例は出さず、自分の答えとして確定する', (tester) async {
