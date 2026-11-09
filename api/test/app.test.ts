@@ -4,7 +4,7 @@ import { beforeEach, test } from 'node:test';
 import { PDFDocument } from 'pdf-lib';
 
 import { createApp, type Deps } from '../src/app.ts';
-import type { AssessInput } from '../src/assess.ts';
+import type { Assess, AssessInput } from '../src/assess.ts';
 import { hashPassword, sessionIdOf } from '../src/auth.ts';
 import type { CheckInput } from '../src/conflict/check.ts';
 import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, fakeListen, fakeReadMaterial, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
@@ -1197,15 +1197,224 @@ test('資料：消すと一覧から消え、無い資料は 404。ノートの�
   assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
 });
 
-test('資料：足しても、記録の振り分け・差分化・分類に渡す入力は変わらない（判定に載せるのは次の段階）', async () => {
+/** 休憩・ご飯の保温・片付けの決まりを、貼り付けた文の資料として demo-kitchen に足す。ノートにはどの行も無い */
+async function addRules() {
+  const { status, json } = await call('POST', '/manuals/demo-kitchen/materials', {
+    title: '店舗マニュアル',
+    text: '## 休憩\n- 休憩は30分\n## ご飯\n- ご飯は保温2時間まで\n## 片付け\n- 片付けは閉店前に終える',
+  });
+  assert.equal(status, 201);
+  return json;
+}
+
+const texts = (state: any) => state.lines.map((l: any) => l.text) as string[];
+const resolve = (checkId: string, text: string, note = '') =>
+  call('POST', `/manuals/demo-kitchen/checks/${checkId}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-07', text, note });
+
+/** 直接書いた行を確かめ、その確認を返す */
+async function editAndCheck(body: object) {
+  const { patch } = await edit(body);
+  const { json } = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  return { patch, check: json.checks.find((c: any) => c.patchId === patch.id), state: json };
+}
+
+test('資料：記録・書き起こしの読み直しの判定に、そのノートの資料と、今ある資料に結び付いた確定が載る', async () => {
   const inputs: AssessInput[] = [];
   await withDeps({ assess: (i) => (inputs.push(i), fakeAssess(i)) });
-  // どのノートにも当たらない記録は保存されないので、前後で同じ状態のまま比べられる
-  const said = { text: 'お疲れさまと言われた', today: '2026-11-03' };
-  assert.equal((await call('POST', '/utterances', said)).status, 200);
-  await call('POST', '/manuals/demo-kitchen/materials', { title: '衛生の手引き', text: '- 手洗いは30秒' });
-  await call('POST', '/manuals/demo-kitchen/materials', { files: [png] });
-  assert.equal((await call('POST', '/utterances', said)).status, 200);
-  assert.equal(inputs.length, 2);
-  assert.deepEqual(inputs[1], inputs[0]);
+  const rules = await addRules();
+  // 記録先を選ばない振り分けには、どのノートの資料も、ノートごとに載る
+  await call('POST', '/utterances', { text: 'お疲れさまと言われた', today: '2026-11-03' });
+  assert.deepEqual(
+    inputs[0].manuals.map((m) => m.materials),
+    [
+      [
+        {
+          id: rules.id,
+          title: '店舗マニュアル',
+          lines: [
+            { page: null, text: '## 休憩' },
+            { page: null, text: '- 休憩は30分' },
+            { page: null, text: '## ご飯' },
+            { page: null, text: '- ご飯は保温2時間まで' },
+            { page: null, text: '## 片付け' },
+            { page: null, text: '- 片付けは閉店前に終える' },
+          ],
+        },
+      ],
+      [],
+    ],
+  );
+
+  // 資料と食い違った記録を資料のままに確定すると、以後の判定に資料の行を添えて載る。ノートの確定済みの記録には出さない
+  const r = await record('田中さんから休憩は45分と言われた');
+  await resolve(r.check.id, '- 休憩は30分', '30分のまま');
+  const u = await record('田中さんからご飯は保温3時間までと言われた');
+  const reread = await call('PATCH', `/manuals/demo-kitchen/utterances/${u.utterance.id}`, { text: '田中さんからご飯は保温4時間までと言われた' });
+  assert.equal(reread.status, 200);
+  const last = inputs.at(-1)!.manuals[0];
+  assert.equal(inputs.at(-1)!.text, '田中さんからご飯は保温4時間までと言われた');
+  assert.deepEqual(last.materials.map((m) => m.id), [rules.id]);
+  assert.deepEqual(last.materialConfirmations, [
+    { materialId: rules.id, lineNo: 2, page: null, text: '2026-11-07 店長に確認：30分のまま（資料のとおり「- 休憩は30分」）' },
+  ]);
+  assert.deepEqual(last.confirmations, []);
+
+  // 資料を消すと、その資料も、その資料に結び付いた確定も載らない
+  assert.equal((await call('DELETE', `/manuals/demo-kitchen/materials/${rules.id}`)).status, 204);
+  await record('田中さんから休憩は45分と言われた');
+  assert.deepEqual([inputs.at(-1)!.manuals[0].materials, inputs.at(-1)!.manuals[0].materialConfirmations], [[], []]);
+});
+
+test('資料：偽の Gemini でも、資料の行と頭の言葉が同じで中身の違う記録は資料と矛盾になり、同じ文なら資料と同じ内容になる', async () => {
+  // 偽の読み取りは「## 味噌汁」「- 味噌汁の塩は小さじ1」「- だしは昆布でとる」を返す
+  const m = (await call('POST', '/manuals/demo-kitchen/materials', { files: [png] })).json;
+  const r = await record('田中さんから味噌汁の塩は小さじ1/2でいいと言われた');
+  assert.deepEqual(
+    [r.check.kind, r.check.conflictLine, r.check.materialRef],
+    ['contradiction', '- 味噌汁の塩は小さじ1', { materialId: m.id, title: '店舗マニュアル', page: 1, lineNo: 2 }],
+  );
+  const same = await record('田中さんからだしは昆布でとると言われた');
+  assert.deepEqual(
+    [same.check.kind, same.check.sameLine, same.check.materialRef],
+    ['same', '- だしは昆布でとる', { materialId: m.id, title: '店舗マニュアル', page: 1, lineNo: 3 }],
+  );
+  // ノートの行と食い違うものは、今まで通りノートの行が相手
+  const note = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  assert.deepEqual([note.check.conflictLine, note.check.materialRef], ['- 塩 小さじ1', null]);
+});
+
+test('資料と食い違った口頭の記録の確定：資料のままならノートを変えず、別の内容なら元のパッチの位置に書く。位置の行が無ければ末尾', async () => {
+  await addRules();
+  const before = texts((await call('GET', '/manuals/demo-kitchen')).json);
+
+  const keep = await record('田中さんから休憩は45分と言われた');
+  assert.equal(keep.check.materialRef.lineNo, 2);
+  const kept = (await resolve(keep.check.id, '- 休憩は30分')).json;
+  assert.deepEqual(texts(kept), before);
+  assert.equal(kept.patches.find((p: any) => p.id === keep.patch.id).status, 'discarded');
+  assert.deepEqual(kept.checks.find((c: any) => c.id === keep.check.id).resolution.patchId, null);
+
+  const rice = await record('田中さんからご飯は保温3時間までと言われた');
+  assert.deepEqual([rice.patch.op, rice.patch.line, rice.check.conflictLine], ['insert', '- 炊けたら10分蒸らす', '- ご飯は保温2時間まで']);
+  const other = (await resolve(rice.check.id, '- ご飯は保温2時間半まで')).json;
+  const t = texts(other);
+  assert.equal(t[t.indexOf('- 炊けたら10分蒸らす') + 1], '- ご飯は保温2時間半まで');
+  const resolution = other.checks.find((c: any) => c.id === rice.check.id).resolution;
+  const fix = other.patches.find((p: any) => p.id === resolution.patchId);
+  assert.deepEqual([fix.status, fix.utteranceId], ['applied', resolution.utteranceId]);
+  assert.equal(other.patches.find((p: any) => p.id === rice.patch.id).status, 'discarded');
+
+  // 新しい方に決まり、元のパッチの位置の行がもう無いときは末尾に書く
+  const tidy = await record('田中さんから片付けは閉店後でいいと言われた');
+  assert.deepEqual([tidy.patch.line, tidy.check.conflictLine], ['- まな板は使うたびに熱湯をかける', '- 片付けは閉店前に終える']);
+  await edit({ op: 'delete', line: '- まな板は使うたびに熱湯をかける' });
+  const newer = (await resolve(tidy.check.id, tidy.patch.text)).json;
+  assert.equal(texts(newer).at(-1), tidy.patch.text);
+});
+
+test('資料と食い違った直接書いた行の確定：資料のままなら書いた行を消し、別の内容なら置き換え、新しい方なら残す。消された行は変えない', async () => {
+  await addRules();
+  const before = texts((await call('GET', '/manuals/demo-kitchen')).json);
+
+  const keep = await editAndCheck({ op: 'insert', line: '- 炊けたら10分蒸らす', text: '- 休憩は45分' });
+  assert.deepEqual([keep.check.kind, keep.check.conflictLine, keep.check.materialRef.lineNo], ['contradiction', '- 休憩は30分', 2]);
+  const kept = (await resolve(keep.check.id, '- 休憩は30分')).json;
+  assert.deepEqual(texts(kept), before);
+  assert.equal(kept.checks.find((c: any) => c.id === keep.check.id).resolution.patchId, null);
+
+  // 確定の前に書いた行を消していたら、確定の記録だけ残す
+  const gone = await editAndCheck({ op: 'insert', line: null, text: '- 休憩は60分' });
+  await edit({ op: 'delete', line: '- 休憩は60分' });
+  const untouched = (await resolve(gone.check.id, '- 休憩は40分')).json;
+  assert.deepEqual(texts(untouched), before);
+  assert.deepEqual(untouched.checks.find((c: any) => c.id === gone.check.id).resolution.patchId, null);
+
+  const other = await editAndCheck({ op: 'insert', line: null, text: '- 休憩は50分' });
+  const replaced = (await resolve(other.check.id, '- 休憩は40分')).json;
+  assert.deepEqual(texts(replaced), [...before, '- 休憩は40分']);
+  assert.equal(replaced.lines.at(-1).patchId, replaced.checks.find((c: any) => c.id === other.check.id).resolution.patchId);
+
+  const newer = await editAndCheck({ op: 'insert', line: null, text: '- ご飯は保温3時間まで' });
+  assert.equal(newer.check.conflictLine, '- ご飯は保温2時間まで');
+  const stayed = (await resolve(newer.check.id, '- ご飯は保温3時間まで')).json;
+  assert.deepEqual(texts(stayed), [...before, '- 休憩は40分', '- ご飯は保温3時間まで']);
+  assert.equal(stayed.checks.find((c: any) => c.id === newer.check.id).resolution.patchId, null);
+});
+
+test('資料と食い違った確定：同じ資料から作ったノートに同じ文の行があっても、それを相手と取り違えない', async () => {
+  // ノートの「- 塩 小さじ1」と同じ文の資料の行を相手にした、資料との食い違い
+  const assess: Assess = async ({ manuals }) => {
+    const m = manuals[0].materials[0];
+    return {
+      speaker: '田中さん',
+      saidAt: null,
+      items: [
+        {
+          manual: 0,
+          patch: { op: 'insert', line: null, text: '- 塩 小さじ2', summary: '塩' },
+          check: {
+            kind: 'contradiction',
+            conflictLine: m.lines[0].text,
+            sameLine: null,
+            reason: '資料と違う',
+            ask: { candidates: [{ who: '店長', why: '決める立場' }], question: 'どちらですか？' },
+            materialRef: { materialId: m.id, title: m.title, page: null, lineNo: 1 },
+          },
+        },
+      ],
+    };
+  };
+  await withDeps({ assess });
+  await call('POST', '/manuals/demo-kitchen/materials', { title: '店舗マニュアル', text: '- 塩 小さじ1' });
+  const before = (await call('GET', '/manuals/demo-kitchen')).json.lines;
+
+  const keep = await record('田中さんから塩は小さじ2と言われた');
+  assert.deepEqual((await resolve(keep.check.id, '- 塩 小さじ1')).json.lines, before);
+  // 別の内容に決まっても、ノートの同じ文の行は書き換えず、元のパッチの位置（末尾）に書く
+  const other = await record('田中さんから塩は小さじ2と言われた');
+  const t = texts((await resolve(other.check.id, '- 塩 小さじ1/2')).json);
+  assert.ok(t.includes('- 塩 小さじ1'));
+  assert.equal(t.at(-1), '- 塩 小さじ1/2');
+});
+
+test('資料：共有された人の直接編集の確かめにも、持ち主のノートの資料が載る', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const rules = await addRules();
+  const { json } = await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- 休憩は45分', today: '2026-11-08' });
+  const patch = json.patches.at(-1);
+  const checked = await callAs('sato', 'POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  const chk = checked.json.checks.find((c: any) => c.patchId === patch.id);
+  assert.deepEqual([chk.kind, chk.conflictLine, chk.materialRef?.materialId], ['contradiction', '- 休憩は30分', rules.id]);
+});
+
+test('資料：いくつものノートをまとめて記録に載せるとき、資料の合計が上限を超えたら、書き起こす前に 400 で記録先を選んでもらう', async () => {
+  let transcribed = 0;
+  // 本文の「N tok」をトークン数にする
+  await withDeps({
+    countTokens: async (text) => Number(/(\d+) tok/.exec(text)![1]),
+    transcribe: async () => (transcribed++, '田中さんから塩は小さじ1/2でいいと言われた'),
+  });
+  const add = (manualId: string, tokens: number) => call('POST', `/manuals/${manualId}/materials`, { title: `${tokens}`, text: `- ${tokens} tok` });
+  for (const tokens of [30_000, 30_000, 30_000, 10_000]) assert.equal((await add('demo-kitchen', tokens)).status, 201);
+  assert.equal((await add('demo-hall', 1)).status, 201);
+
+  const auto = await call('POST', '/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた', files: [png], today: '2026-11-03' });
+  assert.deepEqual(
+    [auto.status, auto.json.error],
+    [
+      400,
+      '記録先が自動のときは、すべてのノートの資料と照らし合わせます。資料が合わせて約100001トークンあり、1回に照らし合わせられる100000トークンを超えています。記録先のノートを選んでから記録してください',
+    ],
+  );
+  assert.equal(transcribed, 0);
+  const both = await call('POST', '/utterances', { text: 'x', manualIds: ['demo-kitchen', 'demo-hall'] });
+  assert.deepEqual(
+    [both.status, both.json.error],
+    [400, '選んだノートの資料が合わせて約100001トークンあり、1回に照らし合わせられる100000トークンを超えています。記録先のノートを減らしてから記録してください'],
+  );
+  // 1冊なら、そのノートの上限に収まっているので記録できる
+  const one = await call('POST', '/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた', manualIds: ['demo-kitchen'], today: '2026-11-03' });
+  assert.equal(one.status, 201);
+  assert.equal((await call('POST', '/manuals/demo-kitchen/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた' })).status, 201);
 });

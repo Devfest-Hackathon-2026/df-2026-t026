@@ -1,5 +1,5 @@
 import type { Assess } from './assess.ts';
-import type { CheckPatch, CheckResult } from './conflict/check.ts';
+import type { CheckPatch, CheckResult, MaterialContext, MaterialRef } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
@@ -41,7 +41,8 @@ function fakePatchify(lines: string[], text: string, today: string): { speaker: 
 }
 
 export const fakeAssess: Assess = async ({ manuals, text, today }) => {
-  // 振り分け：見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくれば関係あり。1冊だけ渡されたら（記録先を選んだとき）その1冊
+  // 振り分け：見出しか項目の頭の言葉（「塩」「レジ締め」など）がメモに出てくれば関係あり。資料の行の頭の言葉も使う（ADR 0019）。
+  // 1冊だけ渡されたら（記録先を選んだとき）その1冊
   const relevant = (lines: string[]) =>
     manuals.length === 1 ||
     lines.some((l) => {
@@ -54,30 +55,59 @@ export const fakeAssess: Assess = async ({ manuals, text, today }) => {
     speaker: first.speaker,
     saidAt: first.saidAt,
     items: texts.flatMap((lines, manual) =>
-      relevant(lines)
-        ? fakePatchify(lines, text, today).patches.map((patch) => ({ manual, patch, check: fakeCheck(lines, patch, first.speaker) }))
+      relevant([...lines, ...manuals[manual].materials.flatMap((m) => m.lines.map((l) => l.text))])
+        ? fakePatchify(lines, text, today).patches.map((patch) => ({
+            manual,
+            patch,
+            check: fakeCheck(lines, patch, first.speaker, manuals[manual].materials),
+          }))
         : [],
     ),
   };
 };
 
 /** 直接編集の分類だけ（ADR 0007） */
-export const fakeCheckPatch: CheckPatch = async ({ lines, patch, utterance }) => fakeCheck(lines.map((l) => l.text), patch, utterance.speaker);
+export const fakeCheckPatch: CheckPatch = async ({ lines, patch, utterance, materials }) =>
+  fakeCheck(lines.map((l) => l.text), patch, utterance.speaker, materials);
 
-function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): CheckResult {
+function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null, materials: MaterialContext[]): CheckResult {
   const same = lines.find((l) => l === patch.text);
   if (same) {
-    return { kind: 'same', conflictLine: null, sameLine: same, reason: `ノートの「${unmark(same)}」と同じ内容です`, ask: null };
+    return { kind: 'same', conflictLine: null, sameLine: same, reason: `ノートの「${unmark(same)}」と同じ内容です`, ask: null, materialRef: null };
   }
   // 追記は、頭の言葉（「塩」など）が同じで中身の違う項目があれば、その項目と食い違うとみなす
   const rival = patch.op === 'insert' ? lines.find((l) => !isHeading(l) && headWord(l) === headWord(patch.text)) : null;
   if (patch.op === 'insert' && !rival) {
-    return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
+    // ノートに当たらなければ、資料の行で同じ規則を見る（ADR 0019）
+    const hit = materialHit(materials, patch.text);
+    if (hit?.same) {
+      return { kind: 'same', conflictLine: null, sameLine: hit.text, reason: `資料「${hit.ref.title}」と同じ内容です`, ask: null, materialRef: hit.ref };
+    }
+    if (hit) return contradiction(hit.text, patch.text, speaker, hit.ref);
+    return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null, materialRef: null };
   }
   const conflictLine = rival ?? patch.line!;
   if (patch.text.startsWith(`${patch.line}（`)) {
-    return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null };
+    return { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null, materialRef: null };
   }
+  return contradiction(conflictLine, patch.text, speaker, null);
+}
+
+/** 資料の行で、同じ文の行か、頭の言葉が同じ項目 */
+function materialHit(materials: MaterialContext[], text: string) {
+  for (const same of [true, false]) {
+    for (const m of materials) {
+      const i = m.lines.findIndex((l) => (same ? l.text === text : !isHeading(l.text) && headWord(l.text) === headWord(text)));
+      if (i >= 0) {
+        const ref: MaterialRef = { materialId: m.id, title: m.title, page: m.lines[i].page, lineNo: i + 1 };
+        return { same, text: m.lines[i].text, ref };
+      }
+    }
+  }
+  return null;
+}
+
+function contradiction(conflictLine: string, text: string, speaker: string | null, materialRef: MaterialRef | null): CheckResult {
   const candidates = [{ who: '店長', why: 'お店のやり方を決める立場なので' }];
   if (speaker && speaker !== '店長') {
     candidates.push({ who: speaker, why: '言った本人なので、どういうつもりだったかを聞ける' });
@@ -86,11 +116,12 @@ function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): 
     kind: 'contradiction',
     conflictLine,
     sameLine: null,
-    reason: `ノートの「${unmark(conflictLine)}」と両立しません`,
+    reason: `${materialRef ? `資料「${materialRef.title}」` : 'ノート'}の「${unmark(conflictLine)}」と両立しません`,
     ask: {
       candidates,
-      question: `「${unmark(conflictLine)}」と教わっていたのですが、「${unmark(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
+      question: `「${unmark(conflictLine)}」と教わっていたのですが、「${unmark(text)}」とも聞きました。どちらに合わせればよいですか？`,
     },
+    materialRef,
   };
 }
 

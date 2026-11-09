@@ -116,6 +116,7 @@ export async function readMaterialWithGemini(files: InlineFile[], pages: number,
     thinkingLevel: ThinkingLevel.LOW,
     // まとまりごとに出力が長いので、ノートの読み取りより長く待ってから並べる。段階1で測って決め直す
     hedgeMs: 40_000,
+    label: 'material',
   });
   return { title: out.title.trim(), pages: out.pages.map(cleanLines) };
 }

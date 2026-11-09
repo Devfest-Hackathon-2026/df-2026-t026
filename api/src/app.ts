@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
-import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
+import { manualContext, materialContext, type Check, type CheckPatch } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
 import type { InlineFile } from './gemini.ts';
@@ -81,7 +81,7 @@ const MATERIAL_CHUNK_PAGES = 5;
 const MAX_MATERIAL_TOKENS = 30_000;
 /**
  * 1つのノートの資料の合計。共有されたノートは足す人がそれぞれ違うので、人ごとでなくノートごとに数える。
- * いくつものノートをまとめて assess に載せるときの合計は、判定に資料を載せるときに決める
+ * いくつものノートをまとめて1回の記録に載せるときも、資料の合計をこの量までにする（設計書 §5.6）
  */
 const MAX_NOTE_MATERIAL_TOKENS = 100_000;
 const isImage = (f: { mimeType: string }) => f.mimeType.startsWith('image/');
@@ -484,11 +484,31 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.body(null, 204);
   });
 
+  /**
+   * 記録に載せる、それぞれのノートの資料（ADR 0019）。いくつものノートをまとめて載せるとき（記録先を選ばない振り分け・
+   * いくつも選んだとき）も、合計を1つのノートの上限までにする。評価（まぜる2）で確かめた量を超えて Gemini に載せないため。
+   * 超えたら、記録先を選んで（減らして）もらう（設計書 §5.6）
+   */
+  async function materialsFor(states: State[], chosen: boolean) {
+    const materials = await Promise.all(states.map(materialsOf));
+    const total = materials.flat().reduce((n, m) => n + m.tokens, 0);
+    if (total > MAX_NOTE_MATERIAL_TOKENS) {
+      const over = `資料が合わせて約${total}トークンあり、1回に照らし合わせられる${MAX_NOTE_MATERIAL_TOKENS}トークンを超えています`;
+      throw new HTTPException(400, {
+        message: chosen
+          ? `選んだノートの${over}。記録先のノートを減らしてから記録してください`
+          : `記録先が自動のときは、すべてのノートの資料と照らし合わせます。${over}。記録先のノートを選んでから記録してください`,
+      });
+    }
+    return materials;
+  }
+
   // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
+  // materials: states と同じ順の、それぞれのノートの資料（materialsFor）
   // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
-  async function record(userId: string, states: State[], text: string, today: string, keepAll: boolean) {
+  async function record(userId: string, states: State[], materials: Material[][], text: string, today: string, keepAll: boolean) {
     if (states.length === 0) return [];
-    const draft = await assess({ manuals: states.map(contextOf), text, today, speakers: speakersOf(states) });
+    const draft = await assess({ manuals: states.map((s, i) => contextOf(s, materials[i])), text, today, speakers: speakersOf(states) });
     const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
     const recordedBy = await recorder(userId);
     return Promise.all(
@@ -520,7 +540,12 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     throw new HTTPException(403, { message: `この記録を直せるのは、記録した ${name} だけです` });
   }
 
-  const contextOf = (s: State) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) });
+  /** 判定に渡す文脈。資料は持ち主のノートの下から読んだもの（ADR 0019） */
+  const contextOf = (s: State, materials: Material[]) => ({
+    title: s.manual.title,
+    ...manualContext(s.lines, s.patches, s.utterances, s.checks),
+    ...materialContext(materials, s.checks),
+  });
   const speakersOf = (states: State[]) =>
     [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
 
@@ -550,7 +575,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   app.post('/manuals/:id/utterances', async (c) => {
     const { userId } = c.var;
     const body = NewUtterance.parse(await c.req.json());
-    const [r] = await record(userId, [await load(userId, c.req.param('id'))], body.text, body.today ?? todayInJapan(), true);
+    const states = [await load(userId, c.req.param('id'))];
+    const [r] = await record(userId, states, await materialsFor(states, true), body.text, body.today ?? todayInJapan(), true);
     return c.json({ utteranceId: r.utteranceId, state: r.state }, 201);
   });
 
@@ -562,6 +588,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const states = body.manualIds
       ? await Promise.all(body.manualIds.map((id) => load(userId, id)))
       : await loadAll(userId);
+    // 書き起こす前に確かめ、載せられないときに書き起こしの手間をかけない
+    const materials = await materialsFor(states, !!body.manualIds);
     const hasAudio = body.files.some((f) => f.mimeType === 'audio/wav');
     // 録音のフレーズヒントには、記録先に関係なく全マニュアルの語句を使う
     const hints = hasAudio ? phrasesOf(body.manualIds ? await loadAll(userId) : states) : [];
@@ -569,7 +597,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
-    const results = await record(userId, states, text, body.today ?? todayInJapan(), !!body.manualIds);
+    const results = await record(userId, states, materials, text, body.today ?? todayInJapan(), !!body.manualIds);
     // 記録先を選び直してもらうときは、送り直すまでメモを残す
     if (results.length > 0) await Promise.all(body.memoIds.map((id) => store.removeMemo(userId, id)));
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
@@ -688,7 +716,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     // 「昨日」などは記録した日を基準に読む
     const recordedOn = new Date(u.createdAt).toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
     // 記録先は決まっているので、そのマニュアルだけを渡して読み直す（Gemini は1回、ADR 0006）
-    const draft = await assess({ manuals: [contextOf(rest)], text, today: recordedOn, speakers: speakersOf([rest]) });
+    const draft = await assess({ manuals: [contextOf(rest, await materialsOf(s))], text, today: recordedOn, speakers: speakersOf([rest]) });
     await Promise.all([
       ...patches.map((p) => store.remove(s.owner, manualId, 'patches', p.id)),
       ...checks.map((x) => store.remove(s.owner, manualId, 'checks', x.id)),
@@ -816,6 +844,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
     const result = await check({
       ...manualContext(others, s.patches, s.utterances, s.checks),
+      // 共有された人の編集も、持ち主のノートの下の資料と照らし合わせる（ADR 0019）
+      ...materialContext(await materialsOf(s), s.checks),
       utterance: { text: u.text, speaker: u.speaker, saidAt: u.saidAt },
       patch: draft,
     });
@@ -864,12 +894,17 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     let lines = s.lines;
     const has = (text: string) => s.lines.some((l) => l.text === text);
     const written = original.status === 'applied' && has(original.text);
+    // 相手が資料の行（ADR 0019）。資料は書き換えないので、資料の行はノートに無いものとして扱う。
+    // 同じ資料から作ったノートに同じ文の行があっても、それを相手と取り違えない。前からある確認には materialRef が無い
+    const m = chk.materialRef ?? null;
+    const keepMaterial = m !== null && body.text === chk.conflictLine;
     // 食い違っていた相手の行が今は無いこともある（確定済みの行を書き換えた編集、確定の前に相手の行を直したとき）。
     // そのときは書いた行を確定した内容にし、どちらの行も無ければ確定の記録だけ残す（#83・#86）
-    const target = has(chk.conflictLine) ? chk.conflictLine : written ? original.text : null;
-    // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる
+    const target = m ? (written ? original.text : null) : has(chk.conflictLine) ? chk.conflictLine : written ? original.text : null;
+    // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる。
+    // 資料のままに決まったら、資料の行が残るので書いた行を消す
     let merge: Patch | null = null;
-    if (target === chk.conflictLine && written) {
+    if ((!m && target === chk.conflictLine && written) || (keepMaterial && written)) {
       merge = {
         id: randomUUID(),
         utteranceId: answer.id,
@@ -884,7 +919,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       lines = applyPatch(lines, merge);
     }
     let fix: Patch | null = null;
-    if (target !== null && body.text !== target) {
+    if (!keepMaterial && target !== null && body.text !== target) {
       fix = {
         id: randomUUID(),
         utteranceId: answer.id,
@@ -897,6 +932,27 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         appliedAt: now(),
       };
       applyPatch(lines, fix);
+    } else if (m && !keepMaterial && original.status !== 'applied') {
+      // 資料と食い違った口頭の記録が、資料と違う内容に決まった。資料は書き換えないので、元のパッチの位置に書く。
+      // 書き込まないことにした記録でも、ノートの行が相手のとき（相手の行を書き換える）と同じく、決まった内容は書く
+      fix = {
+        id: randomUUID(),
+        utteranceId: answer.id,
+        op: original.op,
+        line: original.line,
+        text: body.text,
+        summary: `確認：${note}`,
+        status: 'applied',
+        createdAt: now(),
+        appliedAt: now(),
+      };
+      try {
+        applyPatch(lines, fix);
+      } catch (e) {
+        // 位置の行がもう無ければ末尾に足す
+        if (!(e instanceof PatchError)) throw e;
+        fix = { ...fix, op: 'insert', line: null };
+      }
     }
     await store.put(s.owner, manualId, 'utterances', answer);
     if (merge) await store.put(s.owner, manualId, 'patches', merge);

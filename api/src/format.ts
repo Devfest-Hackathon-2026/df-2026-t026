@@ -50,6 +50,7 @@ export async function readNoteWithGemini(files: InlineFile[], generate: Generate
     files,
     // 考えさせると、まとめた分だけ遅くなった（既定で中央値約27秒、LOW で約6秒。ADR 0012）
     thinkingLevel: ThinkingLevel.LOW,
+    label: 'read',
   });
   return {
     title: out.title.trim(),

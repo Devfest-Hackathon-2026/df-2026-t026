@@ -1,4 +1,4 @@
-import { ApiError, GoogleGenAI, type HttpOptions, type ThinkingLevel } from '@google/genai';
+import { ApiError, GoogleGenAI, type HttpOptions, type GenerateContentResponseUsageMetadata as UsageMetadata, type ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 
 export interface JsonRequest<T> {
@@ -12,6 +12,27 @@ export interface JsonRequest<T> {
   hedgeMs?: number;
   /** 考える量。書き写すだけの呼び出しは LOW にして速くする。省略するとモデルの既定 */
   thinkingLevel?: ThinkingLevel;
+  /** 使ったトークンのログに出す呼び出しの名前（assess・check など） */
+  label?: string;
+  /** 使った応答のトークンと時間を受け取る。評価で合計するのに使う */
+  onUsage?: (u: Usage) => void;
+}
+
+/**
+ * 使った応答のトークンと時間。暗黙のコンテキストキャッシュが効いているか（cachedContentTokenCount ÷ promptTokenCount）と、
+ * 並べて送った本数を見る（ADR 0019 設計書 §9 段階A）
+ */
+export interface Usage {
+  label: string | null;
+  /** 使った応答が何本目か（1始まり）と、それまでに送った本数 */
+  attempt: number;
+  sent: number;
+  /** 1本目を送ってから使った応答を受け取るまで */
+  seconds: number;
+  promptTokenCount: number | null;
+  cachedContentTokenCount: number | null;
+  candidatesTokenCount: number | null;
+  thoughtsTokenCount: number | null;
 }
 
 /** base64 で受け渡すファイル・音声 */
@@ -84,14 +105,15 @@ export const generateJson: GenerateJson = (req) => requestJson(gemini(), req);
  */
 export function requestJson<T>(
   ai: GoogleGenAI,
-  { system, prompt, schema, files, hedgeMs = HEDGE_MS, thinkingLevel }: JsonRequest<T>,
+  { system, prompt, schema, files, hedgeMs = HEDGE_MS, thinkingLevel, label, onUsage }: JsonRequest<T>,
   delayMs = 1000,
 ): Promise<T> {
   const jsonSchema = toGeminiSchema(schema);
   const stop = new AbortController();
+  const started = performance.now();
   let badShape = 0;
 
-  type Outcome = { value: T } | { error: unknown; retry: boolean };
+  type Outcome = { value: T; usage?: UsageMetadata } | { error: unknown; retry: boolean };
   async function send(n: number): Promise<Outcome> {
     const text = prompt + '\n'.repeat(n);
     let res;
@@ -112,7 +134,7 @@ export function requestJson<T>(
       return { error: e, retry: retryable(e) };
     }
     try {
-      return { value: schema.parse(JSON.parse(res.text ?? '')) };
+      return { value: schema.parse(JSON.parse(res.text ?? '')), usage: res.usageMetadata };
     } catch (e) {
       return { error: new Error(`Gemini の応答が想定の形になりませんでした: ${e}`), retry: ++badShape <= 1 };
     }
@@ -123,6 +145,21 @@ export function requestJson<T>(
     let running = 0;
     let done = false;
     let next: ReturnType<typeof setTimeout> | undefined;
+    // Cloud Logging で1行の JSON として読める形で出す
+    const report = (attempt: number, m: UsageMetadata) => {
+      const usage: Usage = {
+        label: label ?? null,
+        attempt,
+        sent,
+        seconds: Math.round((performance.now() - started) / 100) / 10,
+        promptTokenCount: m.promptTokenCount ?? null,
+        cachedContentTokenCount: m.cachedContentTokenCount ?? null,
+        candidatesTokenCount: m.candidatesTokenCount ?? null,
+        thoughtsTokenCount: m.thoughtsTokenCount ?? null,
+      };
+      console.log(JSON.stringify({ message: 'gemini usage', ...usage }));
+      onUsage?.(usage);
+    };
     const finish = (f: () => void) => {
       done = true;
       clearTimeout(next);
@@ -138,7 +175,10 @@ export function requestJson<T>(
       void send(n).then((r) => {
         running--;
         if (done) return;
-        if ('value' in r) return finish(() => resolve(r.value));
+        if ('value' in r) {
+          if (r.usage) report(n + 1, r.usage);
+          return finish(() => resolve(r.value));
+        }
         if (!r.retry) return finish(() => reject(r.error));
         if (sent < MAX_ATTEMPTS) {
           clearTimeout(next);
