@@ -105,6 +105,7 @@ class AppText {
     required this.small,
     required this.label,
     required this.input,
+    required this.inputArea,
   });
 
   /// 内容の頭に置く題名
@@ -117,8 +118,12 @@ class AppText {
   /// タグ・確認印・アバターなど、小さく太い文字
   final TextStyle label;
 
-  /// 入力欄の文字。iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないので、16 以上にする（調査17）
+  /// 入力欄の文字。iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないので、16 以上にする（調査17）。
+  /// 1行の欄（MoonTextInput）は行の高さを決めない（Moon の既定と同じ。決めると Web で文字が下に寄る）
   final TextStyle input;
+
+  /// 複数行の入力欄（MoonTextArea）の文字。input と同じ大きさで、行の間は本文と同じにする
+  final TextStyle inputArea;
 
 }
 
@@ -249,7 +254,8 @@ ThemeData appTheme() {
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
     label: printBold.copyWith(fontSize: 12, height: 1.2),
-    input: printed.copyWith(fontSize: 16, height: 1.6),
+    input: printed.copyWith(fontSize: 16),
+    inputArea: printed.copyWith(fontSize: 16, height: 1.7),
   );
 
   final moonColors = MoonColors.light.copyWith(
@@ -309,7 +315,7 @@ ThemeData appTheme() {
     ),
   );
   final areaBase = MoonTextAreaTheme(tokens: moonTokens);
-  final textAreaTheme = areaBase.copyWith(properties: areaBase.properties.copyWith(textStyle: text.input));
+  final textAreaTheme = areaBase.copyWith(properties: areaBase.properties.copyWith(textStyle: text.inputArea));
 
   return ThemeData(
     colorScheme: ColorScheme.light(

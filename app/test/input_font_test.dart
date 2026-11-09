@@ -19,6 +19,7 @@ void main() {
         })));
     final k = ctx.tokens;
     expect(k.text.input.fontSize, greaterThanOrEqualTo(16));
+    expect(k.text.inputArea.fontSize, greaterThanOrEqualTo(16));
     final moon = Theme.of(ctx).extension<MoonTheme>()!;
     final sizes = moon.textInputTheme.sizes;
     for (final (name, s) in [('sm', sizes.sm), ('md', sizes.md), ('lg', sizes.lg), ('xl', sizes.xl)]) {

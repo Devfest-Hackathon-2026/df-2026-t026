@@ -41,8 +41,8 @@ void main() {
   });
 
   // iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さない（調査17）。
-  // 入力欄の文字の大きさを決めるなら、入力欄の文字（k.text.input、16px 以上）だけにする。付けなければテーマの既定（16px 以上）になる
-  test('入力欄に文字の大きさを付けるなら、入力欄の文字（text.input）だけ', () {
+  // 入力欄の文字の大きさを決めるなら、入力欄の文字（k.text.input・inputArea、16px 以上）だけにする。付けなければテーマの既定（16px 以上）になる
+  test('入力欄に文字の大きさを付けるなら、入力欄の文字（text.input・inputArea）だけ', () {
     final call = RegExp(r'\b(MoonTextInput|MoonTextArea)\(');
     final violations = <String>[];
     for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
@@ -55,9 +55,17 @@ void main() {
           if (src[i] == ')' && --depth == 0) break;
         }
         final args = src.substring(m.end, i);
-        final style = RegExp(r'\btextStyle:\s*([^,\n]+)').firstMatch(args)?.group(1);
-        if (style != null && !style.contains('.text.input')) {
-          violations.add('${f.path}:${src.substring(0, m.start).split('\n').length} ${m[1]} の textStyle: $style');
+        // 引数のいちばん外側の style:・textStyle: だけを見る（中の Text(style: …) などは入力欄の文字ではない）
+        var d = 0;
+        for (var j = 0; j < args.length; j++) {
+          final ch = args[j];
+          if ('([{'.contains(ch)) d++;
+          if (')]}'.contains(ch)) d--;
+          if (d != 0) continue;
+          final named = RegExp(r'^(textStyle|style):\s*([^,\n]+)').firstMatch(args.substring(j));
+          if (named != null && (j == 0 || !RegExp(r'\w').hasMatch(args[j - 1])) && !named.group(2)!.contains('.text.input')) {
+            violations.add('${f.path}:${src.substring(0, m.start).split('\n').length} ${m[1]} の ${named.group(1)}: ${named.group(2)}');
+          }
         }
       }
     }
