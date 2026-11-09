@@ -8,8 +8,10 @@ import '../api.dart';
 import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'check_list_screen.dart';
 import 'common.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 enum _Outcome { keep, adopt, custom }
 
@@ -59,7 +61,8 @@ class _CheckDetailState extends State<CheckDetail> {
   late final _custom = TextEditingController(text: widget.c.state!.patch(_initial.patchId).text);
   final _note = TextEditingController();
   String _decidedAt = today();
-  var _outcome = _Outcome.adopt;
+  // 相手が確定済みの記録なら、そのまま押しても前の確定を覆さないよう「ノートのまま」から始める
+  late var _outcome = widget.c.state!.confirmedRecordFor(_initial) != null ? _Outcome.keep : _Outcome.adopt;
   var _busy = false;
 
   /// 確定の入力欄を開いたか。急がせないよう、利用者が「確認できたので記録する」を押すまで閉じておく
@@ -106,6 +109,7 @@ class _CheckDetailState extends State<CheckDetail> {
         final p = s.patch(chk.patchId);
         final u = s.utterance(chk.utteranceId);
         final who = '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）';
+        final confirmed = s.confirmedRecordFor(chk);
         return PaperSheet(
           padding: EdgeInsets.all(k.space.xl),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -123,13 +127,29 @@ class _CheckDetailState extends State<CheckDetail> {
               right: p.text,
               settled: !chk.isOpen,
             ),
+            // 相手が確定済みの記録なら、その記録を証拠として比較のすぐ下に出す
+            if (confirmed != null) ...[
+              SizedBox(height: k.space.md),
+              _evidence(
+                confirmed.resolution!,
+                onTap: () =>
+                    openCheckViaList(Navigator.of(context), widget.c, confirmed.id, settings: aboveNote(context)),
+              ),
+            ],
             SizedBox(height: k.space.md),
             Text(chk.reason, style: k.text.body),
+            if (confirmed != null) ...[
+              SizedBox(height: k.space.md),
+              _copyable('記録を見せる', _showRecord(confirmed.resolution!), '記録を見せる文をコピーする'),
+            ],
             if (chk.isOpen) ...[
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
-              if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
+              if (chk.question != null) ...[
+                SizedBox(height: k.space.md),
+                _copyable('聞き方の例', chk.question!, '聞き方をコピーする'),
+              ],
               SizedBox(height: k.space.xxl),
               // 確定はノートの持ち主だけがする（ADR 0013）
               if (s.sharedBy case final owner?)
@@ -193,7 +213,8 @@ class _CheckDetailState extends State<CheckDetail> {
     );
   }
 
-  Widget _question(String q) {
+  /// 聞き方の例・記録を見せる文。そのまま相手に送れるようコピーできる
+  Widget _copyable(String label, String text, String copyLabel) {
     final k = context.tokens;
     return Container(
       padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.sm, k.space.md),
@@ -201,16 +222,16 @@ class _CheckDetailState extends State<CheckDetail> {
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('聞き方の例', style: k.text.small),
+            Text(label, style: k.text.small),
             SizedBox(height: k.space.xs),
-            Text(q, style: k.text.body),
+            Text(text, style: k.text.body),
           ]),
         ),
         MoonButton.icon(
-          semanticLabel: '聞き方をコピーする',
+          semanticLabel: copyLabel,
           icon: Icon(LucideIcons.copy, color: k.colors.ink),
           onTap: () async {
-            await Clipboard.setData(ClipboardData(text: q));
+            await Clipboard.setData(ClipboardData(text: text));
             if (mounted) showToast(context, 'コピーしました');
           },
         ),
@@ -312,10 +333,10 @@ class _CheckDetailState extends State<CheckDetail> {
     );
   }
 
-  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる
-  Widget _evidence(Resolution r) {
+  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる。onTap があれば押すとその確認の記録を開く
+  Widget _evidence(Resolution r, {VoidCallback? onTap}) {
     final k = context.tokens;
-    return Container(
+    final box = Container(
       padding: EdgeInsets.all(k.space.xl),
       decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
       child: Row(children: [
@@ -330,5 +351,19 @@ class _CheckDetailState extends State<CheckDetail> {
         ConfirmStamp(who: r.decidedBy, day: r.decidedAt),
       ]),
     );
+    if (onTap == null) return box;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box),
+    );
+  }
+
+  /// 相手に見せる・言うための文。AI に作らせず、確定の記録から組み立てる。
+  /// メモを書かずに確定すると決まった内容がメモに入るので、そのときはかっこを付けない
+  String _showRecord(Resolution r) {
+    final decided = plain(r.text);
+    final memo = r.note.trim();
+    final note = memo.isEmpty || memo == decided ? '' : '（$memo）';
+    return '${fmtDay(r.decidedAt)} に${r.decidedBy}に確認して、「$decided」に決まっています$note。';
   }
 }
