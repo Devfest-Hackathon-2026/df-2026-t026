@@ -424,7 +424,7 @@ void main() {
     await tester.pumpAndSettle();
     expect((x(pill) - x(_tab('確認リスト'))).abs(), lessThan(1));
 
-    // そこから「ノート」でノートに入れ替えると、ノートの流れの中なので確認リストの位置から動く
+    // そこから「ノート」でノートに入れ替えると、新しいノートの画面になるので、カプセルは動かずにノートの位置に出る
     await tester.tap(_tab('ノート'));
     await tester.pump();
     await tester.pumpAndSettle();
