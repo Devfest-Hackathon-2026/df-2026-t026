@@ -345,19 +345,28 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
       else
-        Row(children: [
+        _buttons([
           MoonTextButton(
             onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id)),
             label: const Text('それでも書き込む'),
           ),
-          const Spacer(),
-          MoonFilledButton(
+        ], MoonFilledButton(
             onTap: _busy ? null : () => _run(() => c.discardPatch(p.id)),
             leading: _busy ? const ButtonLoader() : null,
             label: const Text('書き込まない'),
-          ),
-        ]),
+          )),
     ];
+  }
+
+  /// 控えめな操作を左、主ボタンを右に置く。スマホの幅で1行に収まらなければ、主ボタンを次の行に送る
+  Widget _buttons(List<Widget> secondary, Widget primary) {
+    final k = context.tokens;
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      runSpacing: k.space.xs,
+      children: [Row(mainAxisSize: MainAxisSize.min, children: secondary), primary],
+    );
   }
 
   List<Widget> _approvable(ManualController c, Patch p) {
@@ -372,7 +381,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '反映しない', style: k.text.small)
       else
-        Row(children: [
+        _buttons([
           MoonTextButton(
             onTap: _busy ? null : () => _run(() => c.discardPatch(p.id)),
             label: const Text('書き込まない'),
@@ -387,13 +396,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
             }),
             label: Text(edit == null ? '書き込む内容を直す' : 'やめる'),
           ),
-          const Spacer(),
-          MoonFilledButton(
-            onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id, text: edit?.text.trim())),
-            leading: _busy ? const ButtonLoader() : null,
-            label: const Text('ノートに書き込む'),
-          ),
-        ]),
+        ], MoonFilledButton(
+          onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id, text: edit?.text.trim())),
+          leading: _busy ? const ButtonLoader() : null,
+          label: const Text('ノートに書き込む'),
+        )),
     ];
   }
 }
