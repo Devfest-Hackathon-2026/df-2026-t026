@@ -87,11 +87,16 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
 
 /// マイクの代わり。test が流した PCM をそのまま渡す
 class _FakeMic implements AudioRecorder {
-  _FakeMic(this.pcm);
+  _FakeMic(this.pcm, {this.allowed = true, this.onAsked});
   final StreamController<Uint8List> pcm;
+  final bool allowed;
+  final VoidCallback? onAsked;
 
   @override
-  Future<bool> hasPermission({bool request = true}) async => true;
+  Future<bool> hasPermission({bool request = true}) async {
+    onAsked?.call();
+    return allowed;
+  }
 
   @override
   Future<Stream<Uint8List>> startStream(RecordConfig config) async => pcm.stream;
@@ -151,7 +156,12 @@ class _FakeSink implements WebSocketSink {
 }
 
 Future<void> _pumpInput(WidgetTester tester, http.Client client,
-    {StreamController<Uint8List>? mic, _FakeSocket? socket, List<PickedFile> picked = const [], Size size = const Size(1200, 1400)}) async {
+    {StreamController<Uint8List>? mic,
+    bool micAllowed = true,
+    VoidCallback? onMicAsked,
+    _FakeSocket? socket,
+    List<PickedFile> picked = const [],
+    Size size = const Size(1200, 1400)}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -160,18 +170,16 @@ Future<void> _pumpInput(WidgetTester tester, http.Client client,
     theme: appTheme(),
     home: InputScreen(
       api: api,
-      newRecorder: mic == null ? AudioRecorder.new : () => _FakeMic(mic),
+      newRecorder: mic == null ? AudioRecorder.new : () => _FakeMic(mic, allowed: micAllowed, onAsked: onMicAsked),
       pickFiles: () async => picked,
     ),
   ));
   await tester.pumpAndSettle();
 }
 
-/// リワインドのタブを開き、常時待ち受けを ON にする
+/// リワインドのタブを開く。開くと常時待ち受けが始まる
 Future<void> _startRewind(WidgetTester tester) async {
   await tester.tap(find.text('リワインド'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byType(MoonSwitch));
   await tester.pumpAndSettle();
 }
 
@@ -371,17 +379,24 @@ void main() {
     expect(find.byType(MoonTextArea), findsNothing);
   });
 
-  testWidgets('常時待ち受けを ON にすると、送っていないことの案内と音量を出し、選んだことを覚える', (tester) async {
-    await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
-    // 前回 OFF なら「整理・入力」から始まる
+  testWidgets('リワインドに切り替えると待ち受けを始めて送っていないことの案内と音量を出し、整理・入力に切り替えると止める', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
+    // 前回リワインドを開いていなければ「整理・入力」から始まる
     expect(find.byType(MoonTextArea), findsOneWidget);
-    expect(find.byType(MoonSwitch), findsNothing);
+    expect(mic.hasListener, isFalse);
 
     await _startRewind(tester);
 
+    expect(mic.hasListener, isTrue);
     expect(find.text('端末内で直前60秒を保持中（送信していません）'), findsOneWidget);
     expect(find.byType(MoonLinearProgress), findsOneWidget);
     expect((await SharedPreferences.getInstance()).getBool(listeningKey), isTrue);
+
+    await tester.tap(find.text('整理・入力'));
+    await tester.pumpAndSettle();
+    expect(mic.hasListener, isFalse);
+    expect((await SharedPreferences.getInstance()).getBool(listeningKey), isFalse);
   });
 
   testWidgets('切り出すと、押した時刻の発話だけを書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
@@ -540,6 +555,39 @@ void main() {
 
     // 1秒の発話に前後300msの余白を足した長さだけで、騒音の部分は切り出さない
     expect(base64Decode(sent!['data']).length, 44 + 1600 * 16 * 2);
+  });
+
+  testWidgets('マイクを使えなければ、許可を求める案内とボタンを出し、ほかの所を押しても開き直さない', (tester) async {
+    var asked = 0;
+    await _pumpInput(tester, _client((_) async => _json({})),
+        mic: StreamController(), micAllowed: false, onMicAsked: () => asked++);
+    await _startRewind(tester);
+
+    expect(asked, 1);
+    expect(find.text('マイクを使えません。ブラウザの設定でマイクを許可してください'), findsOneWidget);
+    expect(find.text('画面のどこかを押すと、待ち受けを再開します'), findsNothing);
+
+    await tester.tap(find.text('未整理メモ'));
+    await tester.pumpAndSettle();
+    expect(asked, 1);
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '待ち受けを始める'));
+    await tester.pumpAndSettle();
+    expect(asked, 2);
+  });
+
+  testWidgets('リワインドから開いて最初に「整理・入力」を押したら、マイクを開かない', (tester) async {
+    SharedPreferences.setMockInitialValues({listeningKey: true});
+    var asked = 0;
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, onMicAsked: () => asked++);
+
+    await tester.tap(find.text('整理・入力'));
+    await tester.pumpAndSettle();
+
+    expect(asked, 0);
+    expect(mic.hasListener, isFalse);
+    expect(find.byType(MoonTextArea), findsOneWidget);
   });
 
   testWidgets('待ち受けのマイクが止まったら知らせ、再開のしかたを出す', (tester) async {
@@ -726,13 +774,16 @@ void main() {
         (name: 'メモ.txt', type: 'text/plain', bytes: Uint8List(8)),
       ],
     );
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルを添える'));
+    await tester.tap(find.bySemanticsLabel('ファイルを添える'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ファイルを選ぶ'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.bySemanticsLabel('メモ.PNG'), findsOneWidget);
     expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
     expect(find.text('メモ.txt'), findsNothing);
+    expect(find.text('ファイルを選ぶ'), findsNothing);
     expect(find.text('添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です'), findsOneWidget);
     await _waitToast(tester);
 
