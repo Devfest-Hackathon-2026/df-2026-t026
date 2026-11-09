@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -87,8 +89,14 @@ class _InputScreenState extends State<InputScreen> {
 
   final _memos = <Memo>[];
 
-  /// 確認を開かずに書き込んだ結果。入力欄の下にカードで出し、次に記録するか、閉じるまで残す（#112）
+  /// 確認を開かずに書き込んだ結果。入力欄の下にカードで出し、次に記録するか、閉じるか、
+  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）
   ({List<Recorded> records, List<ReviewTarget> targets})? _result;
+  final _resultKey = GlobalKey();
+  final _scroll = ScrollController();
+
+  /// ほかの画面がこのページの上に重なっているか。戻ってきたら入力欄の見える位置から始める（#119）
+  var _covered = false;
 
   /// 書き直している未整理メモ
   Memo? _editingMemo;
@@ -122,8 +130,23 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 上に別のページが重なると、このページは描かれず TickerMode が切れる。ダイアログ（「確かめる」など）では切れないので、
+    // ダイアログを閉じただけでは送らない。サイドバーは pushAndRemoveUntil・removeRoute で移るので、_push では拾えない
+    final shown = TickerMode.valuesOf(context).enabled;
+    if (_covered && shown) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+      });
+    }
+    _covered = !shown;
+  }
+
+  @override
   void dispose() {
     widget.api.changes.removeListener(_follow);
+    _scroll.dispose();
     _text.dispose();
     _memoText.dispose();
     _stopWatchingDrops();
@@ -135,13 +158,29 @@ class _InputScreenState extends State<InputScreen> {
 
   /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
   Future<List<ManualState>> _load() async {
+    // 読み始めより後に出したカードは、この読み込みより新しいので比べない
+    final shown = _result;
     // 失敗を ParallelWaitError で包まず、画面にそのまま出せる ApiException で受ける
     final ids = await Future.wait([
       widget.api.listManuals().then((l) => [for (final m in l) m.id]),
       widget.api.listShared().then((l) => [for (final m in l) m.id]),
     ]);
-    return Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
+    final manuals = await Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
+    if (mounted && shown != null && shown == _result && _outdated(shown.records, manuals)) {
+      setState(() => _result = null);
+    }
+    return manuals;
   }
+
+  /// 結果のカードが古くなったか。カードの食い違いが1つでもほかの画面で確定された、またはノートが消された・共有を外されたら、
+  /// カードの見出しと比較はもう今と合わない。残りの食い違いは下の「あとで確認」に出ている（#119）
+  static bool _outdated(List<Recorded> records, List<ManualState> manuals) => records.any((r) {
+        final now = manuals.where((m) => m.id == r.manualId).firstOrNull;
+        return now == null ||
+            r.state.checks
+                .where((c) => c.utteranceId == r.utteranceId && c.isOpen)
+                .any((c) => now.checkOf(c.patchId)?.isOpen != true);
+      });
 
   void _reload() {
     setState(() {
@@ -421,6 +460,7 @@ class _InputScreenState extends State<InputScreen> {
         ];
         if (await writeOrReview(context, targets) && mounted) {
           setState(() => _result = (records: r.results, targets: targets));
+          WidgetsBinding.instance.addPostFrameCallback((_) => _revealResult());
         }
       }
     } on ApiException catch (e) {
@@ -430,6 +470,24 @@ class _InputScreenState extends State<InputScreen> {
         setState(() => _busy = false);
         _reload();
       }
+    }
+  }
+
+  /// 結果のカードを、見出しから下の端まで見える所へ送る。画面より高いカードは見出しを上の端に合わせる。
+  /// 見えていれば動かさない。動きを減らす設定（Web では prefers-reduced-motion）なら、動かさずに移る
+  void _revealResult() {
+    final card = _resultKey.currentContext?.findRenderObject();
+    if (!mounted || card == null || !_scroll.hasClients) return;
+    final viewport = RenderAbstractViewport.of(card);
+    final top = viewport.getOffsetToReveal(card, 0).offset;
+    final bottom = viewport.getOffsetToReveal(card, 1).offset;
+    final p = _scroll.position;
+    final to = p.pixels.clamp(math.min(top, bottom), top).clamp(p.minScrollExtent, p.maxScrollExtent).toDouble();
+    if (to == p.pixels) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      p.jumpTo(to);
+    } else {
+      p.animateTo(to, duration: context.tokens.scrollToResult, curve: Curves.easeOutCubic);
     }
   }
 
@@ -577,7 +635,7 @@ class _InputScreenState extends State<InputScreen> {
           _rewind ? _unsorted(manuals, noteWidth: noteWidth) : _recent(manuals, noteWidth: noteWidth);
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
-        child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
+        child: ListView(controller: _scroll, padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
           PageTitle(
             '言われたことを記録',
             // ON にしても題名とトグルの位置は変えず、ページを移った感じを出さない
@@ -839,6 +897,7 @@ class _InputScreenState extends State<InputScreen> {
     return [
       SizedBox(height: context.tokens.space.lg),
       RecordResultCard(
+        key: _resultKey,
         records: r.records,
         onReview: () => showReview(context, r.targets),
         onClose: () => setState(() => _result = null),

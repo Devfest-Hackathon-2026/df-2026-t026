@@ -139,8 +139,9 @@ class _Server {
   final List<List<(Map<String, dynamic>, String)>> intakes;
   final posted = <String>[];
 
-  /// 一覧と GET で返すノート。照らし合わせる前の状態でかまわない
-  final _notes = {'m1': _kitchen(), 'm2': _hall([])};
+  /// 一覧と GET で返すノート。照らし合わせると、照らし合わせた直後の状態に置き換わる。
+  /// テストで書き換えると、ほかの画面で確定した・ノートを消したことにできる
+  final notes = {'m1': _kitchen(), 'm2': _hall([])};
 
   late final api = Api(client: MockClient(_handle), baseUrl: 'http://api');
 
@@ -148,10 +149,14 @@ class _Server {
     final path = req.url.path;
     if (req.method == 'POST' && path == '/utterances') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
+      final results = intakes.removeAt(0);
+      for (final (s, _) in results) {
+        notes[s['manual']['id']] = s;
+      }
       return _json({
         'text': body['text'],
         'results': [
-          for (final (s, u) in intakes.removeAt(0)) {'manualId': s['manual']['id'], 'utteranceId': u, 'state': s},
+          for (final (s, u) in results) {'manualId': s['manual']['id'], 'utteranceId': u, 'state': s},
         ],
       }, 201);
     }
@@ -159,11 +164,11 @@ class _Server {
     if (path == '/shared' || path == '/memos') return _json([]);
     if (path == '/manuals') {
       return _json([
-        for (final s in _notes.values)
+        for (final s in notes.values)
           {'id': s['manual']['id'], 'title': s['manual']['title'], 'utteranceCount': 1, 'openCount': 0},
       ]);
     }
-    return _json(_notes[req.url.pathSegments[1]]!);
+    return _json(notes[req.url.pathSegments[1]]!);
   }
 }
 
@@ -383,5 +388,129 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
     expect(_card, findsNothing);
+  });
+
+  // #119：記録したらカードの所まで送る。古くなったカードは残さず、ほかの画面から戻ったら入力欄から始める
+  const pc = Size(1280, 657);
+
+  /// カードの見出しと比較が、上部バーの下から画面の下の端までに見えているか
+  void expectCardShown(WidgetTester tester, Size size) {
+    expect(tester.getRect(_inCard(find.text('ノートと食い違っています'))).top,
+        greaterThanOrEqualTo(tester.getRect(find.byType(TopBar)).bottom));
+    expect(tester.getRect(_inCard(find.byType(ConflictPair))).bottom, lessThanOrEqualTo(size.height));
+  }
+
+  for (final size in const [pc, Size(390, 844)]) {
+    testWidgets('記録すると、結果のカードの見出しと比較が見える所まで送る（$size）', (tester) async {
+      await _pump(tester, [
+        [(_kitchen(), 'u1')],
+      ], size: size);
+      await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+      expectCardShown(tester, size);
+    });
+  }
+
+  /// 記録して、時間を進めずに数枚描く。送る動きはまだ進まない
+  Future<void> recordWithoutTime(WidgetTester tester) async {
+    await tester.enterText(find.byType(MoonTextArea), '田中さんから、塩は小さじ1/2でいいと言われた');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump();
+    }
+    expect(_card, findsOneWidget);
+  }
+
+  testWidgets('ふだんは、カードの所まで動いて送る', (tester) async {
+    await _pump(tester, [
+      [(_kitchen(), 'u1')],
+    ], size: pc);
+    await recordWithoutTime(tester);
+    expect(tester.getRect(_inCard(find.byType(ConflictPair))).bottom, greaterThan(pc.height));
+    await tester.pumpAndSettle();
+    expectCardShown(tester, pc);
+  });
+
+  testWidgets('動きを減らす設定なら、動かさずにカードの所へ移る', (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    await _pump(tester, [
+      [(_kitchen(), 'u1')],
+    ], size: pc);
+    await recordWithoutTime(tester);
+    expectCardShown(tester, pc);
+  });
+
+  testWidgets('カードの食い違いをほかの画面で確定したら、読み直したときにカードを消す', (tester) async {
+    final server = await _pump(tester, [
+      [(_kitchen(), 'u1')],
+    ]);
+    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+
+    // 読み直しても、食い違いがまだ確認待ちなら残す
+    server.api.changes.value++;
+    await tester.pumpAndSettle();
+    expect(_card, findsOneWidget);
+
+    final settled = _kitchen();
+    ((settled['checks'] as List).first as Map<String, dynamic>)['resolution'] = {
+      'utteranceId': 'a1',
+      'patchId': null,
+      'decidedBy': '店長',
+      'answeredBy': null,
+      'decidedAt': '2026-11-10',
+      'text': _half,
+      'note': '1/2で統一',
+    };
+    server.notes['m1'] = settled;
+    server.api.changes.value++;
+    await tester.pumpAndSettle();
+    expect(_card, findsNothing);
+    expect(find.text('ノートと食い違っています'), findsNothing);
+  });
+
+  testWidgets('カードのノートが消されたら、読み直したときにカードを消す', (tester) async {
+    final server = await _pump(tester, [
+      [(_hall(['addition']), 'u2')],
+    ]);
+    await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
+
+    // 食い違いの無いカードは、読み直しても残す
+    server.api.changes.value++;
+    await tester.pumpAndSettle();
+    expect(_card, findsOneWidget);
+
+    server.notes.remove('m2');
+    server.api.changes.value++;
+    await tester.pumpAndSettle();
+    expect(_card, findsNothing);
+  });
+
+  testWidgets('ほかの画面からサイドバーで戻ると、入力欄が見える位置から始める。ダイアログを閉じただけでは動かさない', (tester) async {
+    await _pump(tester, [
+      [(_kitchen(), 'u1')],
+    ], size: pc);
+    final area = find.byType(MoonTextArea);
+    final start = tester.getRect(area).top;
+    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+    final scrolled = tester.getRect(area).top;
+    expect(scrolled, lessThan(start));
+
+    // 「確かめる」の確認を開いて閉じても、カードの所に留まる
+    await tester.tap(_inCard(find.widgetWithText(MoonTextButton, '確かめる')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(area).top, scrolled);
+
+    await tester.tap(find.widgetWithText(MoonMenuItem, 'あとで確認'));
+    await tester.pumpAndSettle();
+    expect(find.byType(OpenChecksScreen), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonMenuItem, '言われたことを記録'));
+    await tester.pumpAndSettle();
+    expect(find.byType(OpenChecksScreen), findsNothing);
+    expect(tester.getRect(area).top, start);
+    // 食い違いはまだ確認待ちなので、カードは残っている
+    expect(_card, findsOneWidget);
   });
 }
