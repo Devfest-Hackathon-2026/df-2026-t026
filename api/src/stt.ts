@@ -1,6 +1,6 @@
 import { protos, v2 } from '@google-cloud/speech';
 
-import type { InlineFile } from './gemini.ts';
+import { isRule, unmark, type InlineFile } from './gemini.ts';
 
 /*
  * 音声の書き起こし（ADR 0005）。常時待ち受けの切り出しとテキスト欄の音声入力の両方で使う。
@@ -100,7 +100,7 @@ export const dictateWithSpeech: Dictate = async (phrases, on) => {
 
 /** 見出しと各項目の頭の語（「## 味噌汁」→「味噌汁」、「- 塩 小さじ1」→「塩」）。重複は除く */
 export function phraseHints(lines: string[]): string[] {
-  const words = lines.map((l) => l.replace(/^(?:- |## )/, '').split(/[\sはをにがの、（]/)[0]);
+  const words = lines.filter((l) => !isRule(l)).map((l) => unmark(l).split(/[\sはをにがの、（]/)[0]);
   return [...new Set(words.filter((w) => w && w.length <= MAX_PHRASE_CHARS))].slice(0, MAX_PHRASES);
 }
 

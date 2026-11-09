@@ -16,9 +16,13 @@ import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
 const useGemini = process.env.AI === 'gemini';
 const store: Store = process.env.STORE === 'firestore' ? new FirestoreStore() : new MemoryStore();
 await seedWithHistory(store, 'demo');
-// ローカルで試すときのアカウント。本番のアカウントは scripts/create-account.ts で作る（ADR 0009）
+// ローカルで試すときのアカウント。本番に配ったのと同じ ID でも入れるようにするが、パスワードはどれもローカル専用の
+// demo にし、本番のパスワードはリポジトリに入れない。本番のアカウントは scripts/create-account.ts で作る（ADR 0009）
+const localIds = ['demo', 'kanade', 'haruto', 'hikaru', 'chinatsu'];
 if (store instanceof MemoryStore) {
-  await store.putAccount({ id: 'demo', ...(await hashPassword('demo')), createdAt: new Date().toISOString() });
+  for (const id of localIds) {
+    await store.putAccount({ id, ...(await hashPassword('demo')), createdAt: new Date().toISOString() });
+  }
 }
 
 const app = createApp({
@@ -36,5 +40,5 @@ const port = Number(process.env.PORT ?? 8787);
 const websocket = { server: new WebSocketServer({ noServer: true }) };
 serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? '127.0.0.1', websocket }, () => {
   console.log(`api: http://localhost:${port}（AI=${useGemini ? 'gemini' : 'fake'}, STORE=${process.env.STORE ?? 'memory'}）`);
-  if (store instanceof MemoryStore) console.log('ログイン: ID demo / パスワード demo');
+  if (store instanceof MemoryStore) console.log(`ログイン: ID ${localIds.join('・')}（パスワードはどれも demo）`);
 });
