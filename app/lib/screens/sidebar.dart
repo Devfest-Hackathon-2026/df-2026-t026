@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
@@ -102,7 +103,16 @@ class _SidebarState extends State<_Sidebar> {
                 ),
               ),
             ),
-            _item('言われたことを記録', selected: widget.place == Place.input, onTap: () => _go(null)),
+            _item(
+              '言われたことを記録',
+              selected: widget.place == Place.input,
+              // 新しく書き始める所なので、チャットの「新しいチャット」と同じペンと四角のアイコンを付ける（違和感 #4）
+              leading: SizedBox(
+                width: k.sidebarLeading,
+                child: Icon(LucideIcons.squarePen, size: k.sidebarIcon, color: k.colors.ink),
+              ),
+              onTap: () => _go(null),
+            ),
             SizedBox(height: k.space.lg),
             _item('ノート', selected: widget.place == Place.manuals, onTap: () => _go(HomeScreen(api: widget.api))),
             for (final m in snap.data ?? const <ManualSummary>[])
