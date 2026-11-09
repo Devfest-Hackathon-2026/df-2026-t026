@@ -162,8 +162,11 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// マニュアルを貼り付ける欄の高さ
   final double editorHeight = 320;
 
-  /// 入力ページで言われたことを書く欄の高さ
+  /// 入力ページで言われたことを書く欄の高さ（下の添付・マイクの行を含む）
   final double composerHeight = 160;
+
+  /// 書く欄の下の、添付・マイクのボタンを置く行の高さ
+  final double composerTools = 48;
 
   /// 入力ページの最近の記録に並べる付箋の幅
   final double stickyWidth = 220;

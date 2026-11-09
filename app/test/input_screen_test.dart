@@ -545,6 +545,42 @@ void main() {
     expect(find.text('入力欄に入れました'), findsNothing);
   });
 
+  for (final size in const [Size(390, 844), Size(1200, 1400)]) {
+    testWidgets('書く欄は、例文・カーソル・書いた文字がそろって左上から始まる（$size）', (tester) async {
+      await _pumpInput(tester, _client((_) async => _json({})), size: size);
+
+      final area = find.byType(MoonTextArea);
+      final field = find.descendant(of: area, matching: find.byType(EditableText));
+      final box = tester.getRect(area);
+      final hint = tester.getRect(find.text('例: 田中さんから、塩は小さじ1/2でいいと言われた'));
+      // 例文とカーソルは同じ高さ。余白（12）の分だけ下から始まる（前はカーソルだけ 40 下、expands では真ん中だった）
+      expect((tester.getRect(field).top - hint.top).abs(), lessThanOrEqualTo(1));
+      expect(hint.top - box.top, lessThanOrEqualTo(13));
+
+      await tester.enterText(field, '田中さんから\n塩は小さじ1/2でいいと言われた');
+      await tester.pumpAndSettle();
+      expect(tester.getRect(field).top - box.top, lessThanOrEqualTo(13));
+      // 添付とマイクのボタンは、文字の下の行に置く（文字がボタンの下に潜らない）
+      for (final label in ['ファイルを添える', '声で入力する']) {
+        expect(tester.getRect(find.bySemanticsLabel(label)).top, greaterThanOrEqualTo(box.bottom), reason: label);
+      }
+    });
+  }
+
+  testWidgets('未整理メモを書き直す欄も、文字が左上から始まる', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじいち').toJson())],
+    });
+    await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
+    await _startRewind(tester);
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+
+    final area = find.widgetWithText(MoonTextArea, '塩は小さじいち');
+    final field = find.descendant(of: area, matching: find.byType(EditableText));
+    expect(tester.getRect(field).top - tester.getRect(area).top, lessThanOrEqualTo(17));
+  });
+
   testWidgets('リワインドの間は、未整理メモを押すとその場で書き直して保存できる', (tester) async {
     SharedPreferences.setMockInitialValues({
       memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじいち').toJson())],

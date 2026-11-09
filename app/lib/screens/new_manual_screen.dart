@@ -63,10 +63,10 @@ class _NewManualScreenState extends State<NewManualScreen> {
               Text('今あるマニュアルやメモは、そのまま貼り付けてください。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
                   '無ければ空のままで、白紙から書き始められます。', style: k.text.small),
               SizedBox(height: k.space.sm),
+              // expands を付けると moon_design 1.1.0 は文字を欄の縦の真ん中に置く。高さだけ決めて、文字・カーソル・例文を左上から始める
               MoonTextArea(
                 controller: _body,
                 height: k.editorHeight,
-                expands: true,
                 textStyle: k.text.body,
                 onChanged: (_) => setState(() {}),
               ),
