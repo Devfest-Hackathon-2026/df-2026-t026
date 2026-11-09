@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -190,20 +192,25 @@ class LineText extends StatelessWidget {
   }
 }
 
-/// 名前の頭文字のアバター
+/// 名前の頭文字のアバター。image があれば、その画像を出す
 class Avatar extends StatelessWidget {
-  const Avatar(this.name, {super.key});
+  const Avatar(this.name, {super.key, this.image, this.large = false});
   final String? name;
+  final Uint8List? image;
+
+  /// 名前とアイコンのページで大きく出す
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     final n = name == null || name!.isEmpty ? '?' : name!;
     return MoonAvatar(
-      avatarSize: MoonAvatarSize.xs,
+      avatarSize: large ? MoonAvatarSize.x2l : MoonAvatarSize.xs,
       borderRadius: k.radius.round,
       backgroundColor: k.colors.avatar,
-      content: Text(n.characters.first, style: k.text.label),
+      backgroundImage: image == null ? null : MemoryImage(image!),
+      content: image == null ? Text(n.characters.first, style: large ? k.text.display : k.text.label) : null,
     );
   }
 }
