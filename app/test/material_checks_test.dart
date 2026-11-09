@@ -461,6 +461,32 @@ void main() {
     });
   }
 
+  // 審査員の指摘4回目：資料と食い違ったときの既定が口頭の側（田中さんの言う通り）なのは危うい
+  for (final size in const [_narrow, _wide]) {
+    testWidgets('資料と食い違ったら、まだ確定が無くても、聞いた結果の欄は「資料のまま」から始まる（$size）', (tester) async {
+      final server = await _pump(tester, _oral(), (c) => _checkPage(c, size, 'c1'));
+      await _openForm(tester);
+      // どれも選ばずに確認済みにすると、資料の行の文で確定する
+      await _confirm(tester);
+      expect(server.resolved, containsPair('text', _mat));
+    });
+  }
+
+  testWidgets('共有された人の答える欄も、資料と食い違ったら「資料のまま」から始まる', (tester) async {
+    final shared = _oral()
+      ..['me'] = 'sato'
+      ..['sharedBy'] = {'id': 'kanade', 'name': 'かなで'};
+    final server = await _pump(tester, shared, (c) => _checkPage(c, _narrow, 'c1'));
+    expect(find.text('どちらにする？'), findsOneWidget);
+    final answer = find.widgetWithText(MoonFilledButton, '答えて確定する');
+    await tester.ensureVisible(answer);
+    await tester.pumpAndSettle();
+    await tester.tap(answer);
+    await tester.pumpAndSettle();
+    expect(server.resolved, containsPair('text', _mat));
+    await tester.pump(const Duration(seconds: 10));
+  });
+
   testWidgets('「資料のまま」に確定した記録と食い違ったら、聞いた結果の欄は「資料のまま」から始まる', (tester) async {
     final server = await _pump(tester, _saidAgain(_kept(), _half), (c) => _checkPage(c, _narrow, 'c2'));
     await _openForm(tester);
@@ -666,22 +692,26 @@ void main() {
   });
 
   group('入力ページの結果のカード', () {
-    Future<void> pumpCard(WidgetTester tester, Map<String, dynamic> j, String utteranceId, {Size size = _wide}) async {
+    Future<_Server> pumpCard(WidgetTester tester, Map<String, dynamic> j, String utteranceId,
+        {Size size = _wide, Map<String, dynamic> Function(Map<String, dynamic> body)? afterResolve}) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
+      final server = _Server(j, afterResolve: afterResolve);
       await tester.pumpWidget(MaterialApp(
         theme: appTheme(),
         home: Scaffold(
           body: SingleChildScrollView(
             child: RecordResultCard(
               records: [(manualId: 'm1', utteranceId: utteranceId, state: ManualState.fromJson(j))],
-              onReview: () {},
+              targets: [(c: server.controller, utteranceId: utteranceId)],
+              onSettling: (_) {},
               onClose: () {},
             ),
           ),
         ),
       ));
+      return server;
     }
 
     for (final size in const [_narrow, _wide]) {
@@ -698,6 +728,37 @@ void main() {
       expect(tester.widget<ConflictPair>(find.byType(ConflictPair)).leftLabel, _where);
       expect(find.text('11/7 店長に確認：資料の通り'), findsOneWidget);
       expect(find.text('11/7 に店長に確認して、「味噌汁の塩は小さじ1」に決まっています（資料の通り）。'), findsOneWidget);
+    });
+
+    // 審査員の指摘4回目：結果のカードで決着できるようにする。名前は確認のページと同じ（#121・#124）
+    for (final size in const [_narrow, _wide]) {
+      testWidgets('「資料のまま」の確定と食い違ったら、カードの主のボタンは「記録を見せて、資料のままにする」（$size）', (tester) async {
+        final server = await pumpCard(tester, _saidAgain(_kept(), _half), 'u3',
+            size: size, afterResolve: (body) => _shownWith(_saidAgain(_kept(), _half), body));
+        expect(find.text('記録を見せて、ノートのままにする'), findsNothing);
+        final keep = find.widgetWithText(MoonFilledButton, '記録を見せて、資料のままにする');
+        await tester.ensureVisible(keep);
+        await tester.tap(keep);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(server.resolved, {'shownFrom': 'c1'});
+        expect(find.text('11/10 自分が記録を見せた（11/7 店長に確認：資料の通り）'), findsOneWidget);
+        expect(find.byType(MoonFilledButton), findsNothing);
+        await tester.pump(const Duration(seconds: 10));
+      });
+    }
+
+    testWidgets('資料と違う内容に決まった確定と食い違ったら、カードの主のボタンは「記録を見せて、確定した内容にする」', (tester) async {
+      final server = await pumpCard(tester, _saidAgain(_changed(), _two), 'u3',
+          afterResolve: (body) => _shownWith(_saidAgain(_changed(), _two), body));
+      expect(find.text('記録を見せて、資料のままにする'), findsNothing);
+      final keep = find.widgetWithText(MoonFilledButton, '記録を見せて、確定した内容にする');
+      await tester.ensureVisible(keep);
+      await tester.tap(keep);
+      await tester.pumpAndSettle();
+      expect(server.resolved, {'shownFrom': 'c1'});
+      expect(find.text('11/10 自分が記録を見せた（11/7 店長に確認：1/2で統一）'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10));
     });
 
     testWidgets('資料と同じ内容なら「資料と同じ内容でした」と、資料の箇所つきの行', (tester) async {

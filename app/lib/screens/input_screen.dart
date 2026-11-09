@@ -93,6 +93,9 @@ class _InputScreenState extends State<InputScreen> {
   /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）
   ({List<Recorded> records, List<ReviewTarget> targets})? _result;
   final _resultKey = GlobalKey();
+
+  /// 結果のカードで記録を見せて決着させた食い違い。ほかの画面での確定と違い、カードはそれを映しているので消さない
+  final _settledOnCard = <String>{};
   final _scroll = ScrollController();
 
   /// ほかの画面がこのページの上に重なっているか。戻ってきたら入力欄の見える位置から始める（#119）
@@ -166,19 +169,20 @@ class _InputScreenState extends State<InputScreen> {
       widget.api.listShared().then((l) => [for (final m in l) m.id]),
     ]);
     final manuals = await Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
-    if (mounted && shown != null && shown == _result && _outdated(shown.records, manuals)) {
+    if (mounted && shown != null && shown == _result && _outdated(shown.records, manuals, _settledOnCard)) {
       setState(() => _result = null);
     }
     return manuals;
   }
 
   /// 結果のカードが古くなったか。カードの食い違いが1つでもほかの画面で確定された、またはノートが消された・共有を外されたら、
-  /// カードの見出しと比較はもう今と合わない。残りの食い違いは下の「あとで確認」に出ている（#119）
-  static bool _outdated(List<Recorded> records, List<ManualState> manuals) => records.any((r) {
+  /// カードの見出しと比較はもう今と合わない。残りの食い違いは下の「あとで確認」に出ている（#119）。
+  /// settled はカードで決着させた食い違いで、カードが決着した形で映しているので比べない
+  static bool _outdated(List<Recorded> records, List<ManualState> manuals, Set<String> settled) => records.any((r) {
         final now = manuals.where((m) => m.id == r.manualId).firstOrNull;
         return now == null ||
             r.state.checks
-                .where((c) => c.utteranceId == r.utteranceId && c.isOpen)
+                .where((c) => c.utteranceId == r.utteranceId && c.isOpen && !settled.contains(c.id))
                 .any((c) => now.checkOf(c.patchId)?.isOpen != true);
       });
 
@@ -459,7 +463,10 @@ class _InputScreenState extends State<InputScreen> {
           for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
         ];
         if (await writeOrReview(context, targets) && mounted) {
-          setState(() => _result = (records: r.results, targets: targets));
+          setState(() {
+            _result = (records: r.results, targets: targets);
+            _settledOnCard.clear();
+          });
           WidgetsBinding.instance.addPostFrameCallback((_) => _revealResult());
         }
       }
@@ -899,7 +906,8 @@ class _InputScreenState extends State<InputScreen> {
       RecordResultCard(
         key: _resultKey,
         records: r.records,
-        onReview: () => showReview(context, r.targets),
+        targets: r.targets,
+        onSettling: _settledOnCard.add,
         onClose: () => setState(() => _result = null),
       ),
     ];

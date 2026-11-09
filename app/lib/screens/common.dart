@@ -502,6 +502,16 @@ String? shownByText(ManualState s, Resolution r) => switch (r.shown) {
       null => null,
     };
 
+/// 相手の行が書き換えられてもうノートに無いか。そのときは「ノートのまま」だと今のノートの行と読めてしまう（#86）。
+/// 資料の行はもともとノートに無いので見ない
+bool counterpartGone(ManualState s, Check c) => c.materialRef == null && !s.lines.any((l) => l.text == c.conflictLine);
+
+/// 確定済みの記録 r を見せて済ませるボタンの名前。確認のページと結果のカードで同じにする（#121・#124）
+String keepByRecordLabel(ManualState s, Check c, Resolution r) {
+  if (c.materialRef != null) return r.text == c.conflictLine ? '記録を見せて、資料のままにする' : '記録を見せて、確定した内容にする';
+  return counterpartGone(s, c) ? '記録を見せて、書き換える前に戻す' : '記録を見せて、ノートのままにする';
+}
+
 /// 食い違い・同じ内容の相手の見出し。資料なら「資料「店舗マニュアル」p.3」、ノートなら「ノート」（ADR 0019）
 String counterpartLabel(Check c) => c.materialRef?.label ?? 'ノート';
 
