@@ -8,10 +8,10 @@ import { z } from 'zod';
 
 import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
-import { manualContext, materialContext, type Check, type CheckPatch } from './conflict/check.ts';
+import { manualContext, materialContext, type Check, type CheckPatch, type Resolution } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
-import type { InlineFile } from './gemini.ts';
+import { unmark, type InlineFile } from './gemini.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import { cleanLines, materialLines, materialText, openPdf, splitImages, splitPdf, type Material, type MaterialPart, type ReadMaterial } from './material.ts';
 import type { Memo, Share, Store } from './store.ts';
@@ -143,13 +143,17 @@ const Edit = z
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
 const NewShare = z.object({ userId: z.string().trim().min(1, '共有する相手のログイン ID を入れてください') });
-const Resolve = z.object({
-  /** 確認した相手。共有された人が答えるときは送らない（ADR 0017） */
-  decidedBy: z.string().trim().min(1).optional(),
-  decidedAt: date,
-  text: z.string().trim().min(1),
-  note: z.string().trim().default(''),
-});
+const Resolve = z.union([
+  /** 聞き直さず、前の確定（その確認の id）の記録を見せて済ませる（#118）。決めた人・日付・内容・メモは前の確定から引き継ぐ */
+  z.object({ shownFrom: z.string().min(1) }),
+  z.object({
+    /** 確認した相手。共有された人が答えるときは送らない（ADR 0017） */
+    decidedBy: z.string().trim().min(1).optional(),
+    decidedAt: date,
+    text: z.string().trim().min(1),
+    note: z.string().trim().default(''),
+  }),
+]);
 
 /** 持ち主が直接編集したときの発言者。共有された人の編集は、その人の名前にする（ADR 0013） */
 const SELF = '自分';
@@ -157,6 +161,8 @@ const SELF = '自分';
 const now = () => new Date().toISOString();
 const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+/** YYYY-MM-DD → 11/7（アプリの fmtDay と同じ形） */
+const monthDay = (ymd: string) => `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}`;
 
 /** 資料のファイルを、読み取りに送るまとまりに分ける。1冊は PDF 1つか画像だけ（NewMaterial で確かめた） */
 async function partsOf(files: InlineFile[]): Promise<MaterialPart[]> {
@@ -546,8 +552,13 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     ...manualContext(s.lines, s.patches, s.utterances, s.checks),
     ...materialContext(materials, s.checks),
   });
-  const speakersOf = (states: State[]) =>
-    [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
+  // 記録を見せた発言は見せた人の行いで、言われたことではないので、発言者に数えない（#118）
+  const speakersOf = (states: State[]) => {
+    const shown = new Set(states.flatMap((s) => s.checks.flatMap((c) => (c.resolution?.shown ? [c.resolution.utteranceId] : []))));
+    return [
+      ...new Set(states.flatMap((s) => s.utterances.filter((u) => !shown.has(u.id)).map((u) => u.speaker)).filter((x): x is string => !!x)),
+    ];
+  };
 
   /** 発言と、その差分の候補・分類を、ノートの持ち主の下に保存する */
   async function propose(owner: string, manualId: string, utterance: Utterance, items: AssessResult['items']) {
@@ -875,21 +886,6 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (chk.kind !== 'contradiction' || chk.resolution || !chk.conflictLine) {
       throw new HTTPException(409, { message: 'この項目は確定できません' });
     }
-    // 共有された人は、自分の答えとして確定する。決めた人は送られた名前でなく、ログインしている人にする（ADR 0017）
-    const answeredBy = s.sharedBy ? userId : undefined;
-    const decidedBy = answeredBy ? await nameOf(userId) : body.decidedBy;
-    if (!decidedBy) throw new HTTPException(400, { message: '確認した相手を入れてください' });
-    // 本人の答えは、答えた日（日本時間の今日）に決めたものとして残す
-    const decidedAt = answeredBy ? todayInJapan() : body.decidedAt;
-    const note = body.note || body.text;
-    const answer: Utterance = {
-      id: randomUUID(),
-      text: note,
-      speaker: decidedBy,
-      saidAt: decidedAt,
-      recordedBy: await recorder(userId),
-      createdAt: now(),
-    };
     const original = find(s.patches, chk.patchId, '差分');
     let lines = s.lines;
     const has = (text: string) => s.lines.some((l) => l.text === text);
@@ -897,14 +893,60 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     // 相手が資料の行（ADR 0019）。資料は書き換えないので、資料の行はノートに無いものとして扱う。
     // 同じ資料から作ったノートに同じ文の行があっても、それを相手と取り違えない。前からある確認には materialRef が無い
     const m = chk.materialRef ?? null;
-    const keepMaterial = m !== null && body.text === chk.conflictLine;
+    const recordedBy = await recorder(userId);
+    let decision: Omit<Resolution, 'utteranceId' | 'patchId'>;
+    /** ノートに当てる、決まった内容 */
+    let text: string;
+    let answer: Utterance;
+    if ('shownFrom' in body) {
+      const prev = find(s.checks, body.shownFrom, '確認').resolution;
+      if (!prev) throw new HTTPException(409, { message: '見せる確定の記録がありません' });
+      const today = todayInJapan();
+      // 決めたのは前の人なので、共有された人が押しても、その人の答え（ADR 0017）にはしない
+      decision = {
+        decidedBy: prev.decidedBy,
+        ...(prev.answeredBy && { answeredBy: prev.answeredBy }),
+        decidedAt: prev.decidedAt,
+        text: prev.text,
+        note: prev.note,
+        shown: { by: recordedBy, at: today },
+      };
+      // ノートの行が相手なら今の行のまま（補足で書き換わった行を前の内容に戻さない）。行がもう無ければ前の内容に戻す（#86）
+      text = !m && has(chk.conflictLine) ? chk.conflictLine : prev.text;
+      // 前に決めた人はこのとき何も言っていないので、その人の発言にせず、見せた人の行いとして残す
+      answer = {
+        id: randomUUID(),
+        text: `${monthDay(prev.decidedAt)} ${prev.decidedBy}${prev.answeredBy ? 'が決定' : 'に確認'}した記録（${unmark(prev.note)}）を見せた`,
+        speaker: recordedBy.name,
+        saidAt: today,
+        recordedBy,
+        createdAt: now(),
+      };
+    } else {
+      // 共有された人は、自分の答えとして確定する。決めた人は送られた名前でなく、ログインしている人にする（ADR 0017）
+      const answeredBy = s.sharedBy ? userId : undefined;
+      const decidedBy = answeredBy ? await nameOf(userId) : body.decidedBy;
+      if (!decidedBy) throw new HTTPException(400, { message: '確認した相手を入れてください' });
+      // 本人の答えは、答えた日（日本時間の今日）に決めたものとして残す
+      const decidedAt = answeredBy ? todayInJapan() : body.decidedAt;
+      const note = body.note || body.text;
+      decision = { decidedBy, ...(answeredBy && { answeredBy }), decidedAt, text: body.text, note };
+      text = body.text;
+      answer = { id: randomUUID(), text: note, speaker: decidedBy, saidAt: decidedAt, recordedBy, createdAt: now() };
+    }
+    const note = decision.note;
+    const keepMaterial = m !== null && text === chk.conflictLine;
+    // 記録を見せて済ませるとき、決まった内容の行がほかにもうノートにあれば足さず、書いた行があればそれを消す。
+    // 資料と違う内容に決まっていた確定を見せたときに、同じ行が2つにならないように（#118）
+    const settled = !!decision.shown && s.lines.some((l) => l.text === text && l.patchId !== original.id);
+    const keep = keepMaterial || settled;
     // 食い違っていた相手の行が今は無いこともある（確定済みの行を書き換えた編集、確定の前に相手の行を直したとき）。
     // そのときは書いた行を確定した内容にし、どちらの行も無ければ確定の記録だけ残す（#83・#86）
     const target = m ? (written ? original.text : null) : has(chk.conflictLine) ? chk.conflictLine : written ? original.text : null;
     // 直接書いた行はもう反映済みなので、食い違っていた2行を確定した内容の1行にまとめる。
     // 資料のままに決まったら、資料の行が残るので書いた行を消す
     let merge: Patch | null = null;
-    if ((!m && target === chk.conflictLine && written) || (keepMaterial && written)) {
+    if ((!m && target === chk.conflictLine && written) || (keep && written)) {
       merge = {
         id: randomUUID(),
         utteranceId: answer.id,
@@ -919,20 +961,20 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       lines = applyPatch(lines, merge);
     }
     let fix: Patch | null = null;
-    if (!keepMaterial && target !== null && body.text !== target) {
+    if (!keep && target !== null && text !== target) {
       fix = {
         id: randomUUID(),
         utteranceId: answer.id,
         op: 'replace',
         line: target,
-        text: body.text,
+        text,
         summary: `確認：${note}`,
         status: 'applied',
         createdAt: now(),
         appliedAt: now(),
       };
       applyPatch(lines, fix);
-    } else if (m && !keepMaterial && original.status !== 'applied') {
+    } else if (m && !keep && original.status !== 'applied') {
       // 資料と食い違った口頭の記録が、資料と違う内容に決まった。資料は書き換えないので、元のパッチの位置に書く。
       // 書き込まないことにした記録でも、ノートの行が相手のとき（相手の行を書き換える）と同じく、決まった内容は書く
       fix = {
@@ -940,7 +982,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         utteranceId: answer.id,
         op: original.op,
         line: original.line,
-        text: body.text,
+        text,
         summary: `確認：${note}`,
         status: 'applied',
         createdAt: now(),
@@ -962,15 +1004,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     }
     const resolved: Check = {
       ...chk,
-      resolution: {
-        utteranceId: answer.id,
-        patchId: fix?.id ?? null,
-        decidedBy,
-        ...(answeredBy && { answeredBy }),
-        decidedAt,
-        text: body.text,
-        note,
-      },
+      resolution: { utteranceId: answer.id, patchId: fix?.id ?? null, ...decision },
     };
     await store.put(s.owner, manualId, 'checks', resolved);
     return c.json(await load(userId, manualId));

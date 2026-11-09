@@ -54,6 +54,9 @@ class ManualController extends ChangeNotifier {
   }) async =>
       _set(await api.resolve(manualId, checkId, decidedBy: decidedBy, decidedAt: decidedAt, text: text, note: note));
 
+  Future<void> resolveByRecord(String checkId, {required String shownFrom}) async =>
+      _set(await api.resolveByRecord(manualId, checkId, shownFrom: shownFrom));
+
   /// 直接編集の確かめは画面を閉じた後に返ることがあるので、閉じた後は受け取らない
   var _disposed = false;
 

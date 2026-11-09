@@ -617,7 +617,10 @@ class _ManualScreenState extends State<ManualScreen> {
   }
 
   List<String> _statuses(ManualState s, Utterance u) {
-    if (s.resolvedChecks.any((c) => c.resolution!.utteranceId == u.id)) return ['確認の答え'];
+    // 記録を見せて済ませた確定の発言は、見せた人の行いで、確認の答えではない（#118）
+    if (s.resolvedChecks.where((c) => c.resolution!.utteranceId == u.id).firstOrNull case final c?) {
+      return [c.isDecision ? '確認の答え' : '記録を見せた'];
+    }
     final patches = s.patchesOf(u.id);
     if (patches.isEmpty) return ['差分なし'];
     return patches.map((p) {

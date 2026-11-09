@@ -348,7 +348,7 @@ class _Who extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final r = x.onBranch ? null : x.check?.resolution;
+    final r = _decided(x);
     // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
     if (r != null) {
       return Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb);
@@ -360,7 +360,7 @@ class _Who extends StatelessWidget {
 
 /// グラフの1行に置く、誰が・いつ。アバターを外し、本文と一緒に省けるよう文の一部にする
 InlineSpan _whoSpan(AppTokens k, Commit x) {
-  final r = x.onBranch ? null : x.check?.resolution;
+  final r = _decided(x);
   // 確定した版は、小さい確認印でなく、誰に確認したかを文で添える
   if (r != null) {
     return TextSpan(children: [
@@ -376,6 +376,12 @@ InlineSpan _whoSpan(AppTokens k, Commit x) {
   }
   return TextSpan(text: _createdDay(x));
 }
+
+/// 版を作った確定。記録を見せて済ませた確定の版は、見せた人の行い（その発言）として見せるので null（#118）
+Resolution? _decided(Commit x) => switch (x.check?.resolution) {
+      final r? when !x.onBranch && r.shown == null => r,
+      _ => null,
+    };
 
 /// ノートを作った版の日付
 String _createdDay(Commit x) => fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(x.at).toLocal()));
@@ -415,7 +421,7 @@ class _Changes extends StatelessWidget {
 
 String _message(Commit x) => switch (x) {
       Commit(said: null) => 'ノートを作った',
-      Commit(onBranch: false, check: Check(resolution: final r?)) => r.note,
+      Commit(onBranch: false, check: Check(resolution: final r?)) when r.shown == null => r.note,
       // 直接編集の記録は書いた行そのもの（「- 」付き）なので、人に見せる形にする
       Commit(said: final u?) => plain(u.text),
     };

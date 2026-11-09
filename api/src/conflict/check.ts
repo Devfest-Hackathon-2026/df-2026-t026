@@ -52,6 +52,11 @@ export interface Resolution {
   /** 確定した行の内容 */
   text: string;
   note: string;
+  /**
+   * 聞き直さず、前の確定の記録を見せて済ませたとき（#118）。中身は前の確定の写しで、見せた人（ADR 0018 の記録した人と同じ形）と日を足す。
+   * 判定には前の確定が載るので、これは載せない
+   */
+  shown?: { by: { id: string; name: string }; at: string };
 }
 
 export interface Check extends CheckResult {
@@ -92,12 +97,17 @@ export function manualContext(
   checks: Check[],
 ): Pick<ManualContext, 'lines' | 'confirmations'> {
   const confirmedPatch = new Set(checks.map((c) => c.resolution?.patchId).filter(Boolean));
-  // 資料の行が相手の確認は materialContext の側だけに出す。資料の行と同じ文のノートの行を、その裏付けと取り違えない
-  const noteChecks = checks.filter((c) => c.materialRef == null);
+  // 記録を見せて済ませた確定で書いた行は、答えの発言が見せた人の行いなので、元の確定の人と日付で書く（#118）
+  const shownFix = new Map(checks.flatMap((c) => (c.resolution?.shown && c.resolution.patchId ? [[c.resolution.patchId, c.resolution] as const] : [])));
+  // 資料の行が相手の確認は materialContext の側だけに出す。資料の行と同じ文のノートの行を、その裏付けと取り違えない。
+  // 記録を見せて済ませた確定は、前の確定が載っていれば足りるので重ねて載せない（#118）
+  const noteChecks = checks.filter((c) => c.materialRef == null && !c.resolution?.shown);
   const source = (patchId: string | null) => {
     const p = patches.find((x) => x.id === patchId);
     const u = utterances.find((x) => x.id === p?.utteranceId);
     if (!p || !u) return null;
+    const shown = shownFix.get(p.id);
+    if (shown) return `${shown.decidedBy}（${shown.decidedAt}）に確認して確定`;
     return `${u.speaker ?? '不明'}（${u.saidAt}）${confirmedPatch.has(p.id) ? 'に確認して確定' : 'から'}`;
   };
   // 同じことを言った人がいれば裏付けとして添える。後の判定で、その行の重みを Gemini が読めるように
@@ -120,14 +130,14 @@ export function manualContext(
 
 /**
  * 資料と、資料に結び付いた確定（ADR 0019）。manualContext と合わせて ManualContext にする。
- * 消した資料の確定は、指せる行が無いので見せない（#86）
+ * 消した資料の確定は、指せる行が無いので見せない（#86）。記録を見せて済ませた確定は、前の確定と重なるので見せない（#118）
  */
 export function materialContext(materials: Material[], checks: Check[]): Pick<ManualContext, 'materials' | 'materialConfirmations'> {
   const ids = new Set(materials.map((m) => m.id));
   return {
     materials: materials.map((m) => ({ id: m.id, title: m.title, lines: materialLines(m) })),
     materialConfirmations: checks.flatMap(({ materialRef: m, resolution: r, conflictLine }) =>
-      m && r && ids.has(m.materialId)
+      m && r && !r.shown && ids.has(m.materialId)
         ? [
             {
               materialId: m.materialId,

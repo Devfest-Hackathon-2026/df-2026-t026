@@ -213,6 +213,11 @@ class Api {
         'note': note,
       }));
 
+  /// 聞き直さず、前の確定（shownFrom はその確認の id）の記録を見せて確定する。決めた人・日付・内容はサーバーが前の確定から引き継ぐ（#118）
+  Future<ManualState> resolveByRecord(String manualId, String checkId, {required String shownFrom}) async =>
+      ManualState.fromJson(
+          await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {'shownFrom': shownFrom}));
+
   Future<dynamic> _send(String method, String path, [Map<String, dynamic>? body]) async {
     final req = http.Request(method, Uri.parse('$baseUrl$path'));
     if (token case final t?) req.headers['Authorization'] = 'Bearer $t';

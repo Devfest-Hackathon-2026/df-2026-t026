@@ -134,7 +134,8 @@ class _MaterialScreenState extends State<MaterialScreen> {
     } else {
       final here = s.checksAt(widget.materialId, lineNo);
       open.addAll(here.where((x) => x.isOpen));
-      final confirmed = here.where((x) => x.resolution != null).lastOrNull;
+      // 記録を見せて済ませた確定は元の確定を指すので、印は元の確定に付ける（#118）
+      final confirmed = here.where((x) => x.isDecision).lastOrNull;
       final r = confirmed?.resolution;
       final bar = open.isNotEmpty ? k.colors.pending : (confirmed != null ? k.colors.added : null);
       final marks = <Widget>[
