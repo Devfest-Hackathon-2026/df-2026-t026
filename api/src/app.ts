@@ -12,7 +12,7 @@ import { manualContext, type Check, type CheckPatch } from './conflict/check.ts'
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
-import type { Share, Store } from './store.ts';
+import type { Memo, Share, Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
@@ -74,14 +74,21 @@ const NewIntake = z
     /** 利用者が選んだマニュアル。省略すると関係するマニュアルを判定する */
     manualIds: z.array(z.string().min(1)).min(1).optional(),
     today: date.optional(),
+    /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0014） */
+    memoIds: z.array(z.string().min(1)).default([]),
   })
   .refine((b) => b.text || b.files.length > 0, '言われたことを書くか、ファイルか録音を添えてください')
   .refine(
     (b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS,
     'ファイルと録音は合わせて10MBまでにしてください',
   );
+// 切り出しボタンを押した時刻。端末の時計で決まるので、端末をまたいで並べられるよう UTC で受ける
+const memoAt = z.iso.datetime();
 // リワインドの切り出し。アプリは発話のかたまり（最長で約1分）だけを送る
-const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS) });
+const NewListen = z.object({ data: z.base64().min(1).max(MAX_ATTACHMENT_CHARS), at: memoAt });
+// 端末内に置いていた前の版の未整理メモを移すときだけ使う
+const NewMemo = z.object({ at: memoAt, text: z.string().trim().min(1) });
+const EditMemo = z.object({ text: z.string().trim().min(1, 'メモを書いてください') });
 /** 音声入力で受ける PCM の上限（16kHz・16bit で65秒）。アプリは60秒で止める */
 const MAX_DICTATION_BYTES = 16000 * 2 * 65;
 const EditUtterance =z.object({
@@ -403,16 +410,49 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
     const results = await record(userId, states, text, body.today ?? todayInJapan(), !!body.manualIds);
+    // 記録先を選び直してもらうときは、送り直すまでメモを残す
+    if (results.length > 0) await Promise.all(body.memoIds.map((id) => store.removeMemo(userId, id)));
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
     return c.json({ text, results }, results.length > 0 ? 201 : 200);
   });
 
-  // リワインドの切り出し。書き起こすだけで記録はしない（アプリが未整理メモとして端末にためる）
+  // リワインドの切り出し。書き起こして未整理メモにためるだけで、ノートには記録しない（ADR 0005・0014）
   app.post('/listen', async (c) => {
     const body = NewListen.parse(await c.req.json());
     const text = await listen({ mimeType: 'audio/wav', data: body.data }, phrasesOf(await loadAll(c.var.userId)));
     if (!text) throw new HTTPException(422, { message: '聞き取れませんでした。言われた直後にもう一度押してください' });
-    return c.json({ text });
+    const memo: Memo = { id: randomUUID(), at: body.at, text };
+    await store.putMemo(c.var.userId, memo);
+    return c.json(memo, 201);
+  });
+
+  // 未整理メモはサーバーに置き、どの端末からも同じものを見る（ADR 0014）
+  app.get('/memos', async (c) => {
+    const memos = await store.listMemos(c.var.userId);
+    return c.json(memos.sort((a, b) => a.at.localeCompare(b.at)));
+  });
+
+  app.post('/memos', async (c) => {
+    const body = NewMemo.parse(await c.req.json());
+    const memo: Memo = { id: randomUUID(), ...body };
+    await store.putMemo(c.var.userId, memo);
+    return c.json(memo, 201);
+  });
+
+  app.patch('/memos/:id', async (c) => {
+    const { userId } = c.var;
+    const body = EditMemo.parse(await c.req.json());
+    const found = await store.getMemo(userId, c.req.param('id'));
+    if (!found) throw new HTTPException(404, { message: 'メモが見つかりません。ほかの端末で消したか、記録したようです' });
+    const memo = { ...found, text: body.text };
+    await store.putMemo(userId, memo);
+    return c.json(memo);
+  });
+
+  // ほかの端末で先に消していても、消したい結果は同じなので失敗にしない
+  app.delete('/memos/:id', async (c) => {
+    await store.removeMemo(c.var.userId, c.req.param('id'));
+    return c.body(null, 204);
   });
 
   // テキスト欄の音声入力。PCM を受けるたびに途中の文面（{text}）を返し、"end" を受けたら

@@ -126,7 +126,7 @@ class _RewindPanelState extends State<RewindPanel> with AutomaticKeepAliveClient
   Future<void> _transcribe(Uint8List wav, DateTime at) async {
     setState(() => _transcribing++);
     try {
-      widget.onMemo(Memo(at: at, text: await widget.api.listen(wav)));
+      widget.onMemo(await widget.api.listen(wav, at));
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {

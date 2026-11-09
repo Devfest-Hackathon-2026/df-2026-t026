@@ -198,18 +198,26 @@ class Attachment {
   final Uint8List bytes;
 }
 
-/// リワインドで切り出して書き起こした未整理メモ。端末内（shared_preferences）にだけ置く（ADR 0005）
+/// リワインドで切り出して書き起こした未整理メモ。サーバーに置き、端末をまたいで同じものを見る（ADR 0014）
 class Memo {
-  Memo({required this.at, required this.text});
+  Memo({required this.id, required this.at, required this.text});
   Memo.fromJson(Map<String, dynamic> j)
-      : at = DateTime.parse(j['at']),
+      : id = j['id'],
+        at = DateTime.parse(j['at']).toLocal(),
         text = j['text'];
+
+  final String id;
 
   /// 切り出しボタンを押した時刻
   final DateTime at;
   final String text;
 
-  Map<String, dynamic> toJson() => {'at': at.toIso8601String(), 'text': text};
+  // 読み直すと別のオブジェクトになるので、書き直し中・入力欄に入れた印を id で引き継ぐ
+  @override
+  bool operator ==(Object other) => other is Memo && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 typedef Recorded = ({String manualId, String utteranceId, ManualState state});

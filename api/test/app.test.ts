@@ -531,7 +531,7 @@ test('入力ページから：中身が無い、受け付けない形式のフ�
   assert.equal((await call('POST', '/utterances', { files: [{ mimeType: 'video/mp4', data }] })).status, 400);
 });
 
-test('リワインド：切り出した録音を書き起こすだけで、記録はしない', async () => {
+test('リワインド：切り出した録音を書き起こして未整理メモにためるだけで、ノートには記録しない', async () => {
   const heard: string[][] = [];
   const store = new MemoryStore();
   await seed(store, 'demo');
@@ -540,10 +540,12 @@ test('リワインド：切り出した録音を書き起こすだけで、記�
   const res = await rewind.request('/listen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...auth },
-    body: JSON.stringify({ data: Buffer.from('RIFF').toString('base64') }),
+    body: JSON.stringify({ data: Buffer.from('RIFF').toString('base64'), at: '2026-11-03T05:05:00.000Z' }),
   });
-  assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { text: '塩は小さじ1/2' });
+  assert.equal(res.status, 201);
+  const memo = (await res.json()) as any;
+  assert.deepEqual(memo, { id: memo.id, at: '2026-11-03T05:05:00.000Z', text: '塩は小さじ1/2' });
+  assert.deepEqual(await store.listMemos('demo'), [memo]);
   assert.ok(heard[0].includes('塩'));
   assert.equal((await store.list('demo', 'demo-kitchen', 'utterances')).length, 0);
 });
@@ -554,8 +556,47 @@ test('リワインド：聞き取れなければ 422、録音が無ければ 400
   const silent = createApp({ store, ...ai, listen: async () => '' });
   const post = (body: unknown) =>
     silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(body) });
-  assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
-  assert.equal((await post({ data: '' })).status, 400);
+  const at = '2026-11-03T05:05:00.000Z';
+  assert.equal((await post({ data: Buffer.from('x').toString('base64'), at })).status, 422);
+  assert.equal((await post({ data: '', at })).status, 400);
+  // 時刻は端末をまたいで並べるので、UTC でなければ受けない
+  assert.equal((await post({ data: Buffer.from('x').toString('base64'), at: '2026-11-03T14:05:00.000' })).status, 400);
+  assert.deepEqual(await store.listMemos('demo'), []);
+});
+
+test('未整理メモ：切り出した順に返し、直す・消すができ、ほかの人のメモは見えない', async () => {
+  const late = (await call('POST', '/memos', { at: '2026-11-04T00:30:00.000Z', text: 'お冷やはすぐ出す' })).json;
+  const early = (await call('POST', '/memos', { at: '2026-11-03T05:05:00.000Z', text: '塩は小さじいち' })).json;
+  assert.deepEqual((await call('GET', '/memos')).json.map((m: any) => m.text), ['塩は小さじいち', 'お冷やはすぐ出す']);
+
+  const edited = await call('PATCH', `/memos/${early.id}`, { text: '塩は小さじ1' });
+  assert.deepEqual(edited.json, { ...early, text: '塩は小さじ1' });
+  assert.equal((await call('PATCH', `/memos/${early.id}`, { text: ' ' })).status, 400);
+  assert.equal((await call('PATCH', '/memos/none', { text: '塩' })).status, 404);
+
+  const removed = await app.request(`/memos/${late.id}`, { method: 'DELETE', headers: auth });
+  assert.equal(removed.status, 204);
+  // ほかの端末で先に消していても失敗にしない
+  assert.equal((await app.request(`/memos/${late.id}`, { method: 'DELETE', headers: auth })).status, 204);
+  assert.deepEqual((await call('GET', '/memos')).json, [{ ...early, text: '塩は小さじ1' }]);
+  assert.equal((await call('POST', '/memos', { at: '2026-11-03T05:05:00.000Z', text: '' })).status, 400);
+
+  const other = new MemoryStore();
+  await other.putSession({ id: sessionIdOf('sato-token'), userId: 'sato', createdAt: '' });
+  await other.putMemo('demo', early);
+  const asSato = await createApp({ store: other, ...ai }).request('/memos', { headers: { Authorization: 'Bearer sato-token' } });
+  assert.deepEqual(await asSato.json(), []);
+});
+
+test('未整理メモ：入力欄に入れたメモは、記録できたら消し、記録先を選び直すときは残す', async () => {
+  const memo = (await call('POST', '/memos', { at: '2026-11-03T05:05:00.000Z', text: '塩は小さじ1/2' })).json;
+  const unrelated = await call('POST', '/utterances', { text: '今日はいい天気', memoIds: [memo.id] });
+  assert.deepEqual(unrelated.json.results, []);
+  assert.equal((await call('GET', '/memos')).json.length, 1);
+
+  const recorded = await call('POST', '/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた', memoIds: [memo.id] });
+  assert.equal(recorded.status, 201);
+  assert.deepEqual((await call('GET', '/memos')).json, []);
 });
 
 test('整形：整えた案を返すだけで、ノートは作らない', async () => {
