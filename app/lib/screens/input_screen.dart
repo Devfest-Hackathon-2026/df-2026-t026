@@ -29,7 +29,7 @@ import 'sidebar.dart';
 /// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
 const tokenKey = 'token';
 
-/// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
+/// 前の版が未整理メモをブラウザ（shared_preferences）に置いていたときのキー。サーバーに移したら消す（ADR 0014）
 const memosKey = 'memos';
 
 const _noMic = 'マイクを使えません。ブラウザの設定でマイクを許可してください';
@@ -102,6 +102,9 @@ class _InputScreenState extends State<InputScreen> {
 
   late final void Function() _stopWatchingDrops;
 
+  /// ほかの端末でためたメモを、このアプリに戻ってきたときに出す
+  late final AppLifecycleListener _lifecycle;
+
   @override
   void initState() {
     super.initState();
@@ -109,10 +112,8 @@ class _InputScreenState extends State<InputScreen> {
     _stopWatchingDrops = onFilesDropped((f, _) {
       if (ModalRoute.of(context)?.isCurrent ?? true) _addPicked(f);
     });
-    SharedPreferences.getInstance().then((p) {
-      if (!mounted) return;
-      setState(() => _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]));
-    });
+    _lifecycle = AppLifecycleListener(onResume: _loadMemos);
+    _loadMemos();
   }
 
   @override
@@ -120,6 +121,7 @@ class _InputScreenState extends State<InputScreen> {
     _text.dispose();
     _memoText.dispose();
     _stopWatchingDrops();
+    _lifecycle.dispose();
     _dictation?.stop();
     _dictationSocket?.sink.close();
     super.dispose();
@@ -130,9 +132,47 @@ class _InputScreenState extends State<InputScreen> {
     return Future.wait([for (final m in list) widget.api.getManual(m.id)]);
   }
 
-  void _reload() => setState(() {
-        _manuals = _load();
+  void _reload() {
+    setState(() {
+      _manuals = _load();
+    });
+    _loadMemos();
+  }
+
+  /// 未整理メモをサーバーから読み直す。ほかの端末でためた・直した・消したメモもここでそろう
+  Future<void> _loadMemos() async {
+    try {
+      await _moveLocalMemos();
+      final memos = await widget.api.listMemos();
+      if (!mounted) return;
+      setState(() {
+        _memos
+          ..clear()
+          ..addAll(memos);
+        if (!_memos.contains(_editingMemo)) _editingMemo = null;
       });
+    } on ApiException {
+      // ログインの前や通信の失敗では今のメモのまま出し、次に読み直すときにまた試す
+    }
+  }
+
+  /// 前の版がブラウザにためていた未整理メモを、サーバーに移す
+  Future<void> _moveLocalMemos() async {
+    final p = await SharedPreferences.getInstance();
+    final left = p.getStringList(memosKey);
+    if (left == null) return;
+    // 先に消して、読み直しが重なっても二重に移さない。移せなかった分は戻す
+    await p.remove(memosKey);
+    try {
+      while (left.isNotEmpty) {
+        final m = jsonDecode(left.first) as Map<String, dynamic>;
+        await widget.api.addMemo(DateTime.parse(m['at']), m['text']);
+        left.removeAt(0);
+      }
+    } finally {
+      if (left.isNotEmpty) await p.setStringList(memosKey, left);
+    }
+  }
 
   Future<void> _login(String id, String password) async {
     final String token;
@@ -175,18 +215,12 @@ class _InputScreenState extends State<InputScreen> {
         _editingMemo = null;
       });
 
-  /// リワインドで書き起こせたメモ。書き起こしは前後して返るので、切り出した順に並べ直す
+  /// リワインドで書き起こせたメモ（サーバーにはもうある）。書き起こしは前後して返るので、切り出した順に並べ直す
   void _addMemo(Memo m) {
     _memos
       ..add(m)
       ..sort((a, b) => a.at.compareTo(b.at));
-    _saveMemos();
     if (mounted) setState(() {});
-  }
-
-  void _saveMemos() {
-    final saved = [for (final m in _memos) jsonEncode(m.toJson())];
-    unawaited(SharedPreferences.getInstance().then((p) => p.setStringList(memosKey, saved)));
   }
 
   /// メモを入力欄の後ろに足す。続けて入れると1つの指示にまとめられる
@@ -205,35 +239,50 @@ class _InputScreenState extends State<InputScreen> {
     final m = _editingMemo;
     final text = _memoText.text.trim();
     if (m == null || text.isEmpty || _busy) return;
-    await _send(manuals, text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), onSaved: () {
+    await _send(manuals,
+        text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), memoIds: [m.id], onSaved: () {
       _memos.remove(m);
       _poured.remove(m);
       if (_editingMemo == m) _editingMemo = null;
-      _saveMemos();
     });
   }
 
-  /// 書き直したメモに差し替える。入力欄に入れた後なら入れた印も引き継ぐ（入力欄の文面は変えない）
-  void _saveMemo() {
+  /// 書き直したメモに差し替える。入力欄に入れた後でも、入力欄の文面は変えない
+  Future<void> _saveMemo() async {
     final m = _editingMemo;
     final text = _memoText.text.trim();
-    if (m == null || text.isEmpty) return;
-    final edited = Memo(at: m.at, text: text);
-    setState(() {
-      _memos[_memos.indexOf(m)] = edited;
-      final i = _poured.indexOf(m);
-      if (i >= 0) _poured[i] = edited;
-      _editingMemo = null;
-    });
-    _saveMemos();
+    if (m == null || text.isEmpty || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final edited = await widget.api.editMemo(m.id, text);
+      if (!mounted) return;
+      setState(() {
+        final i = _memos.indexOf(m);
+        if (i >= 0) _memos[i] = edited;
+        _editingMemo = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showError(context, e);
+      // ほかの端末で消したり記録したりしていれば、今のメモに合わせる
+      unawaited(_loadMemos());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
-  void _deleteMemo(Memo m) {
+  Future<void> _deleteMemo(Memo m) async {
+    try {
+      await widget.api.deleteMemo(m.id);
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _memos.remove(m);
       _poured.remove(m);
     });
-    _saveMemos();
   }
 
   /// テキスト欄の音声入力。話している途中から入力欄に文字を出し、話し終わったら自動で止める
@@ -312,32 +361,34 @@ class _InputScreenState extends State<InputScreen> {
         text: _text.text.trim(),
         files: _files,
         manualIds: targets.isEmpty ? null : targets,
-        today: saidOn, onSaved: () {
+        today: saidOn,
+        memoIds: [for (final m in poured) m.id], onSaved: () {
       _text.clear();
       _files.clear();
       _memos.removeWhere(poured.contains);
       _poured.clear();
-      _saveMemos();
     });
   }
 
-  /// 記録して、関係したマニュアルに書き込むか確認を出す。onSaved は記録できたとき、その前に呼ぶ
+  /// 記録して、関係したマニュアルに書き込むか確認を出す。onSaved は記録できたとき、その前に呼ぶ。
+  /// memoIds は文面の元にした未整理メモで、記録できたらサーバーが消す
   Future<void> _send(List<ManualState> manuals,
       {required String text,
       required List<Attachment> files,
       List<String>? manualIds,
       required String today,
+      List<String> memoIds = const [],
       VoidCallback? onSaved}) async {
     setState(() => _busy = true);
     try {
-      var r = await widget.api.intake(text: text, files: files, manualIds: manualIds, today: today);
+      var r = await widget.api.intake(text: text, files: files, manualIds: manualIds, today: today, memoIds: memoIds);
       if (r.results.isEmpty) {
         setState(() => _busy = false);
         final ids = await _pickManuals(manuals, heard: r.text);
         if (ids == null) return;
         setState(() => _busy = true);
         // ファイルや録音はもう読み取ったので、読み取った文面だけを送り直す
-        r = await widget.api.intake(text: r.text, manualIds: ids, today: today);
+        r = await widget.api.intake(text: r.text, manualIds: ids, today: today, memoIds: memoIds);
       }
       setState(() {
         onSaved?.call();

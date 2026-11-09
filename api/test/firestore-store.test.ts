@@ -64,4 +64,12 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   for (const name of ['utterances', 'patches', 'checks', 'shares']) assert.deepEqual(await store.list('demo', 'demo-kitchen', name), [], name);
   assert.deepEqual(await store.listShared('sato'), []);
   assert.equal((await store.listManuals('demo')).length, 1);
+
+  // 未整理メモも名前とアイコンのドキュメントの下に置くが、名前は消えない（ADR 0014）
+  const memo = await call('POST', '/memos', { at: '2026-11-03T05:05:00.000Z', text: '塩は小さじいち' });
+  await call('PATCH', `/memos/${memo.id}`, { text: '塩は小さじ1' });
+  assert.deepEqual(await store.listMemos('demo'), [{ ...memo, text: '塩は小さじ1' }]);
+  assert.equal((await store.getProfile('demo'))?.name, 'かなで');
+  await send('DELETE', `/memos/${memo.id}`, undefined, { Authorization: `Bearer ${token}` });
+  assert.deepEqual(await store.listMemos('demo'), []);
 });

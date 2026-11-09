@@ -89,12 +89,14 @@ class Api {
 
   List<Person> _people(dynamic json) => [for (final p in json) (id: p['id'] as String, name: p['name'] as String)];
 
-  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
+  /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ。
+  /// memoIds は入力欄に入れた未整理メモで、記録できたらサーバーが消す
   Future<IntakeResult> intake({
     required String text,
     List<Attachment> files = const [],
     List<String>? manualIds,
     required String today,
+    List<String> memoIds = const [],
   }) async =>
       IntakeResult.fromJson(await _send('POST', '/utterances', {
         'text': text,
@@ -103,11 +105,23 @@ class Api {
         ],
         'manualIds': ?manualIds,
         'today': today,
+        if (memoIds.isNotEmpty) 'memoIds': memoIds,
       }));
 
-  /// リワインドで切り出した WAV を書き起こす。記録はしない
-  Future<String> listen(Uint8List wav) async =>
-      (await _send('POST', '/listen', {'data': base64Encode(wav)}))['text'] as String;
+  /// リワインドで切り出した WAV を書き起こし、未整理メモにためる。ノートには記録しない。at は切り出した時刻
+  Future<Memo> listen(Uint8List wav, DateTime at) async => Memo.fromJson(
+      await _send('POST', '/listen', {'data': base64Encode(wav), 'at': at.toUtc().toIso8601String()}));
+
+  /// 未整理メモを切り出した順に返す
+  Future<List<Memo>> listMemos() async => [for (final m in await _send('GET', '/memos')) Memo.fromJson(m)];
+
+  /// 端末内に置いていた前の版の未整理メモを、サーバーに移す
+  Future<Memo> addMemo(DateTime at, String text) async =>
+      Memo.fromJson(await _send('POST', '/memos', {'at': at.toUtc().toIso8601String(), 'text': text}));
+
+  Future<Memo> editMemo(String id, String text) async => Memo.fromJson(await _send('PATCH', '/memos/$id', {'text': text}));
+
+  Future<void> deleteMemo(String id) async => _send('DELETE', '/memos/$id');
 
   /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
   /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない

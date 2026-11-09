@@ -23,6 +23,13 @@ export interface Shared {
   createdAt: string;
 }
 
+/** リワインドで切り出して書き起こした未整理メモ（ADR 0014）。at は切り出しボタンを押した時刻 */
+export interface Memo {
+  id: string;
+  at: string;
+  text: string;
+}
+
 /**
  * 保存先。マニュアルの下に、土台（utterances / patches）と
  * 衝突検知（checks）がそれぞれ自分のコレクションを持つ。
@@ -46,6 +53,10 @@ export interface Store {
   getShared(userId: string, manualId: string): Promise<Shared | null>;
   putShared(userId: string, shared: Shared): Promise<void>;
   removeShared(userId: string, manualId: string): Promise<void>;
+  listMemos(userId: string): Promise<Memo[]>;
+  getMemo(userId: string, id: string): Promise<Memo | null>;
+  putMemo(userId: string, memo: Memo): Promise<void>;
+  removeMemo(userId: string, id: string): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
@@ -56,6 +67,7 @@ export class MemoryStore implements Store {
   private sessions = new Map<string, Session>();
   private profiles = new Map<string, Profile>();
   private shared = new Map<string, Map<string, Shared>>();
+  private memos = new Map<string, Map<string, Memo>>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -129,5 +141,22 @@ export class MemoryStore implements Store {
 
   async removeShared(userId: string, manualId: string) {
     this.shared.get(userId)?.delete(manualId);
+  }
+
+  async listMemos(userId: string) {
+    return [...(this.memos.get(userId)?.values() ?? [])].map((x) => structuredClone(x));
+  }
+
+  async getMemo(userId: string, id: string) {
+    return structuredClone(this.memos.get(userId)?.get(id) ?? null);
+  }
+
+  async putMemo(userId: string, memo: Memo) {
+    if (!this.memos.has(userId)) this.memos.set(userId, new Map());
+    this.memos.get(userId)!.set(memo.id, structuredClone(memo));
+  }
+
+  async removeMemo(userId: string, id: string) {
+    this.memos.get(userId)?.delete(id);
   }
 }
