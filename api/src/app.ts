@@ -28,9 +28,9 @@ export interface Deps {
   format: Format;
   /** ノートを作るときの PDF・画像の読み取り（ADR 0012） */
   readNote: ReadNote;
-  /** 資料の PDF・画像の読み取り（ADR 0016 資料） */
+  /** 資料の PDF・画像の読み取り（ADR 0019） */
   readMaterial: ReadMaterial;
-  /** プロンプトに載せる文のトークン数（ADR 0016 資料） */
+  /** プロンプトに載せる文のトークン数（ADR 0019） */
   countTokens: (text: string) => Promise<number>;
   listen: Listen;
   dictate: Dictate;
@@ -73,14 +73,17 @@ const ReadBody = z.object({
     .min(1, '読み取るファイルを選んでください')
     .refine((fs) => fs.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS, 'ファイルは合わせて10MBまでにしてください'),
 });
-// 資料（ADR 0016 資料）の上限。数字は設計書 §5.6 の案で、評価で測って見直す
+// 資料（ADR 0019）の上限。数字は設計書 §5.6 の案で、評価で測って見直す
 const MAX_MATERIAL_PAGES = 30;
 const MAX_MATERIAL_IMAGES = 10;
 /** 1回の読み取りに渡すページの数。1回の出力の上限と、1本を打ち切る 90 秒に収める */
 const MATERIAL_CHUNK_PAGES = 5;
 const MAX_MATERIAL_TOKENS = 30_000;
-/** 記録先を選ばない記録は自分のノートを全部1回の assess に載せるので、ノートごとでなく1人の合計で抑える */
-const MAX_USER_MATERIAL_TOKENS = 100_000;
+/**
+ * 1つのノートの資料の合計。共有されたノートは足す人がそれぞれ違うので、人ごとでなくノートごとに数える。
+ * いくつものノートをまとめて assess に載せるときの合計は、判定に資料を載せるときに決める
+ */
+const MAX_NOTE_MATERIAL_TOKENS = 100_000;
 const isImage = (f: { mimeType: string }) => f.mimeType.startsWith('image/');
 const NewMaterial = z
   .object({
@@ -173,6 +176,7 @@ const summaryOf = (m: Material) => ({
   pageCount: m.pages[0]?.page === null ? null : m.pages.length,
   lineCount: materialLines(m).length,
   tokens: m.tokens,
+  addedBy: m.addedBy,
   createdAt: m.createdAt,
 });
 
@@ -265,7 +269,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
 
   type State = Awaited<ReturnType<typeof load>>;
 
-  /** 資料は load では読まない。load の戻り値はほぼすべての API が返すので、全文が毎回の応答に乗る（ADR 0016 資料） */
+  /** 資料は load では読まない。load の戻り値はほぼすべての API が返すので、全文が毎回の応答に乗る（ADR 0019） */
   const materialsOf = async (s: State) => (await store.list<Material>(s.owner, s.manual.id, 'materials')).sort(byCreated);
 
   /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
@@ -359,7 +363,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
   });
 
-  /** ノートを消す（ADR 0016 共同編集）のと、資料を足す・消す（ADR 0016 資料）のは持ち主だけ */
+  /** ノートを消すのは持ち主だけ（ADR 0016） */
   async function mustOwn(userId: string, manualId: string) {
     if (!(await store.getManual(userId, manualId))) throw notFound();
   }
@@ -418,7 +422,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.body(null, 204);
   });
 
-  // 資料（ADR 0016 資料）。共有された人も見られるが、足す・消すのは持ち主だけ
+  // 資料（ADR 0019）。共有された人も、見る・足す・消すができる（ADR 0016）
   app.get('/manuals/:id/materials', async (c) => {
     const s = await load(c.var.userId, c.req.param('id'));
     return c.json((await materialsOf(s)).map(summaryOf));
@@ -436,7 +440,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const { userId } = c.var;
     const manualId = c.req.param('id');
     const body = NewMaterial.parse(await c.req.json());
-    await mustOwn(userId, manualId);
+    const s = await load(userId, manualId);
     let title = body.title;
     let pages: Material['pages'];
     if (body.text) {
@@ -461,27 +465,22 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (tokens > MAX_MATERIAL_TOKENS) {
       throw new HTTPException(400, { message: `資料が大きすぎます（約${tokens}トークン。1冊${MAX_MATERIAL_TOKENS}トークンまで）。ページを分けて足してください` });
     }
-    const manuals = await store.listManuals(userId);
-    const used = (await Promise.all(manuals.map((m) => store.list<Material>(userId, m.id, 'materials'))))
-      .flat()
-      .reduce((n, m) => n + m.tokens, 0);
-    if (used + tokens > MAX_USER_MATERIAL_TOKENS) {
+    const used = (await materialsOf(s)).reduce((n, m) => n + m.tokens, 0);
+    if (used + tokens > MAX_NOTE_MATERIAL_TOKENS) {
       throw new HTTPException(400, {
-        message: `資料は全部のノートで合わせて${MAX_USER_MATERIAL_TOKENS}トークンまでです（いま約${used}トークン）。使わない資料を消してから足してください`,
+        message: `このノートの資料は合わせて${MAX_NOTE_MATERIAL_TOKENS}トークンまでです（いま約${used}トークン）。使わない資料を消してから足してください`,
       });
     }
-    const material: Material = { id: randomUUID(), title, pages, tokens, createdAt: now() };
-    await store.put(userId, manualId, 'materials', material);
+    const material: Material = { id: randomUUID(), title, pages, tokens, addedBy: await recorder(userId), createdAt: now() };
+    await store.put(s.owner, manualId, 'materials', material);
     return c.json(summaryOf(material), 201);
   });
 
   // 資料に結び付いた確認は消さない。あとで確認のものも、資料を消したあとで確定できるようにする
   app.delete('/manuals/:id/materials/:mid', async (c) => {
-    const { userId } = c.var;
-    const manualId = c.req.param('id');
-    await mustOwn(userId, manualId);
-    const m = find(await store.list<Material>(userId, manualId, 'materials'), c.req.param('mid'), '資料');
-    await store.remove(userId, manualId, 'materials', m.id);
+    const s = await load(c.var.userId, c.req.param('id'));
+    const m = find(await materialsOf(s), c.req.param('mid'), '資料');
+    await store.remove(s.owner, s.manual.id, 'materials', m.id);
     return c.body(null, 204);
   });
 

@@ -6,7 +6,7 @@ import { noteRules } from './format.ts';
 import { generateJson, type GenerateJson, type InlineFile } from './gemini.ts';
 
 /*
- * ノートに付ける資料（ADR 0016 資料）。取り込むときに1回だけ文字にし、以後は書き換えない。
+ * ノートに付ける資料（ADR 0019）。取り込むときに1回だけ文字にし、以後は書き換えない。
  * 原本のファイルは持たず、書き起こした文だけを持つ。
  */
 
@@ -21,6 +21,8 @@ export interface Material {
   pages: { page: number | null; text: string }[];
   /** 取り込んだときに materialText の形で数えたトークン数。上限の判定に使う */
   tokens: number;
+  /** 足した人と、その時点の名前（ADR 0018 の recordedBy と同じ形） */
+  addedBy: { id: string; name: string };
   createdAt: string;
 }
 

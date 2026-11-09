@@ -54,7 +54,7 @@ function gemini(): GoogleGenAI {
 
 const model = () => process.env.GEMINI_MODEL ?? 'gemini-3.8-flash';
 
-/** プロンプトに載せる文のトークン数（ADR 0016 資料）。資料の上限の判定に使う */
+/** プロンプトに載せる文のトークン数（ADR 0019）。資料の上限の判定に使う */
 export async function countTokensWithGemini(text: string): Promise<number> {
   const { totalTokens } = await gemini().models.countTokens({ model: model(), contents: text });
   if (totalTokens === undefined) throw new Error('Gemini がトークン数を返しませんでした');

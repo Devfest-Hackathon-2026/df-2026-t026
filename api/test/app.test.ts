@@ -1025,7 +1025,14 @@ test('資料：貼り付けた文を足すと、空行を除いた行・ペー�
   assert.equal(added.status, 201);
   // 偽のトークン数は、プロンプトに載せる形（L 付きの行）の文字数
   const prompt = 'L1: ## 手洗い\nL2: - 手洗いは30秒\nL3:   - 指の間も洗う\nL4: - 爪は短く';
-  assert.deepEqual(withoutId(added.json), { title: '衛生の手引き', pageCount: null, lineCount: 4, tokens: prompt.length });
+  // 足した人は、名前を決めていなければ ID を名前にする（ADR 0010）
+  assert.deepEqual(withoutId(added.json), {
+    title: '衛生の手引き',
+    pageCount: null,
+    lineCount: 4,
+    tokens: prompt.length,
+    addedBy: { id: 'demo', name: 'demo' },
+  });
   assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, [added.json]);
 
   const { status, json } = await call('GET', `/manuals/demo-kitchen/materials/${added.json.id}`);
@@ -1123,7 +1130,7 @@ test('資料：文字が読み取れない・開けない PDF は 422、読み�
   assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, []);
 });
 
-test('資料：1冊・1人の上限を超えると 400 で保存しない。1人の上限は自分のほかのノートの資料と合わせて数える', async () => {
+test('資料：1冊・1つのノートの上限を超えると 400 で保存しない。ノートの上限はほかのノートの資料を数えない', async () => {
   // 本文の「N tok」をトークン数にする
   await withDeps({ countTokens: async (text) => Number(/(\d+) tok/.exec(text)![1]) });
   const add = (manualId: string, tokens: number) =>
@@ -1132,39 +1139,47 @@ test('資料：1冊・1人の上限を超えると 400 で保存しない。1人
   const big = await add('demo-kitchen', 30_001);
   assert.deepEqual([big.status, big.json.error], [400, '資料が大きすぎます（約30001トークン。1冊30000トークンまで）。ページを分けて足してください']);
 
-  const fills = [['demo-kitchen', 30_000], ['demo-kitchen', 30_000], ['demo-hall', 30_000], ['demo-hall', 10_000]] as const;
-  for (const [manualId, tokens] of fills) assert.equal((await add(manualId, tokens)).status, 201);
+  for (const tokens of [30_000, 30_000, 30_000, 10_000]) assert.equal((await add('demo-kitchen', tokens)).status, 201);
   const over = await add('demo-kitchen', 1);
   assert.deepEqual(
     [over.status, over.json.error],
-    [400, '資料は全部のノートで合わせて100000トークンまでです（いま約100000トークン）。使わない資料を消してから足してください'],
+    [400, 'このノートの資料は合わせて100000トークンまでです（いま約100000トークン）。使わない資料を消してから足してください'],
   );
-  assert.equal((await call('GET', '/manuals/demo-kitchen/materials')).json.length, 2);
+  assert.equal((await call('GET', '/manuals/demo-kitchen/materials')).json.length, 4);
+  assert.equal((await add('demo-hall', 30_000)).status, 201);
 
   // 消せば、また足せる
-  const [first] = (await call('GET', '/manuals/demo-hall/materials')).json;
-  assert.equal((await call('DELETE', `/manuals/demo-hall/materials/${first.id}`)).status, 204);
+  const [first] = (await call('GET', '/manuals/demo-kitchen/materials')).json;
+  assert.equal((await call('DELETE', `/manuals/demo-kitchen/materials/${first.id}`)).status, 204);
   assert.equal((await add('demo-kitchen', 1)).status, 201);
 });
 
-test('資料：共有された人は一覧と中身を見られるが、足す・消すはできない。共有されていない人は見られない', async () => {
-  await withAccounts();
+test('資料：共有された人も、見る・足す・消すができ、足した人として残る。共有されていない人は何もできない', async () => {
+  const store = await withAccounts();
   await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
-  const added = (await call('POST', '/manuals/demo-kitchen/materials', { title: '衛生の手引き', text: '- 手洗いは30秒' })).json;
-  const path = `/manuals/demo-kitchen/materials/${added.id}`;
+  const mine = (await call('POST', '/manuals/demo-kitchen/materials', { title: '衛生の手引き', text: '- 手洗いは30秒' })).json;
+  assert.deepEqual((await callAs('sato', 'GET', '/manuals/demo-kitchen/materials')).json, [mine]);
+  assert.deepEqual((await callAs('sato', 'GET', `/manuals/demo-kitchen/materials/${mine.id}`)).json.lines, [{ page: null, text: '- 手洗いは30秒' }]);
 
-  assert.deepEqual((await callAs('sato', 'GET', '/manuals/demo-kitchen/materials')).json, [added]);
-  assert.deepEqual((await callAs('sato', 'GET', path)).json.lines, [{ page: null, text: '- 手洗いは30秒' }]);
+  // 共有された人が足した資料も、持ち主のノートの下に置く
+  const theirs = await callAs('sato', 'POST', '/manuals/demo-kitchen/materials', { title: '店長メモ', text: '- 爪は短く' });
+  assert.equal(theirs.status, 201);
+  assert.deepEqual(theirs.json.addedBy, { id: 'sato', name: '佐藤店長' });
+  assert.deepEqual((await store.list<any>('demo', 'demo-kitchen', 'materials')).map((m) => m.id), [mine.id, theirs.json.id]);
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, [mine, theirs.json]);
+  // 持ち主が足したものも消せる
+  assert.equal((await callAs('sato', 'DELETE', `/manuals/demo-kitchen/materials/${mine.id}`)).status, 204);
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, [theirs.json]);
+
+  const path = `/manuals/demo-kitchen/materials/${theirs.json.id}`;
   const notFound = { status: 404, json: { error: 'ノートが見つかりません' } };
-  assert.deepEqual(await callAs('sato', 'POST', '/manuals/demo-kitchen/materials', { title: '手引き', text: '- 爪は短く' }), notFound);
-  assert.deepEqual(await callAs('sato', 'DELETE', path), notFound);
-
   assert.deepEqual(await callAs('kim', 'GET', '/manuals/demo-kitchen/materials'), notFound);
   assert.deepEqual(await callAs('kim', 'GET', path), notFound);
   assert.deepEqual(await callAs('kim', 'POST', '/manuals/demo-kitchen/materials', { title: '手引き', text: '- 爪は短く' }), notFound);
   assert.deepEqual(await callAs('kim', 'DELETE', path), notFound);
-
-  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, [added]);
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials')).json, [theirs.json]);
+  // ノートそのものを消せるのは、今までどおり持ち主だけ
+  assert.equal((await callAs('sato', 'DELETE', '/manuals/demo-kitchen')).status, 404);
 });
 
 test('資料：消すと一覧から消え、無い資料は 404。ノートの記録と確認は変えない', async () => {
