@@ -32,6 +32,17 @@ type Env = { Variables: { userId: string } };
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
 const Login = z.object({ id: z.string().trim(), password: z.string() });
+// アイコンはアプリが一辺 256px の JPEG に縮めて送る（数十KB）。縮められなかった画像も Firestore の1件の上限（1MB）に収める
+const MAX_ICON_CHARS = 500_000;
+const Me = z.object({
+  name: z.string().trim().min(1, '名前を入れてください').max(40, '名前は40文字までにしてください'),
+  icon: z
+    .object({
+      mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+      data: z.base64().max(MAX_ICON_CHARS, 'アイコンの画像が大きすぎます。小さい画像を選んでください'),
+    })
+    .nullable(),
+});
 
 // マニュアルが無い職場では、本文を空にして白紙から始める
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
@@ -72,7 +83,8 @@ const Edit = z
     op: z.enum(['insert', 'replace', 'delete']),
     /** insert はこの行の後ろ（null なら末尾）、replace・delete はこの行 */
     line: z.string().nullable(),
-    text: z.string().trim().default(''),
+    // 行頭の空白はマークダウンの入れ子なので残す（ADR 0009）
+    text: z.string().overwrite((s) => s.trimEnd()).default(''),
     today: date.optional(),
   })
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
@@ -155,6 +167,19 @@ export function createApp({ store, assess, check, transcribe, listen, dictate, a
     const token = newToken();
     await store.putSession({ id: sessionIdOf(token), userId: account.id, createdAt: now() });
     return c.json({ token });
+  });
+
+  // 名前を決めていなければ ID を名前にする（ADR 0010）
+  app.get('/me', async (c) => {
+    const { userId } = c.var;
+    const profile = await store.getProfile(userId);
+    return c.json({ id: userId, name: profile?.name ?? userId, icon: profile?.icon ?? null });
+  });
+
+  app.put('/me', async (c) => {
+    const profile = Me.parse(await c.req.json());
+    await store.putProfile(c.var.userId, profile);
+    return c.json({ id: c.var.userId, ...profile });
   });
 
   app.get('/manuals', async (c) => {

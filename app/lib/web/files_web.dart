@@ -41,6 +41,34 @@ Future<({Uint8List bytes, String mimeType})> shrinkImage(Uint8List bytes, String
   }
 }
 
+/// アイコンの一辺。大きく出しても 80px ほどなので、高精細の画面でも粗く見えない大きさにする
+const _iconSide = 256;
+
+/// 画像の真ん中を正方形に切り抜き、アイコンの大きさの JPEG にする（ADR 0010）。描けない形式は元のまま返す
+Future<({Uint8List bytes, String mimeType})> squareIcon(Uint8List bytes, String mimeType) async {
+  final original = (bytes: bytes, mimeType: mimeType);
+  if (!_drawable.contains(mimeType)) return original;
+  try {
+    final blob = web.Blob([bytes.toJS].toJS, web.BlobPropertyBag(type: mimeType));
+    final bitmap = await web.window.createImageBitmap(blob).toDart;
+    final side = min(bitmap.width, bitmap.height);
+    final canvas = web.HTMLCanvasElement()
+      ..width = _iconSide
+      ..height = _iconSide;
+    // 透明な所が JPEG で黒くならないよう、白を敷いてから描く
+    (canvas.getContext('2d')! as web.CanvasRenderingContext2D)
+      ..fillStyle = 'white'.toJS
+      ..fillRect(0, 0, _iconSide, _iconSide)
+      ..drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, _iconSide, _iconSide);
+    final done = Completer<web.Blob?>();
+    canvas.toBlob(((web.Blob? b) => done.complete(b)).toJS, 'image/jpeg', _jpegQuality.toJS);
+    final out = await done.future;
+    return out == null ? original : (bytes: await _bytes(out), mimeType: 'image/jpeg');
+  } catch (_) {
+    return original;
+  }
+}
+
 /// スマホではカメラを直接開く。撮らずに閉じたら空
 Future<List<PickedFile>> takePhoto() {
   final input = web.HTMLInputElement()

@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
@@ -11,8 +14,23 @@ String fmtDay(String ymd) {
   return p.length == 3 ? '${int.parse(p[1])}/${int.parse(p[2])}' : ymd;
 }
 
-/// 「- 」「## 」を外した、人に見せる形
-String plain(String line) => line.replaceFirst(RegExp(r'^(## |- )'), '');
+// ノートは1行を1まとまりとするマークダウン。表やコードブロックのように複数行にまたがる書き方は読まない（ADR 0009）
+final _heading = RegExp(r'^(#{1,6})[ \t]+(.*)');
+final _rule = RegExp(r'^ {0,3}([-*_])(\s*\1){2,}\s*$');
+final _block = RegExp(r'^([ \t]*)([-*+][ \t]+|\d+[.)][ \t]+|>[ \t]?)?(.*)');
+final _md = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored, encodeHtml: false);
+
+/// 見出しの行か（「# 」〜「###### 」）
+bool isHeading(String line) => _heading.hasMatch(line);
+
+/// 区切り線の行か（「---」など）
+bool isRule(String line) => _rule.hasMatch(line);
+
+/// 行頭と行の中のマークダウンの印を外した、文の中に出す形。パッチは複数行のこともあるので1行ずつ外す
+String plain(String text) => text.split('\n').map((line) {
+      final body = _heading.firstMatch(line)?[2] ?? _block.firstMatch(line)![3]!;
+      return _md.parseInline(body).map((n) => n.textContent).join();
+    }).join('\n');
 
 (Color, Color) kindColors(BuildContext context, Kind k) {
   final c = context.tokens.colors;
@@ -177,33 +195,82 @@ class PageTitle extends StatelessWidget {
   }
 }
 
-/// マニュアルの1行（## を見出し、- を箇条書きとして扱う）
+/// ノートの1行をマークダウンとして描く
 class LineText extends StatelessWidget {
-  const LineText(this.line, {super.key});
+  const LineText(this.line, {super.key, this.color, this.compact = false});
   final String line;
+
+  /// 差分の増減など、文字の色を変えるとき
+  final Color? color;
+
+  /// 差分の一覧など、見出しを本文に近い大きさで出すとき
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens.text;
-    if (line.startsWith('## ')) return Text(line.substring(3), style: t.title);
-    return Text(line.startsWith('- ') ? '・${line.substring(2)}' : line, style: t.body);
+    final k = context.tokens;
+    final t = k.text;
+    final head = _heading.firstMatch(line);
+    if (head != null) {
+      final level = head[1]!.length;
+      final style = compact || level > 2 ? t.heading : (level == 1 ? t.display : t.title);
+      return _inline(k, head[2]!, style.copyWith(color: color));
+    }
+    if (isRule(line)) return Container(height: k.hairline, color: k.colors.rule);
+    final m = _block.firstMatch(line)!;
+    final mark = m[2]?.trim() ?? '';
+    final quote = mark == '>';
+    final text = _inline(
+      k,
+      m[3]!,
+      (quote ? t.body.copyWith(color: k.colors.inkMuted) : t.body).copyWith(color: color),
+      prefix: switch (mark) { '' || '>' => '', '-' || '*' || '+' => '・', _ => '$mark ' },
+    );
+    final level = m[1]!.replaceAll('\t', '  ').length ~/ 2 + (quote ? 1 : 0);
+    return level == 0 ? text : Padding(padding: EdgeInsets.only(left: k.space.lg * level), child: text);
   }
+
+  Widget _inline(AppTokens k, String text, TextStyle style, {String prefix = ''}) =>
+      Text.rich(TextSpan(style: style, children: [TextSpan(text: prefix), ..._spans(k, _md.parseInline(text), style)]));
+
+  List<InlineSpan> _spans(AppTokens k, List<md.Node> nodes, TextStyle s) => [
+        for (final n in nodes)
+          if (n is md.Element && n.children != null)
+            TextSpan(children: _spans(k, n.children!, _style(k, n.tag, s)))
+          else
+            TextSpan(text: n.textContent, style: s),
+      ];
+
+  // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0009）
+  TextStyle _style(AppTokens k, String tag, TextStyle s) => switch (tag) {
+        'strong' => s.copyWith(fontWeight: FontWeight.w700),
+        'em' => s.copyWith(fontStyle: FontStyle.italic),
+        'del' => s.copyWith(decoration: TextDecoration.lineThrough),
+        'code' => s.copyWith(backgroundColor: k.colors.shell),
+        'a' => s.copyWith(color: k.colors.action, decoration: TextDecoration.underline),
+        _ => s,
+      };
 }
 
-/// 名前の頭文字のアバター
+/// 名前の頭文字のアバター。image があれば、その画像を出す
 class Avatar extends StatelessWidget {
-  const Avatar(this.name, {super.key});
+  const Avatar(this.name, {super.key, this.image, this.large = false});
   final String? name;
+  final Uint8List? image;
+
+  /// 名前とアイコンのページで大きく出す
+  final bool large;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     final n = name == null || name!.isEmpty ? '?' : name!;
     return MoonAvatar(
-      avatarSize: MoonAvatarSize.xs,
+      avatarSize: large ? MoonAvatarSize.x2l : MoonAvatarSize.xs,
       borderRadius: k.radius.round,
       backgroundColor: k.colors.avatar,
-      content: Text(n.characters.first, style: k.text.label),
+      backgroundImage: image == null ? null : MemoryImage(image!),
+      content: image == null ? Text(n.characters.first, style: large ? k.text.display : k.text.label) : null,
     );
   }
 }
@@ -315,7 +382,7 @@ class PatchDiff extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.xs),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SizedBox(width: k.space.lg, child: Text(mark, style: k.text.body.copyWith(color: fg))),
-          Expanded(child: Text(text.startsWith('- ') ? '・${text.substring(2)}' : plain(text), style: k.text.body.copyWith(color: fg))),
+          Expanded(child: LineText(text, color: fg, compact: true)),
         ]),
       );
 }

@@ -35,6 +35,14 @@ class Api {
   Future<String> login(String id, String password) async =>
       token = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
 
+  Future<Me> me() async => Me.fromJson(await _send('GET', '/me'));
+
+  /// 名前とアイコンを保存する。icon が null ならアイコンを外す
+  Future<Me> updateMe(String name, IconImage? icon) async => Me.fromJson(await _send('PUT', '/me', {
+        'name': name,
+        'icon': icon == null ? null : {'mimeType': icon.mimeType, 'data': base64Encode(icon.bytes)},
+      }));
+
   Future<List<ManualSummary>> listManuals() async =>
       [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
 

@@ -121,6 +121,11 @@ test('直接編集：行を足す・書き換える・消すと、自分が書�
   assert.equal(deleted.state.checks.length, 0);
 });
 
+test('直接編集：行頭の空白（マークダウンの入れ子）は残し、行末の空白だけを落とす', async () => {
+  const { texts } = await edit({ op: 'insert', line: '- 塩 小さじ1', text: '  - 粗塩でもよい  ' });
+  assert.equal(texts[texts.indexOf('- 塩 小さじ1') + 1], '  - 粗塩でもよい');
+});
+
 test('直接編集：無い行は編集できず、中身が空の行は書けない', async () => {
   assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 無い行' })).status, 409);
   assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: ' ' })).status, 400);
@@ -225,6 +230,33 @@ test('反映した差分のある記録は、書き起こしを直せない', as
   await call('POST', `/manuals/demo-kitchen/patches/${r.patch.id}/apply`, {});
   const { status } = await call('PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, { text: 'ご飯はおかわり2回まで無料' });
   assert.equal(status, 409);
+});
+
+test('名前とアイコン：決めるまでは ID を名前にし、決めたら残す', async () => {
+  assert.deepEqual((await call('GET', '/me')).json, { id: 'demo', name: 'demo', icon: null });
+
+  const icon = { mimeType: 'image/jpeg', data: Buffer.from('jpeg').toString('base64') };
+  const saved = await call('PUT', '/me', { name: ' かなで ', icon });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json, { id: 'demo', name: 'かなで', icon });
+  assert.deepEqual((await call('GET', '/me')).json, { id: 'demo', name: 'かなで', icon });
+  assert.deepEqual((await call('PUT', '/me', { name: 'かなで', icon: null })).json, { id: 'demo', name: 'かなで', icon: null });
+
+  assert.equal((await call('PUT', '/me', { name: ' ', icon: null })).status, 400);
+  assert.equal((await call('PUT', '/me', { name: 'かなで', icon: { mimeType: 'image/gif', data: icon.data } })).status, 400);
+  const huge = { mimeType: 'image/jpeg', data: Buffer.alloc(400_000).toString('base64') };
+  assert.equal((await call('PUT', '/me', { name: 'かなで', icon: huge })).status, 400);
+
+});
+
+test('名前とアイコン：ほかの人が決めた名前は、自分には出ない', async () => {
+  const store = new MemoryStore();
+  await signIn(store);
+  await store.putSession({ id: sessionIdOf('sato-token'), userId: 'sato', createdAt: '' });
+  app = createApp({ store, ...ai });
+  await call('PUT', '/me', { name: 'かなで', icon: null });
+  const res = await app.request('/me', { headers: { Authorization: 'Bearer sato-token' } });
+  assert.deepEqual(await res.json(), { id: 'sato', name: 'sato', icon: null });
 });
 
 test('CORS は指定したオリジンだけを許可する', async () => {
