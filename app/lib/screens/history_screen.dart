@@ -27,7 +27,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   /// 広い画面で右に出している版。選ぶまではいちばん新しいもの
   String? _selected;
 
-  void _push(Commit x) => Navigator.push(context, MaterialPageRoute(builder: (_) => _CommitScreen(c: c, id: x.id)));
+  // 版の詳細も「ノートの上に積んだ画面」として数え、そこから開いた確認リストでもノートまで外して戻れるようにする
+  void _push(Commit x) => Navigator.push(
+      context, MaterialPageRoute(settings: aboveNote(context), builder: (_) => _CommitScreen(c: c, id: x.id)));
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +219,7 @@ class _CommitDetail extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: MoonOutlinedButton(
               buttonSize: MoonButtonSize.sm,
-              onTap: () => openCheckViaList(Navigator.of(context), c, x.check!.id),
+              onTap: () => openCheckViaList(Navigator.of(context), c, x.check!.id, settings: aboveNote(context)),
               label: const Text('確認リストを見る'),
             ),
           ),

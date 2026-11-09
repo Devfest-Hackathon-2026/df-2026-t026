@@ -12,7 +12,7 @@ import 'history_screen.dart';
 import 'manual_screen.dart';
 import 'sidebar.dart';
 
-/// 試作: 後ろをぼかすか。重さを比べるため `--dart-define=TABBAR_BLUR=false` で切れるようにする
+/// 後ろをぼかすか（UI ルールの例外。.claude/rules/flutter-ui.md）。重い端末向けに `--dart-define=TABBAR_BLUR=false` で切れる
 const tabBarBlur = bool.fromEnvironment('TABBAR_BLUR', defaultValue: true);
 
 /// ノートの中のタブ
@@ -26,33 +26,50 @@ bool showsNoteTabBar(BuildContext context) =>
 EdgeInsets belowTabBar(BuildContext context, EdgeInsets padding) =>
     padding.copyWith(bottom: padding.bottom + MediaQuery.paddingOf(context).bottom);
 
-/// ノートのすぐ上に積んだ確認リスト・履歴の印。ここからノートへは、その1枚を外して戻る
-const _aboveNote = 'above-note';
+/// ノートの上に積んだ確認リスト・履歴の印。数はノートから何枚上か（履歴の上に開いた確認リストなら 2）
+const _aboveNote = 'above-note:';
+
+int _depth(BuildContext context) {
+  final name = ModalRoute.of(context)?.settings.name;
+  return name != null && name.startsWith(_aboveNote) ? int.parse(name.substring(_aboveNote.length)) : 0;
+}
+
+/// 確認リスト・履歴を、ノートかその上から開くときに付ける印。ノートの外から開くときは null
+RouteSettings? aboveNote(BuildContext context, {bool fromNote = false}) {
+  final d = fromNote ? 0 : _depth(context);
+  return fromNote || d > 0 ? RouteSettings(name: '$_aboveNote${d + 1}') : null;
+}
 
 /// タブを替える。替えたことが分かれば十分なので、横から出てくる動きは付けない。
-/// 確認リスト・履歴は入力ページなどノートの外からも開くので、ノートの上に積んだときだけ戻り、それ以外はノートに入れ替える
+/// ノートの上に積んだ画面からは、ノートまで外して戻る（画面を積み重ねない）。
+/// 確認リスト・履歴は入力ページなどノートの外からも開くので、そのときはノートに入れ替える
 void openNoteTab(BuildContext context, ManualController c, {required NoteTab from, required NoteTab to}) {
   if (from == to) return;
   final nav = Navigator.of(context);
-  final aboveNote = from == NoteTab.note || ModalRoute.of(context)?.settings.name == _aboveNote;
+  final d = from == NoteTab.note ? 0 : _depth(context);
+  final outside = from != NoteTab.note && d == 0;
   if (to == NoteTab.note) {
-    if (aboveNote) {
-      nav.pop();
-    } else {
+    if (outside) {
       nav.pushReplacement(_instant(ManualScreen(api: c.api, manualId: c.manualId), null));
+    } else {
+      var n = d;
+      nav.popUntil((_) => n-- == 0);
     }
     return;
   }
-  final route = _instant(to == NoteTab.checks ? CheckListScreen(c: c) : HistoryScreen(c: c), aboveNote ? _aboveNote : null);
+  final screen = to == NoteTab.checks ? CheckListScreen(c: c) : HistoryScreen(c: c);
   if (from == NoteTab.note) {
-    nav.push(route);
-  } else {
-    nav.pushReplacement(route);
+    nav.push(_instant(screen, RouteSettings(name: '${_aboveNote}1')));
+    return;
   }
+  // ノートのすぐ上の1枚まで外し、それを入れ替える
+  var n = d - 1;
+  if (n > 0) nav.popUntil((_) => n-- == 0);
+  nav.pushReplacement(_instant(screen, outside ? null : RouteSettings(name: '${_aboveNote}1')));
 }
 
-PageRouteBuilder<void> _instant(Widget screen, String? name) => PageRouteBuilder<void>(
-      settings: RouteSettings(name: name),
+PageRouteBuilder<void> _instant(Widget screen, RouteSettings? settings) => PageRouteBuilder<void>(
+      settings: settings,
       pageBuilder: (_, _, _) => screen,
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,

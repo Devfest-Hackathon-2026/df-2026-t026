@@ -4,12 +4,12 @@ import 'package:diff_note/api.dart';
 import 'package:diff_note/history.dart';
 import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:moon_design/moon_design.dart';
 
 Map<String, dynamic> _u(String id, String text, String speaker, String at, {bool fromEdit = false}) =>
     {'id': id, 'text': text, 'speaker': speaker, 'saidAt': at.substring(0, 10), 'fromEdit': fromEdit, 'createdAt': at};
@@ -216,7 +216,8 @@ void main() {
         home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
       ));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MoonOutlinedButton, '履歴'));
+      // サイドバーが出ない幅（ここでは 390 と 1000）では、上部バーでなく下のタブバーから移る
+      await tester.tap(find.descendant(of: find.byType(NoteTabBar), matching: find.text('履歴')));
       await tester.pumpAndSettle();
     }
 

@@ -25,7 +25,7 @@ class ManualScreen extends StatefulWidget {
 class _ManualScreenState extends State<ManualScreen> {
   late final c = ManualController(widget.api, widget.manualId)..load();
 
-  /// 狭い画面で開いているタブ（0: マニュアル、1: 発言）
+  /// 狭い画面で開いているタブ（0: 本文、1: 発言）
   var _tab = 0;
 
   /// 直接編集している所。at の行を書き換えるか、insert なら at の行の後ろ（null なら末尾）に足す
@@ -88,7 +88,8 @@ class _ManualScreenState extends State<ManualScreen> {
     }
   }
 
-  void _openCheck(Check check) => openCheckViaList(Navigator.of(context), c, check.id);
+  void _openCheck(Check check) =>
+      openCheckViaList(Navigator.of(context), c, check.id, settings: aboveNote(context, fromNote: true));
 
   // 狭い画面では下のタブバーと同じ移り方にする
   void _openList() => showsNoteTabBar(context)
@@ -105,13 +106,14 @@ class _ManualScreenState extends State<ManualScreen> {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
         final tabBar = s != null && showsNoteTabBar(context);
+        // 狭い画面では下のタブバーから移るので、上部バーには出さない
         return Scaffold(
           extendBody: true,
           bottomNavigationBar: tabBar ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
-              trailing: s == null
+              trailing: s == null || tabBar
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
                       MoonOutlinedButton(
@@ -160,7 +162,8 @@ class _ManualScreenState extends State<ManualScreen> {
           initialIndex: _tab,
           onTabChanged: (i) => setState(() => _tab = i),
           tabs: [
-            const MoonTab(label: Text('ノート')),
+            // 下のタブバーの「ノート」とぶつからないよう「本文」と呼ぶ
+            const MoonTab(label: Text('本文')),
             MoonTab(label: Text('発言 ${s.said.length}')),
           ],
         ),

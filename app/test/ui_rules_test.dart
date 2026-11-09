@@ -19,8 +19,8 @@ final _rules = {
 final _shadow = RegExp(r'\bBoxShadow\b');
 const _shadowAllowed = 'lib/screens/common.dart';
 
-/// 試作の例外：下のタブバーの後ろのぼかしが、スマホで重くないかを見るためだけに、このファイルでぼかしを許す
-/// （グラデーションは許さない）。採らないと決めたら、この例外ごと消す
+/// 例外：下のタブバー（狭い画面）だけ、後ろのぼかしを許す（2026-11-09 決定。.claude/rules/flutter-ui.md の構成の節）。
+/// グラデーションは許さない
 const _blurTrial = 'lib/screens/tab_bar.dart';
 final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b');
 
