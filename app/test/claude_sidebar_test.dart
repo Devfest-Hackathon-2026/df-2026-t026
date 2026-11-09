@@ -221,6 +221,15 @@ void main() {
       expect((tester.widget<MoonDrawer>(drawer).decoration! as BoxDecoration).boxShadow, isNull);
     });
 
+    testWidgets('メニューの幅は画面の8割だが、iPad の縦のような広い画面では 360 まで', (tester) async {
+      _size(tester, const Size(820, 1180));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: _api())));
+      await tester.pumpAndSettle();
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(MoonDrawer)).width, 360);
+    });
+
     testWidgets('奥の画面（ノート）には三本線を出さず、戻る矢印のまま', (tester) async {
       await pumpInput(tester);
       await tester.tap(menuButton());

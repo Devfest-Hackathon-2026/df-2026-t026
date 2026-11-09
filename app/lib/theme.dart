@@ -165,6 +165,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// スマホで三本線から出すメニューの幅(画面の幅に対する割合)
   final double drawerWidthFactor = 0.8;
 
+  /// スマホのメニューの幅の上限(iPad の縦などで広くなりすぎないように)
+  final double drawerMaxWidth = 360;
+
   /// サイドバーの項目の左に置く物（自分のアイコン・ペンのアイコン）の幅。アイコンの付いた項目どうしで文字の頭をそろえる（自分のアイコンの大きさ xs と同じ）
   final double sidebarLeading = 24;
   final double sidebarIcon = 20;
