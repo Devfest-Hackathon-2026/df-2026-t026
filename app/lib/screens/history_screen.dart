@@ -306,8 +306,6 @@ class _CommitDetail extends StatelessWidget {
         if (x.asides.isNotEmpty) ...[
           SizedBox(height: k.space.xl),
           Text('この版のあいだの記録', style: k.text.title),
-          SizedBox(height: k.space.xs),
-          Text('ノートと食い違わなかったので、枝にせずここに残しています', style: k.text.small),
           for (final a in x.asides) ...[
             SizedBox(height: k.space.md),
             const Rule(),

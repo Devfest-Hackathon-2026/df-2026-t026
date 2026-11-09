@@ -29,6 +29,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # 使い方のスクショ。撮り直し方は assets/help/README.md
+  assets:
+    - assets/help/wide/
+    - assets/help/narrow/
   # Web では、ここに書いたフォントだけが最初の画面の前に読み終わる（fonts/README.md）
   fonts:
     - family: BIZUDPGothic

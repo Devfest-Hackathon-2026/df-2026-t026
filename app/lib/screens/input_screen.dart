@@ -376,12 +376,9 @@ class _InputScreenState extends State<InputScreen> {
               padding: EdgeInsets.all(k.space.xl),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 Text('どのノートに記録しますか？', style: k.text.title),
-                SizedBox(height: k.space.xs),
-                Text(
-                  heard == null ? '選ばなければ、関係するノートを AI が選びます' : '関係するノートが見つかりませんでした。記録するノートを選んでください',
-                  style: k.text.small,
-                ),
                 if (heard != null) ...[
+                  SizedBox(height: k.space.xs),
+                  Text('関係するノートが見つかりませんでした。記録するノートを選んでください', style: k.text.small),
                   SizedBox(height: k.space.md),
                   Text('「$heard」', style: k.text.body),
                 ],
@@ -501,7 +498,6 @@ class _InputScreenState extends State<InputScreen> {
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
           PageTitle(
             '言われたことを記録',
-            meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)],
             // ON にしても題名とトグルの位置は変えず、ページを移った感じを出さない
             trailing: manuals.isEmpty
                 ? null
@@ -548,13 +544,10 @@ class _InputScreenState extends State<InputScreen> {
     if (_memos.isEmpty && !_rewind) return [];
     return [
       Text('未整理メモ', style: k.text.title),
-      SizedBox(height: k.space.xs),
-      Text(
-        _rewind
-            ? (_memos.isEmpty ? 'いま言われたことをメモすると、ここにたまります' : '押すと書き直して、ノートと照らし合わせられます')
-            : '押すと入力欄に入ります。続けて押すと1つにまとめられます',
-        style: k.text.small,
-      ),
+      if (_memos.isEmpty) ...[
+        SizedBox(height: k.space.xs),
+        Text('いま言われたことをメモすると、ここにたまります', style: k.text.small),
+      ],
       Padding(
         padding: EdgeInsets.only(top: k.space.sm),
         child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
@@ -721,15 +714,14 @@ class _InputScreenState extends State<InputScreen> {
             ),
           ],
           SizedBox(height: k.space.lg),
-          // 2列の狭い側ではボタンと案内が1行に収まらないので、案内を折り返す
-          Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            MoonFilledButton(
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoonFilledButton(
               onTap: _ready && !_busy && !_dictating ? submit : null,
               leading: _busy ? const ButtonLoader() : null,
               label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
             ),
-            if (wide) Text('Ctrl / ⌘ + Enter でも送れます', style: k.text.small),
-          ]),
+          ),
         ]),
       ),
     );
@@ -784,7 +776,7 @@ class _InputScreenState extends State<InputScreen> {
           borderRadius: k.radius.control,
           onTap: () => choose(widget.pickFiles),
           label: Text('ファイルを選ぶ', style: k.text.body),
-          content: Text(onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
+          content: Text('PDF・画像', style: k.text.small),
         ),
         if (onPhone)
           MoonMenuItem(

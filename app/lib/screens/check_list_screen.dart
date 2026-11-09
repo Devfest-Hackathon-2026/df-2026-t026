@@ -92,9 +92,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
   Widget _list(ManualState s, {String? selected, required void Function(Check) onOpen}) {
     final k = context.tokens;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      PageTitle('確認リスト', meta: [
-        Text('ノートの中で食い違っていることです。聞けるときに確認して、決まったら記録します', style: k.text.small),
-      ]),
+      const PageTitle('確認リスト'),
       SizedBox(height: k.space.xxl),
       Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
       SizedBox(height: k.space.md),
@@ -109,7 +107,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
       Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.resolvedChecks.isEmpty)
-        Text('確認して記録すると、ここに残ります。後で別の人に聞かれたときに見せられます', style: k.text.small)
+        Text('確認済みの食い違いは、まだありません', style: k.text.small)
       else
         for (final chk in s.resolvedChecks.reversed) ...[
           _resolvedRow(s, chk, selected: chk.id == selected, onTap: () => onOpen(chk)),
