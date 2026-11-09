@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'input_font.dart';
+
 final _blank = {
   'manual': {'id': 'm1', 'title': '自分用メモ', 'base': '', 'createdAt': '2026-11-08T00:00:00Z'},
   'lines': [],
@@ -36,6 +38,7 @@ void main() {
       return _json(_blank, req.method == 'POST' ? 201 : 200);
     });
     await _pump(tester, NewManualScreen(api: Api(client: client, baseUrl: 'http://api')));
+    expectInputFontsAtLeast16(tester, count: 2); // 題名・最初の本文
 
     // 題名が無いうちは押せない
     final blank = find.widgetWithText(MoonFilledButton, '白紙から始める');

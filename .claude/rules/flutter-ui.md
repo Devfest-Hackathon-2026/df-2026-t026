@@ -52,6 +52,7 @@ paths:
 ## トークン
 
 - 色・余白・角丸・文字スタイルは `context.tokens`（`lib/theme.dart` の `AppTokens`）から取る。`Color(0x…)`・`Colors.*`・数値を直接書いた `EdgeInsets`/`SizedBox`/`BorderRadius`/`fontSize` は `theme.dart` 以外に書かない
+- 入力欄の文字は 16px 以上にする（1行は `k.text.input`、複数行は `k.text.inputArea`。iPhone は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないため）。Moon の入力欄の既定も theme.dart でこれにそろえている
 - Moon の色・角丸・書体・影も `theme.dart` でトークンから作る。Moon の既定（紫の主色 #5C33CF、純黒）を画面に出さない
 - 色は役割の名前で持つ（`shell`・`canvas`・`ink`・`inkMuted`・`rule`・`added`・`removed`・`pending`・`qualified`・`stamp` など）。文字は紺がかった黒（`ink`）で、純黒 `#000000` は使わない。補足の文字は `inkMuted`
 - 余白は `space.xs`(4)〜`space.xxl`(40) の段階だけ。まとまりの内側は狭く、まとまりの間は広くして、全部を同じ値にしない

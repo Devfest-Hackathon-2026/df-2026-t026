@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'input_font.dart';
+
 Map<String, dynamic> _state({required bool resolved}) => {
       'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
@@ -175,6 +177,7 @@ void main() {
     await tester.ensureVisible(start);
     await tester.tap(start);
     await tester.pumpAndSettle();
+    expectInputFontsAtLeast16(tester, count: 2); // 確認した相手・メモ
 
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');

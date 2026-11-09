@@ -10,6 +10,8 @@ import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'input_font.dart';
+
 http.Response _json(Object body, int status) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 void main() {
@@ -39,6 +41,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: client, baseUrl: 'http://api'))));
     await tester.pumpAndSettle();
     expect(find.text('ログインしてください'), findsOneWidget);
+    expectInputFontsAtLeast16(tester, count: 2); // ID・パスワード
 
     final id = find.byType(MoonTextInput).at(0);
     final password = find.byType(MoonTextInput).at(1);

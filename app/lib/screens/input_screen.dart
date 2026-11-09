@@ -611,7 +611,7 @@ class _InputScreenState extends State<InputScreen> {
           // expands は付けない（moon_design 1.1.0 は expands のとき文字を縦の真ん中に置く）
           height: k.memoEditorHeight,
           readOnly: _busy,
-          textStyle: k.text.body,
+          textStyle: k.text.inputArea,
           onChanged: (_) => setState(() {}),
         ),
         SizedBox(height: k.space.sm),
@@ -673,7 +673,7 @@ class _InputScreenState extends State<InputScreen> {
                     controller: _text,
                     height: k.composerHeight - k.composerTools,
                     readOnly: _dictating,
-                    textStyle: k.text.body,
+                    textStyle: k.text.inputArea,
                     // 枠は外側の DecoratedBox が描く
                     backgroundColor: k.colors.canvas,
                     inactiveBorderColor: k.colors.canvas,

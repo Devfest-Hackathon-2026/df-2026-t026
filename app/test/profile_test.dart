@@ -12,6 +12,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'input_font.dart';
+
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 // 1×1 の PNG
@@ -39,6 +41,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('ログイン ID：kanade'), findsOneWidget);
+    expectInputFontsAtLeast16(tester, count: 1); // 名前
     expect(find.widgetWithText(MoonTextButton, 'アイコンを外す'), findsNothing);
 
     await tester.tap(find.widgetWithText(MoonOutlinedButton, 'アイコンを選ぶ'));

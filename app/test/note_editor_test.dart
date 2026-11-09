@@ -9,6 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'input_font.dart';
+
 /// 直接編集を受けるだけの、メモリ上の小さなサーバー
 class _Server {
   final lines = <Map<String, dynamic>>[
@@ -111,6 +113,7 @@ void main() {
     await tester.tap(find.text('・塩 小さじ1'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(MoonTextInput, '- 塩 小さじ1'), findsOneWidget);
+    expectInputFontsAtLeast16(tester, count: 1); // 行を直接書き換える欄
 
     await tester.tap(find.widgetWithText(MoonOutlinedButton, 'この行を消す'));
     await tester.pumpAndSettle();
