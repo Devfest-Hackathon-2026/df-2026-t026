@@ -32,8 +32,13 @@ class Api {
   final changes = ValueNotifier(0);
 
   /// 配った ID とパスワードでログインし、以後の呼び出しに使うトークンを返す
-  Future<String> login(String id, String password) async =>
-      token = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
+  Future<String> login(String id, String password) async {
+    final t = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
+    token = t;
+    // トークンを持ってから知らせる。_send の中で知らせると、サイドバーがトークン無しで読み直して空のままになる
+    changes.value++;
+    return t;
+  }
 
   Future<Me> me() async => Me.fromJson(await _send('GET', '/me'));
 
@@ -173,7 +178,8 @@ class Api {
     if (res.statusCode >= 400) {
       throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
-    if (method != 'GET') changes.value++;
+    // ログインは login() の中で、トークンを持ってから知らせる
+    if (method != 'GET' && path != '/login') changes.value++;
     return json;
   }
 }
