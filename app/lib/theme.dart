@@ -189,8 +189,12 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
   final double graphDash = 4;
 
-  /// 狭い画面の下に浮かせるタブバーの高さ
+  /// 狭い画面の下に浮かせるタブバー（試作。スマホで重くないかを見る）。高さ・後ろをぼかす強さ・半透明の白・影
   final double tabBarHeight = 60;
+  final double tabBarBlur = 18;
+  final Color tabBarGlass = const Color(0xB8FFFFFF);
+  final Color tabBarGlassSolid = const Color(0xF2FFFFFF);
+  final List<BoxShadow> tabBarShadow = const [BoxShadow(color: Color(0x1F17173D), blurRadius: 24, offset: Offset(0, 8))];
 
   @override
   AppTokens copyWith() => this;

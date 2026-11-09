@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -9,6 +11,9 @@ import 'common.dart';
 import 'history_screen.dart';
 import 'manual_screen.dart';
 import 'sidebar.dart';
+
+/// 試作: 後ろをぼかすか。重さを比べるため `--dart-define=TABBAR_BLUR=false` で切れるようにする
+const tabBarBlur = bool.fromEnvironment('TABBAR_BLUR', defaultValue: true);
 
 /// ノートの中のタブ
 enum NoteTab { note, checks, history }
@@ -71,18 +76,27 @@ class NoteTabBar extends StatelessWidget {
         _tab(context, NoteTab.history, LucideIcons.history, '履歴'),
       ]),
     );
+    final glass = DecoratedBox(
+      decoration: BoxDecoration(
+        color: tabBarBlur ? k.tabBarGlass : k.tabBarGlassSolid,
+        borderRadius: k.radius.floating,
+        border: Border.all(color: k.colors.rule, width: k.hairline),
+      ),
+      child: row,
+    );
     return SafeArea(
       top: false,
       minimum: EdgeInsets.only(bottom: k.space.sm),
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: k.space.lg),
         child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: k.colors.canvas,
+          decoration: BoxDecoration(borderRadius: k.radius.floating, boxShadow: k.tabBarShadow),
+          child: ClipRRect(
             borderRadius: k.radius.floating,
-            border: Border.all(color: k.colors.rule, width: k.hairline),
+            child: tabBarBlur
+                ? BackdropFilter(filter: ImageFilter.blur(sigmaX: k.tabBarBlur, sigmaY: k.tabBarBlur), child: glass)
+                : glass,
           ),
-          child: row,
         ),
       ),
     );

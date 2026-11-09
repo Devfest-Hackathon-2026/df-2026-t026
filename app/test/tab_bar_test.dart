@@ -87,6 +87,14 @@ void main() {
     expect(find.byType(HistoryScreen, skipOffstage: false), findsNothing);
   });
 
+  testWidgets('後ろのぼかしは TABBAR_BLUR で切り替えられる（既定はぼかす）', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(NoteTabBar), matching: find.byType(BackdropFilter)),
+        tabBarBlur ? findsOneWidget : findsNothing);
+  });
+
   testWidgets('広い画面（サイドバーが出る幅）ではタブバーを出さない', (tester) async {
     _size(tester, const Size(1440, 900));
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
