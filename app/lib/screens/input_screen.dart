@@ -576,6 +576,8 @@ class _InputScreenState extends State<InputScreen> {
                     ),
                   ]),
           ),
+          // ノートが無いときは、同じ一文を空状態の案内に出す
+          if (manuals.isNotEmpty) ...[SizedBox(height: k.space.sm), _about(wide: wide)],
           SizedBox(height: k.space.xl),
           if (manuals.isEmpty)
             _empty()
@@ -599,6 +601,20 @@ class _InputScreenState extends State<InputScreen> {
         ]),
       );
     });
+  }
+
+  /// 題名の下に、何の道具かと、リワインドが何をするかを一言ずつ添える。広い画面では、リワインドの一言をトグルの下（右の列の上）に置く
+  Widget _about({required bool wide}) {
+    final k = context.tokens;
+    final purpose = Text(appPurpose, style: k.text.small);
+    // 音声は押すまで送らないが、切り出した発話は書き起こしのためにサーバーへ送る（ADR 0005）。「端末の中で文字にする」とは書かない
+    final rewind = Text('リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その発話を切り出して文字にします', style: k.text.small);
+    if (!wide) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [purpose, SizedBox(height: k.space.sm), rewind]);
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Expanded(child: purpose),
+      SizedBox(width: k.space.xxl),
+      SizedBox(width: k.panelWidth, child: rewind),
+    ]);
   }
 
   /// リワインドでためた未整理メモ。リワインドが OFF なら押すと入力欄に入り、無ければ何も出さない。
@@ -700,6 +716,8 @@ class _InputScreenState extends State<InputScreen> {
   Widget _composer(List<ManualState> manuals, {bool wide = false}) {
     final k = context.tokens;
     void submit() => _submit(manuals);
+    // 送るときと同じく、今あるノートに当たらない記録先は選んでいないのと同じ
+    final auto = !manuals.any((m) => _targets.contains(m.id));
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.enter, control: true): submit,
@@ -761,6 +779,11 @@ class _InputScreenState extends State<InputScreen> {
               ),
             ),
           ),
+          // 何が自動なのかを、記録先のすぐ下で言う。選んだ後は AI が選ばないので出さない
+          if (auto) ...[
+            SizedBox(height: k.space.sm),
+            Text('記録先が自動のままなら、どのノートの話かを AI が選びます', style: k.text.small),
+          ],
           if (_files.isNotEmpty) ...[
             SizedBox(height: k.space.sm),
             Wrap(
@@ -955,7 +978,7 @@ class _InputScreenState extends State<InputScreen> {
         Text('まだノートがありません', style: k.text.heading),
         SizedBox(height: k.space.sm),
         Text(
-          '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
+          '$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。',
           style: k.text.small,
           textAlign: TextAlign.center,
         ),
@@ -1006,6 +1029,9 @@ class _LoginFormState extends State<_LoginForm> {
         // ブラウザのパスワード管理に覚えさせられるよう、ID とパスワードを1つのまとまりにする
         child: AutofillGroup(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // 初めて開いた人は、ログインの前に何の道具かを知らない
+            Text(appPurpose, style: k.text.body),
+            SizedBox(height: k.space.xl),
             Text(widget.message, style: k.text.heading),
             SizedBox(height: k.space.xs),
             Text('ID とパスワードは、このアプリを紹介した人に聞いてください', style: k.text.small),
