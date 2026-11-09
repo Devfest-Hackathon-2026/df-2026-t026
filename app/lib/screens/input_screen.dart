@@ -544,6 +544,8 @@ class _InputScreenState extends State<InputScreen> {
       // 広い画面では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする。
       // リワインドでは、左に待ち受けの面、右に最近の記録の代わりに未整理メモを置き、1件ずつ書き直して記録できるようにする
       final wide = box.maxWidth >= k.wideLayout;
+      // 狭い画面では付箋を幅いっぱいにする（決まった幅のままだと1列に1枚しか入らず、右が空く）
+      final noteWidth = wide ? null : double.infinity;
       final main = _rewind
           ? [
               RewindPanel(
@@ -555,7 +557,7 @@ class _InputScreenState extends State<InputScreen> {
               ),
             ]
           : [
-              ..._unsorted(manuals),
+              ..._unsorted(manuals, noteWidth: noteWidth),
               _composer(manuals, wide: wide),
               SizedBox(height: k.space.xxl),
               ..._openChecks(manuals),
@@ -600,7 +602,7 @@ class _InputScreenState extends State<InputScreen> {
               // 狭い画面でも待ち受けの面を先に置き、メモが増えてもボタンの位置が動かないようにする
               ...main,
               SizedBox(height: k.space.xxl),
-              ...side(),
+              ...side(noteWidth: noteWidth),
             ],
           ],
         ]),
