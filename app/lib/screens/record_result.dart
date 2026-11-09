@@ -43,10 +43,13 @@ class RecordResultCard extends StatelessWidget {
           ? '${settled.decidedBy}に確認済みの決定と食い違っています'
           : '${settled.decidedBy}が決めたことと食い違っています';
     }
-    if (conflicts.isNotEmpty) return 'ノートと食い違っています';
+    // 相手がどれも資料の行なら、ノートでなく資料と言う（ADR 0019）
+    if (conflicts.isNotEmpty) return '${conflicts.every((x) => x.chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
     final written = checks.where((x) => x.chk.kind == Kind.addition || x.chk.kind == Kind.qualification).length;
     if (written > 0) return 'ノートに$written行書き込みました';
-    if (checks.isNotEmpty) return 'ノートと同じ内容でした（記録として残しました）';
+    if (checks.isNotEmpty) {
+      return '${checks.every((x) => x.chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
+    }
     return 'ノートは変えずに、言われた記録として残しました';
   }
 
@@ -100,7 +103,7 @@ class RecordResultCard extends StatelessWidget {
         if (chk.kind == Kind.contradiction) ...[
           SizedBox(height: k.space.sm),
           ConflictPair(
-            leftLabel: 'ノート',
+            leftLabel: counterpartLabel(chk),
             left: chk.conflictLine ?? '',
             rightLabel: '${u.speaker ?? '発言者未入力'}（${fmtDay(u.saidAt)}）',
             right: p.text,
@@ -113,7 +116,12 @@ class RecordResultCard extends StatelessWidget {
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Padding(padding: EdgeInsets.only(top: k.space.xs), child: KindTag(chk.kind)),
             SizedBox(width: k.space.sm),
-            Expanded(child: Text(plain(chk.kind == Kind.same ? chk.sameLine ?? p.text : p.text), style: k.text.body)),
+            Expanded(
+              child: Text(
+                chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
+                style: k.text.body,
+              ),
+            ),
           ]),
         ],
       if (items.isEmpty && records.length > 1) ...[

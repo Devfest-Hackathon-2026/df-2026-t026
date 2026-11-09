@@ -377,7 +377,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
     final k = context.tokens;
     return [
       ConflictPair(
-        leftLabel: 'ノート',
+        leftLabel: counterpartLabel(chk),
         left: chk.conflictLine ?? '',
         rightLabel: '${_hasSpeaker ? _speaker.text.trim() : '発言者未入力'}（${fmtDay(_saidAt)}）',
         right: p.text,
@@ -414,7 +414,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
   List<Widget> _same(ManualController c, Patch p, Check chk) {
     final k = context.tokens;
     return [
-      Text('ノートの「${plain(chk.sameLine ?? '')}」と同じ内容です。本文は変えずに、言われた記録として残します', style: k.text.body),
+      Text(
+          '${chk.materialRef == null ? 'ノート' : '${chk.materialRef!.label} '}の「${plain(chk.sameLine ?? '')}」と同じ内容です。'
+          '本文は変えずに、言われた記録として残します',
+          style: k.text.body),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)

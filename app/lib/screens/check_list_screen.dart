@@ -142,6 +142,10 @@ class _CheckListScreenState extends State<CheckListScreen> {
     );
   }
 
+  /// 「ノートの行 ／ 言われた行」。相手が資料の行なら「資料「店舗マニュアル」p.3：資料の行 ／ 言われた行」
+  String _pair(ManualState s, Check chk) =>
+      '${counterpartLine(chk, chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}';
+
   /// あとで確認：誰が・いつ → 食い違い → 理由
   Widget _openRow(ManualState s, Check chk, {required bool selected, required VoidCallback onTap}) {
     final k = context.tokens;
@@ -150,7 +154,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
       onTap: onTap,
       u: s.utterance(chk.utteranceId),
       body: [
-        Text('${plain(chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}', style: k.text.heading),
+        Text(_pair(s, chk), style: k.text.heading),
         SizedBox(height: k.space.xs),
         Text(chk.reason, style: k.text.small),
       ],
@@ -166,7 +170,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
       onTap: onTap,
       u: s.utterance(chk.utteranceId),
       body: [
-        Text('${plain(chk.conflictLine ?? '')} ／ ${plain(s.patch(chk.patchId).text)}', style: k.text.small),
+        Text(_pair(s, chk), style: k.text.small),
         SizedBox(height: k.space.sm),
         // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
         Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb),

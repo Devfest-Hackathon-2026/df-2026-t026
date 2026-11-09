@@ -133,7 +133,8 @@ class _ManualScreenState extends State<ManualScreen> {
     try {
       final chk = await c.checkEdit(p.id);
       if (chk != null && mounted) {
-        showToast(context, '「${plain(chk.conflictLine!)}」と食い違っています。確認リストに入れました');
+        final where = chk.materialRef == null ? '' : '${chk.materialRef!.label} の';
+        showToast(context, '$where「${plain(chk.conflictLine!)}」と食い違っています。確認リストに入れました');
       }
     } on ApiException catch (err) {
       if (mounted) showError(context, '食い違いを確かめられませんでした：$err');
@@ -428,13 +429,17 @@ class _ManualScreenState extends State<ManualScreen> {
           ),
           Text('も同じ', style: k.text.small),
         ]),
-      // 食い違っていることをその場で見せる：「マニュアルの行 ／ 誰（日付）：言われたこと」
+      // 食い違っていることをその場で見せる：「マニュアルの行 ／ 誰（日付）：言われたこと」。
+      // 直接書いた行が資料と食い違ったときは、この行が言われた側なので、相手の資料の行を「／ 資料「…」p.3：…」で見せる
       for (final o in open)
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Text('／', style: k.text.body.copyWith(color: k.colors.pending)),
-          Text('${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：',
+          Text(
+              o.materialRef == null
+                  ? '${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：'
+                  : '${o.materialRef!.label}：',
               style: k.text.small),
-          Text(plain(s.patch(o.patchId).text), style: k.text.body),
+          Text(plain(o.materialRef == null ? s.patch(o.patchId).text : o.conflictLine ?? ''), style: k.text.body),
           StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending),
         ]),
     ];
