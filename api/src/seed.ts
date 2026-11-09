@@ -79,7 +79,7 @@ const check = (id: string, p: Patch, r: Omit<Check, 'id' | 'patchId' | 'utteranc
   ...r,
 });
 
-const addition = { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null } as const;
+const addition = { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null, materialRef: null } as const;
 
 // キッチン：版を6つ積み、食い違いの確認（ノートのまま・言われた通り）、同じ内容、あとで確認を1つずつ入れる
 const k1 = said('demo-k-u1', 2, '01:00', '店長', 'まな板は熱湯のあと、週に1回は漂白もしておいて');
@@ -172,7 +172,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
     utterances: [k1, k2, k3, k3a, k4, k5, k6, k5a, k7],
     patches: [k1p, k2p, k3p, k4p, k5p, k6p, k5f, k7p],
     checks: [
-      check('demo-k-c1', k1p, { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null }),
+      check('demo-k-c1', k1p, { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null, materialRef: null }),
       check('demo-k-c2', k2p, addition),
       check(
         'demo-k-c3',
@@ -189,6 +189,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
             ],
             question: '大盛りは250gまでと教わっていたのですが、300gまでとも聞きました。どちらに合わせればよいですか？',
           },
+          materialRef: null,
         },
         { utteranceId: k3a.id, patchId: null, decidedBy: '店長', decidedAt: k3a.saidAt, text: '- 大盛りは250gまで', note: k3a.text },
       ),
@@ -208,6 +209,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
             ],
             question: '洗った皿は右の棚に戻すと教わっていたのですが、左の棚とも聞きました。どちらに合わせればよいですか？',
           },
+          materialRef: null,
         },
         { utteranceId: k5a.id, patchId: k5f.id, decidedBy: '店長', decidedAt: k5a.saidAt, text: k5f.text, note: k5a.text },
       ),
@@ -217,6 +219,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
         sameLine: '- 味噌は火を止めてから溶く',
         reason: 'ノートの「味噌は火を止めてから溶く」と同じ内容です',
         ask: null,
+        materialRef: null,
       }),
       check('demo-k-c7', k7p, {
         kind: 'contradiction',
@@ -230,6 +233,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
           ],
           question: 'ガスの元栓は閉めて写真を撮ると教わっていたのですが、写真はもう撮らなくていいとも聞きました。どちらに合わせればよいですか？',
         },
+        materialRef: null,
       }),
     ],
   },

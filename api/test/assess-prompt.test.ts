@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { assessWithGemini, type AssessInput } from '../src/assess.ts';
-import { checkWithGemini, type CheckInput } from '../src/conflict/check.ts';
+import { checkWithGemini, type CheckInput, type ManualContext } from '../src/conflict/check.ts';
 import { toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 /*
@@ -22,11 +22,13 @@ const kitchen: AssessInput['manuals'][number] = {
     { text: '- 大盛りは250gまで', note: null },
   ],
   confirmations: ['2026-11-05 店長に確認：250gのまま（「- 大盛りは250gまで」→「- 大盛りは250gまで」）'],
+  materials: [],
+  materialConfirmations: [],
 };
-const blank: AssessInput['manuals'][number] = { title: 'ホール', lines: [], confirmations: [] };
+const blank: AssessInput['manuals'][number] = { title: 'ホール', lines: [], confirmations: [], materials: [], materialConfirmations: [] };
 
 const said = { text: '田中さんから塩は小さじ1でいいと言われた', today: '2026-11-10', speakers: ['田中さん', '店長'] };
-const edit: Omit<CheckInput, 'lines' | 'confirmations'> = {
+const edit: Omit<CheckInput, keyof ManualContext> = {
   utterance: { text: '- 大盛りは300gまで', speaker: '自分', saidAt: '2026-11-10' },
   patch: { op: 'insert', line: null, text: '- 大盛りは300gまで', summary: '追記' },
 };

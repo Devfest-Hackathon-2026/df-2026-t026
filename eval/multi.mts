@@ -68,7 +68,7 @@ function manualsFor(i: number): { manuals: { title: string; lines: string[] }[];
 }
 
 const heaviest = (ks: Kind[]): Kind => (ks.length === 0 ? 'addition' : ks.reduce((a, b) => (kinds.indexOf(b) > kinds.indexOf(a) ? b : a)));
-const ctx = (lines: string[]) => ({ lines: lines.map((text) => ({ text, note: null })), confirmations: [] });
+const ctx = (lines: string[]) => ({ lines: lines.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] });
 
 type Row = { id: string; expected: Kind; kind: Kind | null; routed: boolean; hit: boolean; ms: number; calls: number; error?: string };
 
