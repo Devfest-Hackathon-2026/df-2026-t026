@@ -370,34 +370,44 @@ void main() {
     expect(find.text('答えて確定する'), findsNothing);
   });
 
-  testWidgets('確認のページ（持ち主）：「誰に確認する？」で共有している人を選べ、確認した相手の欄では名前かログイン ID で絞れる', (tester) async {
+  testWidgets('確認のページ（持ち主）：2 と 3 のどちらでも、共有している人を選べ、名前かログイン ID を打って絞れる', (tester) async {
     await pumpCheck(tester, shared: false, people: [
       {'id': 'sato', 'name': '佐藤店長'},
       {'id': 'haruto', 'name': 'はると'},
       {'id': 'kim', 'name': 'kim'},
     ]);
-    expect(find.text('ほかの人'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする'));
-    await tester.pump();
-    await tester.tap(_outlined('聞いた結果を記録する'));
-    await tester.pumpAndSettle();
-    final field = find.byType(EditableText).first;
-    expect(tester.widget<EditableText>(field).controller.text, 'はると');
+    String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
 
-    // ログイン ID で探せる。ID で当たった人には ID を添え、押すと名前が入る
-    await tester.enterText(field, 'sat');
+    // 2：AI の候補が入っているときは絞らず、共有している人を先に並べる
+    expect(find.text('ほかの人'), findsOneWidget);
+    expect(text(0), '店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsOneWidget);
+    // 2 の欄にログイン ID を打つと絞り、ID で当たった人には ID を添える。押すと名前が入る
+    await tester.enterText(find.byType(EditableText).first, 'sat');
     await tester.pump();
     expect(find.text('佐藤店長（sato）'), findsOneWidget);
-    expect(find.text('はると（haruto）'), findsNothing);
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNothing);
     await tester.tap(find.ancestor(of: find.text('佐藤店長（sato）'), matching: find.byType(MoonChip)));
     await tester.pump();
-    expect(tester.widget<EditableText>(field).controller.text, '佐藤店長');
-    // 名前で当たった人には ID を添えない
-    expect(find.text('佐藤店長（sato）'), findsNothing);
-    // 名前を決めていない人（名前が ID のまま）も、ID を打つと欄の下に出る
-    await tester.enterText(field, 'kim');
+    expect(text(0), '佐藤店長');
+
+    // 3 にも同じ人が入っていて、同じように選べる
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    expect(text(1), '佐藤店長');
+    expect(find.bySemanticsLabel('確認した相手をはるとにする'), findsNWidgets(2));
+    await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする').last);
     await tester.pump();
-    expect(find.widgetWithText(MoonChip, 'kim'), findsNWidgets(2)); // 2 の「ほかの人」と、欄の下
+    expect([text(0), text(1)], ['はると', 'はると']);
+
+    // 3 の欄に打っても絞れる。名前を決めていない人（名前が ID のまま）は、ID を打つとそのまま選んだ形になる
+    await tester.enterText(find.byType(EditableText).at(1), 'haru');
+    await tester.pump();
+    expect(find.text('はると（haruto）'), findsNWidgets(2));
+    await tester.enterText(find.byType(EditableText).at(1), 'kim');
+    await tester.pump();
+    expect(find.widgetWithText(MoonChip, 'kim'), findsNWidgets(2));
+    expect(text(0), 'kim');
   });
 
   testWidgets('確認のページ（持ち主）：共有していなくても、このノートで言ったことのある人から確認した相手を選べる', (tester) async {

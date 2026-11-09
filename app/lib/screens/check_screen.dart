@@ -99,29 +99,40 @@ class _CheckDetailState extends State<CheckDetail> {
     return all;
   }
 
-  /// 確認した相手の欄に打った言葉で、名前かログイン ID にその言葉を含む人。ID で当たった人には ID を添える。
-  List<({String name, String? id})> get _matchedPeople {
-    final q = _decidedBy.text.trim().toLowerCase();
-    if (q.isEmpty) return const [];
+  /// 確認した相手の欄の下に出す人。欄に打った言葉で、名前かログイン ID にその言葉を含む人に絞り、ID で当たった人には ID を添える。
+  /// 空のときや、候補の名前がそのまま入っているときは絞らない
+  List<({String name, String? id})> _shownPeople(Check chk) {
+    final people = _people;
+    final typed = _decidedBy.text.trim();
+    final q = typed.toLowerCase();
+    if (q.isEmpty || people.containsKey(typed) || chk.candidates.any((x) => x.who == typed)) {
+      return [for (final name in people.keys.take(_maxPeople)) (name: name, id: null)];
+    }
     return [
-      for (final MapEntry(key: name, value: id) in _people.entries)
+      for (final MapEntry(key: name, value: id) in people.entries)
         if (name.toLowerCase().contains(q)) (name: name, id: null)
         else if (id != null && id.toLowerCase().contains(q)) (name: name, id: id),
     ].take(_maxPeople).toList();
   }
 
-  Widget _memberChips(List<({String name, String? id})> people) {
+  /// 2 と 3 で同じものを出す。どちらも確認した相手の欄（_decidedBy）を書き換える
+  Widget _peopleChips(Check chk) {
     final k = context.tokens;
-    return Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
-      for (final (:name, :id) in people)
-        MoonChip(
-          chipSize: MoonChipSize.sm,
-          isActive: _decidedBy.text.trim() == name,
-          semanticLabel: '確認した相手を$nameにする',
-          label: Text(id == null ? name : '$name（$id）'),
-          onTap: () => setState(() => _decidedBy.text = name),
-        ),
-    ]);
+    final people = _shownPeople(chk);
+    if (people.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(top: k.space.xs),
+      child: Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
+        for (final (:name, :id) in people)
+          MoonChip(
+            chipSize: MoonChipSize.sm,
+            isActive: _decidedBy.text.trim() == name,
+            semanticLabel: '確認した相手を$nameにする',
+            label: Text(id == null ? name : '$name（$id）'),
+            onTap: () => setState(() => _decidedBy.text = name),
+          ),
+      ]),
+    );
   }
 
   /// 共有された人は、自分の答えとして確定する。確認した相手は送らない（ADR 0017）
@@ -215,12 +226,11 @@ class _CheckDetailState extends State<CheckDetail> {
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
-              if (_people.keys.take(_maxPeople).toList() case final names when names.isNotEmpty) ...[
-                SizedBox(height: k.space.md),
-                Text('ほかの人', style: k.text.small),
-                SizedBox(height: k.space.xs),
-                _memberChips([for (final name in names) (name: name, id: null)]),
-              ],
+              SizedBox(height: k.space.md),
+              Text('ほかの人', style: k.text.small),
+              SizedBox(height: k.space.xs),
+              MoonTextInput(controller: _decidedBy, hintText: '名前かログイン ID', onChanged: (_) => setState(() {})),
+              _peopleChips(chk),
               if (chk.question != null) ...[
                 SizedBox(height: k.space.md),
                 _copyable('聞き方の例', chk.question!, '聞き方をコピーする'),
@@ -331,10 +341,7 @@ class _CheckDetailState extends State<CheckDetail> {
             label: Text('${fmtDay(_decidedAt)} に聞いた'),
           ),
         ]),
-        if (_matchedPeople case final matched when matched.isNotEmpty) ...[
-          SizedBox(height: k.space.xs),
-          _memberChips(matched),
-        ],
+        _peopleChips(chk),
         SizedBox(height: k.space.xl),
       ],
       Text(answering ? 'どちらにする？' : 'どちらに決まった？', style: k.text.small),
