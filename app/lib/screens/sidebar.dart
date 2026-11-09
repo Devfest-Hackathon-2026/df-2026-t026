@@ -65,7 +65,7 @@ class _SidebarState extends State<_Sidebar> {
     super.dispose();
   }
 
-  // 読めないとき（合言葉を入れる前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
+  // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
   Future<List<ManualSummary>> _load() => widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]);
 
   void _reload() => setState(() {

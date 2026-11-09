@@ -27,8 +27,8 @@ import 'review_dialog.dart';
 import 'rewind_screen.dart';
 import 'sidebar.dart';
 
-/// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
-const passcodeKey = 'passcode';
+/// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
+const tokenKey = 'token';
 
 /// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
 const memosKey = 'memos';
@@ -129,16 +129,17 @@ class _InputScreenState extends State<InputScreen> {
         _manuals = _load();
       });
 
-  Future<void> _enter(String passcode) async {
-    widget.api.passcode = passcode;
-    _reload();
+  Future<void> _login(String id, String password) async {
+    final String token;
     try {
-      await _manuals;
-    } catch (_) {
-      return; // 違っていれば FutureBuilder がもう一度合言葉を聞く
+      token = await widget.api.login(id, password);
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+      return;
     }
-    // 次に開いたときにまた聞かなくて済むよう、ブラウザに覚えておく
-    await (await SharedPreferences.getInstance()).setString(passcodeKey, passcode);
+    // 次に開いたときにまたログインしなくて済むよう、ブラウザに覚えておく
+    await (await SharedPreferences.getInstance()).setString(tokenKey, token);
+    _reload();
   }
 
   bool get _ready => _text.text.trim().isNotEmpty || _files.isNotEmpty;
@@ -405,7 +406,7 @@ class _InputScreenState extends State<InputScreen> {
 
   Widget _body(AsyncSnapshot<List<ManualState>> snap) {
     if (snap.error case ApiException(status: 401, :final message)) {
-      return _PasscodeForm(message: message, onSubmit: _enter);
+      return _LoginForm(message: message, onSubmit: _login);
     }
     if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
     if (!snap.hasData) return const Loading();
@@ -746,27 +747,35 @@ class _InputScreenState extends State<InputScreen> {
   }
 }
 
-class _PasscodeForm extends StatefulWidget {
-  const _PasscodeForm({required this.message, required this.onSubmit});
+class _LoginForm extends StatefulWidget {
+  const _LoginForm({required this.message, required this.onSubmit});
   final String message;
-  final ValueChanged<String> onSubmit;
+  final Future<void> Function(String id, String password) onSubmit;
 
   @override
-  State<_PasscodeForm> createState() => _PasscodeFormState();
+  State<_LoginForm> createState() => _LoginFormState();
 }
 
-class _PasscodeFormState extends State<_PasscodeForm> {
-  final _passcode = TextEditingController();
+class _LoginFormState extends State<_LoginForm> {
+  final _id = TextEditingController();
+  final _password = TextEditingController();
+  final _passwordFocus = FocusNode();
+  var _busy = false;
 
   @override
   void dispose() {
-    _passcode.dispose();
+    _id.dispose();
+    _password.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    final v = _passcode.text.trim();
-    if (v.isNotEmpty) widget.onSubmit(v);
+  Future<void> _submit() async {
+    final id = _id.text.trim();
+    if (_busy || id.isEmpty || _password.text.isEmpty) return;
+    setState(() => _busy = true);
+    await widget.onSubmit(id, _password.text);
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -775,24 +784,41 @@ class _PasscodeFormState extends State<_PasscodeForm> {
     return Narrow(
       child: SingleChildScrollView(
         padding: EdgeInsets.symmetric(horizontal: k.space.xl, vertical: k.space.xxl),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.message, style: k.text.heading),
-          SizedBox(height: k.space.xs),
-          Text('合言葉は、このアプリを紹介した人に聞いてください', style: k.text.small),
-          SizedBox(height: k.space.lg),
-          MoonTextInput(
-            controller: _passcode,
-            autofocus: true,
-            obscureText: true,
-            hintText: '合言葉',
-            onSubmitted: (_) => _submit(),
-          ),
-          SizedBox(height: k.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoonFilledButton(label: const Text('入る'), onTap: _submit),
-          ),
-        ]),
+        // ブラウザのパスワード管理に覚えさせられるよう、ID とパスワードを1つのまとまりにする
+        child: AutofillGroup(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(widget.message, style: k.text.heading),
+            SizedBox(height: k.space.xs),
+            Text('ID とパスワードは、このアプリを紹介した人に聞いてください', style: k.text.small),
+            SizedBox(height: k.space.lg),
+            MoonTextInput(
+              controller: _id,
+              autofocus: true,
+              hintText: 'ID',
+              autofillHints: const [AutofillHints.username],
+              textInputAction: TextInputAction.next,
+              onSubmitted: (_) => _passwordFocus.requestFocus(),
+            ),
+            SizedBox(height: k.space.sm),
+            MoonTextInput(
+              controller: _password,
+              focusNode: _passwordFocus,
+              obscureText: true,
+              hintText: 'パスワード',
+              autofillHints: const [AutofillHints.password],
+              onSubmitted: (_) => _submit(),
+            ),
+            SizedBox(height: k.space.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoonFilledButton(
+                onTap: _busy ? null : _submit,
+                leading: _busy ? const ButtonLoader() : null,
+                label: Text(_busy ? 'ログインしています…' : 'ログインする'),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
