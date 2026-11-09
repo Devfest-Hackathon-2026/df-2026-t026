@@ -106,10 +106,11 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 確認した相手に選べる人（名前 → ログイン ID）。共有している人を先に、そのあとにこのノートで言ったことのある人を最近の順に。
   /// 共有していなくても、言ったことのある人から選べるようにする
   Map<String, String?> get _people {
+    final s = widget.c.state!;
     final all = <String, String?>{for (final p in _members) p.name: p.id};
-    final recent = [...widget.c.state!.utterances]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final recent = [...s.utterances]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     for (final u in recent) {
-      if (u.speaker case final name?) all.putIfAbsent(name, () => null);
+      if (s.speakerCandidate(u) case (:final name, :final id)?) all.putIfAbsent(name, () => id);
     }
     return all;
   }

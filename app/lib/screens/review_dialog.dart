@@ -136,15 +136,18 @@ class _ReviewDialogState extends State<ReviewDialog> {
   /// 発言者の候補。ノートを共有している人を先に、そのあとにこれらのノートで言ったことのある人を最近の順に。
   /// 欄に打った言葉があれば、名前かログイン ID にその言葉を含む人に絞り、ID で当たった人には ID を添える
   List<({String name, String? id})> get _knownSpeakers {
+    // 自分の名前を「自分」にまとめるかはノートごとに違うので、発言をそのノートの状態と組にしておく（#125）
     final recent = [
-      for (final t in widget.targets) ...t.c.state!.utterances.where((u) => u.id != t.utteranceId),
-    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      for (final t in widget.targets)
+        for (final u in t.c.state!.utterances)
+          if (u.id != t.utteranceId) (s: t.c.state!, u: u),
+    ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt));
     final all = <String, String?>{};
     for (final p in _members) {
       all.putIfAbsent(p.name, () => p.id);
     }
-    for (final u in recent) {
-      if (u.speaker case final name?) all.putIfAbsent(name, () => null);
+    for (final (:s, :u) in recent) {
+      if (s.speakerCandidate(u) case (:final name, :final id)?) all.putIfAbsent(name, () => id);
     }
     final typed = _speaker.text.trim();
     final q = typed.toLowerCase();

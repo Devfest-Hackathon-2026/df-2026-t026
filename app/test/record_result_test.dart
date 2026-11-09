@@ -357,6 +357,14 @@ void main() {
       expect(find.descendant(of: record, matching: find.text(_record)), findsOneWidget);
       // 比較のすぐ下に出す
       expect(tester.getRect(_inModal(find.byType(ConflictPair))).bottom, lessThan(tester.getRect(record).top));
+      // スマホの幅では確認印を文の上に置き、文が細切れに折れないようにする（#126）。広い幅では文の右
+      final stampRect = tester.getRect(find.descendant(of: record, matching: find.byType(ConfirmStamp)));
+      final textRect = tester.getRect(find.descendant(of: record, matching: find.text(_record)));
+      if (size == _narrow) {
+        expect(stampRect.bottom, lessThanOrEqualTo(textRect.top));
+      } else {
+        expect(stampRect.left, greaterThan(textRect.right));
+      }
     });
   }
 
