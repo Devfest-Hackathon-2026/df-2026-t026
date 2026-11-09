@@ -61,6 +61,7 @@ class _Server {
           },
         ],
         'owner': 'demo',
+        'me': shared ? 'sato' : 'demo',
         'sharedBy': shared ? {'id': 'demo', 'name': 'かなで'} : null,
       };
 
@@ -171,13 +172,13 @@ void main() {
     await tester.tap(_outlined('閉じる'));
     await tester.pumpAndSettle();
 
-    // 発言の付箋から、書き込む前の確認を開ける
+    // 持ち主が記録した発言の付箋は、書き込む前の確認を開かず、言われたことを見せるだけ（ADR 0018）
     await tester.tap(find.text('塩は小さじ1/2でいい'));
     await tester.pumpAndSettle();
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('閉じる'));
-    await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
+    expect(find.text('「塩は小さじ1/2でいい」'), findsOneWidget);
+    await tester.tap(_outlined('閉じる'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
     await tester.pumpAndSettle();
@@ -259,6 +260,32 @@ void main() {
     await rewrite(tester, '- だしはかつお');
     expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
     expect(server.sent.where((x) => x.startsWith('POST /manuals/m1/edits')), hasLength(1));
+  });
+
+  test('記録した本人かは、記録した人から決め、前からある記録は直接の編集ならその人、それ以外は持ち主とみなす', () {
+    Map<String, dynamic> u(String id, {Map<String, dynamic>? by, String? editedBy}) => {
+          'id': id,
+          'text': 'x',
+          'speaker': '田中さん',
+          'saidAt': '2026-11-10',
+          'fromEdit': editedBy != null,
+          'editedBy': editedBy,
+          'recordedBy': by,
+          'createdAt': '2026-11-10T05:05:00Z',
+        };
+    final j = _Server(shared: true).state
+      ..['utterances'] = [
+        u('a', by: {'id': 'sato', 'name': '佐藤店長'}),
+        u('b', by: {'id': 'demo', 'name': 'かなで'}),
+        u('c', editedBy: 'sato'),
+        u('d'),
+      ]
+      ..['patches'] = []
+      ..['checks'] = [];
+    final s = ManualState.fromJson(j);
+    expect([for (final x in s.utterances) s.recordedByMe(x)], [true, false, true, false]);
+    expect(recordedByText(s.utterance('b')), '記録した人：かなで（11/10）');
+    expect(recordedByText(s.utterance('d')), isNull);
   });
 
   Future<_Server> pumpCheck(WidgetTester tester, {required bool shared, Map<String, dynamic>? resolution}) async {

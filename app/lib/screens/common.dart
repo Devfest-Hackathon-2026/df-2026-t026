@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:moon_design/moon_design.dart';
@@ -473,6 +474,12 @@ class PatchDiff extends StatelessWidget {
         ]),
       );
 }
+
+/// 「記録した人：かなで（11/10）」。前からある記録で、記録した人が分からなければ null（ADR 0018）
+String? recordedByText(Utterance u) => switch (u.recordedBy) {
+      final p? => '記録した人：${p.name}（${fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(u.createdAt).toLocal()))}）',
+      null => null,
+    };
 
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。

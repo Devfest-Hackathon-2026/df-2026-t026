@@ -17,7 +17,7 @@ import 'package:moon_design/moon_design.dart';
 
 /// 塩の量が食い違い、あとで確認が1件ある
 Map<String, dynamic> _note() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '- 塩 小さじ1', 'patchId': null},
       ],

@@ -115,7 +115,11 @@ class _CheckDetailState extends State<CheckDetail> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             PageTitle(
               chk.isOpen ? 'あとで確認すること' : '確認の記録',
-              meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
+              meta: [
+                Speaker(name: u.speaker, day: u.saidAt),
+                Text('元の発言：「${u.text}」', style: k.text.small),
+                if (recordedByText(u) case final by?) Text(by, style: k.text.small),
+              ],
             ),
             SizedBox(height: k.space.xl),
             if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],

@@ -17,6 +17,8 @@ export interface Utterance {
   fromEdit?: boolean;
   /** 共有された人が直接編集したときの、その人のログイン ID。持ち主の編集では付けない（ADR 0013） */
   editedBy?: string;
+  /** この記録を入れた人と、その時点の名前。前からある記録には無い（ADR 0018） */
+  recordedBy?: { id: string; name: string };
   createdAt: string;
 }
 

@@ -32,7 +32,7 @@ void main() {
         ], 200);
       }
       return _json({
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [],
         'utterances': [],
         'patches': [],
@@ -77,7 +77,7 @@ void main() {
         ], 200);
       }
       return _json({
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [],
         'utterances': [],
         'patches': [],

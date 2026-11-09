@@ -85,6 +85,7 @@ class Utterance {
         saidAt = j['saidAt'],
         fromEdit = j['fromEdit'] ?? false,
         editedBy = j['editedBy'],
+        recordedBy = j['recordedBy'] == null ? null : _person(j['recordedBy']),
         createdAt = j['createdAt'];
 
   final String id;
@@ -99,6 +100,9 @@ class Utterance {
 
   /// 共有された人が直接編集したときの、その人の ID。持ち主の編集なら null（ADR 0013）
   final String? editedBy;
+
+  /// この記録を入れた人と、その時点の名前。前からある記録には無い（ADR 0018）
+  final Person? recordedBy;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -257,6 +261,8 @@ class ManualState {
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
         checks = [for (final c in j['checks']) Check.fromJson(c)],
+        owner = j['owner'],
+        me = j['me'],
         sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
 
   final String id;
@@ -264,6 +270,14 @@ class ManualState {
 
   /// ほかの人から共有されたノートなら、その持ち主。自分のノートなら null（ADR 0013）
   final Person? sharedBy;
+
+  /// ノートの持ち主と、読んでいる自分のログイン ID
+  final String owner;
+  final String me;
+
+  /// 記録を直す・書き込むかを決められるのは、記録した本人だけ。前からある記録は、共有された人の直接の編集ならその人、
+  /// それ以外は持ち主の記録とみなす（ADR 0018）
+  bool recordedByMe(Utterance u) => (u.recordedBy?.id ?? u.editedBy ?? owner) == me;
 
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;

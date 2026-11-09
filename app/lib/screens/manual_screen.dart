@@ -530,6 +530,7 @@ class _ManualScreenState extends State<ManualScreen> {
               Speaker(name: u.speaker, day: u.saidAt),
               SizedBox(height: k.space.md),
               Text('「${u.text}」', style: k.text.body),
+              if (recordedByText(u) case final by?) ...[SizedBox(height: k.space.sm), Text(by, style: k.text.small)],
               SizedBox(height: k.space.xl),
               MoonOutlinedButton(label: const Text('閉じる'), onTap: () => Navigator.pop(ctx)),
             ]),
@@ -571,8 +572,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
     return StickyNote(
-      // 共有された人も、書き込む前の確認ができる（ADR 0016）
-      onTap: () => showReview(context, [(c: c, utteranceId: u.id)]),
+      // 書き込む前の確認は、記録した本人だけ。ほかの人には言われたことと記録した人を見せる（ADR 0018）
+      onTap: () => s.recordedByMe(u) ? showReview(context, [(c: c, utteranceId: u.id)]) : _showUtterance(u),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),

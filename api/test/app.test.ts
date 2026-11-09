@@ -232,6 +232,68 @@ test('反映した差分のある記録は、書き起こしを直せない', as
   assert.equal(status, 409);
 });
 
+test('記録した人：記録・直接の編集・確定の答えに、記録した人の ID と名前を残し、応答に読んでいる人を返す', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const recorded = await callAs('sato', 'POST', '/manuals/demo-kitchen/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた' });
+  const u = recorded.json.state.utterances.find((x: any) => x.id === recorded.json.utteranceId);
+  assert.deepEqual(u.recordedBy, { id: 'sato', name: '佐藤店長' });
+  assert.equal(u.speaker, '田中さん');
+  assert.equal(recorded.json.state.me, 'sato');
+
+  const edited = await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- x' });
+  assert.deepEqual(edited.json.utterances.at(-1).recordedBy, { id: 'demo', name: 'demo' });
+  assert.equal(edited.json.me, 'demo');
+
+  const chk = recorded.json.state.checks.find((x: any) => x.utteranceId === u.id);
+  const resolved = await call('POST', `/manuals/demo-kitchen/checks/${chk.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-10', text: '- 塩 小さじ1' });
+  const answer = resolved.json.utterances.find((x: any) => x.id === resolved.json.checks.find((x: any) => x.id === chk.id).resolution.utteranceId);
+  assert.deepEqual([answer.speaker, answer.recordedBy], ['店長', { id: 'demo', name: 'demo' }]);
+});
+
+test('記録した人：記録を直す・書き込む・書き込まないは記録した本人だけで、前からある記録は持ち主の記録とみなす', async () => {
+  const store = await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  await store.put('demo', 'demo-kitchen', 'utterances', { id: 'old', text: '塩は控えめ', speaker: '田中さん', saidAt: '2026-11-01', createdAt: '2026-11-01T00:00:00Z' });
+  const mine = await record('ご飯はおかわり1回まで無料');
+  const theirs = await callAs('sato', 'POST', '/manuals/demo-kitchen/utterances', { text: 'ご飯は硬めに炊く' });
+  const theirPatch = theirs.json.state.patches.find((p: any) => p.utteranceId === theirs.json.utteranceId);
+
+  const denied: [string, string, string, unknown][] = [
+    ['sato', 'PATCH', `/manuals/demo-kitchen/utterances/${mine.utterance.id}`, { speaker: '鈴木さん' }],
+    ['sato', 'POST', `/manuals/demo-kitchen/patches/${mine.patch.id}/apply`, {}],
+    ['sato', 'POST', `/manuals/demo-kitchen/patches/${mine.patch.id}/discard`, {}],
+    ['test', 'PATCH', `/manuals/demo-kitchen/utterances/${theirs.json.utteranceId}`, { text: 'ご飯は柔らかめに炊く' }],
+    ['test', 'POST', `/manuals/demo-kitchen/patches/${theirPatch.id}/discard`, {}],
+  ];
+  for (const [who, method, path, body] of denied) {
+    const r = await callAs(who, method, path, body);
+    assert.equal(r.status, 403, `${who} ${method} ${path}`);
+    assert.match(r.json.error, /記録した (佐藤店長|demo) だけです/);
+  }
+  // 前からある記録（記録した人が無い）は持ち主の記録
+  assert.equal((await callAs('sato', 'PATCH', '/manuals/demo-kitchen/utterances/old', { speaker: 'x' })).status, 403);
+
+  assert.equal((await callAs('sato', 'POST', `/manuals/demo-kitchen/patches/${theirPatch.id}/discard`, {})).status, 200);
+  assert.equal((await call('PATCH', `/manuals/demo-kitchen/utterances/${mine.utterance.id}`, { speaker: '鈴木さん' })).status, 200);
+});
+
+test('記録した人：書き込んだ・確定した記録は、本人でも発言者・日付・書き起こしを直せない', async () => {
+  const applied = await record('佐藤さんから、ご飯はおかわり1回まで無料と教わった');
+  await call('POST', `/manuals/demo-kitchen/patches/${applied.patch.id}/apply`, {});
+  const resolved = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  await call('POST', `/manuals/demo-kitchen/checks/${resolved.check.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-10', text: '- 塩 小さじ1' });
+
+  for (const r of [applied, resolved]) {
+    const path = `/manuals/demo-kitchen/utterances/${r.utterance.id}`;
+    for (const body of [{ speaker: '鈴木さん' }, { saidAt: '2026-11-01' }, { text: '別の話' }]) {
+      assert.equal((await call('PATCH', path, body)).status, 409, JSON.stringify(body));
+    }
+    // 変えずに送るだけなら通す（書き込む前の確認を閉じるときに送ることがある）
+    assert.equal((await call('PATCH', path, { speaker: r.utterance.speaker, saidAt: r.utterance.saidAt })).status, 200);
+  }
+});
+
 test('名前とアイコン：決めるまでは ID を名前にし、決めたら残す', async () => {
   assert.deepEqual((await call('GET', '/me')).json, { id: 'demo', name: 'demo', icon: null });
 
@@ -436,7 +498,9 @@ test('教える人の答え：共有された人の確定は、送った名前�
   });
   assert.equal(answered.status, 200);
   const res = answered.json.checks.find((c: any) => c.id === r.check.id).resolution;
-  assert.deepEqual([res.decidedBy, res.answeredBy, res.decidedAt], ['佐藤店長', 'sato', '2026-11-10']);
+  // 日付は送った日でなく、答えた日（日本時間の今日）
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+  assert.deepEqual([res.decidedBy, res.answeredBy, res.decidedAt], ['佐藤店長', 'sato', today]);
   assert.equal(answered.json.utterances.find((u: any) => u.id === res.utteranceId).speaker, '佐藤店長');
   assert.ok(answered.json.lines.some((l: any) => l.text === '- 塩 小さじ1/2'));
 });

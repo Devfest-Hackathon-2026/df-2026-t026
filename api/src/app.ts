@@ -188,6 +188,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       patches,
       checks,
       owner,
+      /** 読んでいる人。画面が自分の記録かを決めるのに使う（ADR 0018） */
+      me: userId,
       /** 共有されたノートなら持ち主。自分のノートなら null */
       sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
     };
@@ -368,6 +370,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (states.length === 0) return [];
     const draft = await assess({ manuals: states.map(contextOf), text, today, speakers: speakersOf(states) });
     const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
+    const recordedBy = await recorder(userId);
     return Promise.all(
       targets.map(async (s) => {
         const utterance: Utterance = {
@@ -375,6 +378,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           text,
           speaker: draft.speaker,
           saidAt: draft.saidAt ?? today,
+          recordedBy,
           createdAt: now(),
         };
         const items = draft.items.filter((x) => x.manual === states.indexOf(s));
@@ -382,6 +386,18 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
       }),
     );
+  }
+
+  const recorder = async (userId: string) => ({ id: userId, name: await nameOf(userId) });
+
+  /** 記録した人。前からある記録は、共有された人の直接の編集ならその人、それ以外は持ち主とみなす（ADR 0018） */
+  const recorderOf = (s: State, u: Utterance) => u.recordedBy?.id ?? u.editedBy ?? s.owner;
+
+  /** 記録を直す・書き込むかを決めるのは、記録した本人だけ（ADR 0018） */
+  function mustBeRecorder(s: State, u: Utterance, userId: string) {
+    if (recorderOf(s, u) === userId) return;
+    const name = u.recordedBy?.name ?? (u.editedBy ? u.speaker : s.sharedBy?.name) ?? recorderOf(s, u);
+    throw new HTTPException(403, { message: `この記録を直せるのは、記録した ${name} だけです` });
   }
 
   const contextOf = (s: State) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) });
@@ -530,18 +546,25 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const body = EditUtterance.parse(await c.req.json());
     const s = await load(userId, manualId);
     const u = find(s.utterances, c.req.param('uid'), '発言');
+    mustBeRecorder(s, u, userId);
     const { text, ...meta } = body;
+    // 書き込んだ・確定した記録は、本文や確認の記録の証拠なので、書き起こしも発言者も日付も直させない（ADR 0018）
+    const patches = s.patches.filter((p) => p.utteranceId === u.id);
+    const checks = s.checks.filter((x) => x.utteranceId === u.id);
+    const used = patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution);
+    const changed =
+      (!!text && text !== u.text) ||
+      (meta.speaker !== undefined && meta.speaker !== u.speaker) ||
+      (meta.saidAt !== undefined && meta.saidAt !== u.saidAt);
+    if (used && changed) {
+      throw new HTTPException(409, { message: 'ノートに書き込んだか確定した記録なので、証拠として残すため直せません' });
+    }
     if (!text || text === u.text) {
       await store.put(s.owner, manualId, 'utterances', { ...u, ...meta });
       return c.json(await load(userId, manualId));
     }
 
-    // 書き起こしの聞き間違いを直す。反映・確定したものは本文や確認の記録に残っているので直させない
-    const patches = s.patches.filter((p) => p.utteranceId === u.id);
-    const checks = s.checks.filter((x) => x.utteranceId === u.id);
-    if (patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution)) {
-      throw new HTTPException(409, { message: '反映・確定した差分があるので、書き起こしは直せません' });
-    }
+    // 書き起こしの聞き間違いを直す
     const rest: State = {
       ...s,
       utterances: s.utterances.filter((x) => x.id !== u.id),
@@ -573,8 +596,9 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const body = ApplyPatch.parse(await c.req.json().catch(() => ({})));
     const s = await load(userId, manualId);
     const p = find(s.patches, c.req.param('pid'), '差分');
-    if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
     const u = find(s.utterances, p.utteranceId, '発言');
+    mustBeRecorder(s, u, userId);
+    if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
     if (!u.speaker) throw new HTTPException(400, { message: '誰が言ったかを入れてから反映してください' });
     const applied: Patch = { ...p, text: body.text ?? p.text, status: 'applied', appliedAt: now() };
     applyPatch(s.lines, applied);
@@ -626,6 +650,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       saidAt: body.today ?? todayInJapan(),
       fromEdit: true,
       ...(s.sharedBy && { editedBy: userId }),
+      recordedBy: await recorder(userId),
       createdAt: now(),
     };
     const patch: Patch = {
@@ -674,6 +699,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const manualId = c.req.param('id');
     const s = await load(userId, manualId);
     const p = find(s.patches, c.req.param('pid'), '差分');
+    mustBeRecorder(s, find(s.utterances, p.utteranceId, '発言'), userId);
     if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
     await store.put(s.owner, manualId, 'patches', { ...p, status: 'discarded' });
     return c.json(await load(userId, manualId));
@@ -693,12 +719,15 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const answeredBy = s.sharedBy ? userId : undefined;
     const decidedBy = answeredBy ? await nameOf(userId) : body.decidedBy;
     if (!decidedBy) throw new HTTPException(400, { message: '確認した相手を入れてください' });
+    // 本人の答えは、答えた日（日本時間の今日）に決めたものとして残す
+    const decidedAt = answeredBy ? todayInJapan() : body.decidedAt;
     const note = body.note || body.text;
     const answer: Utterance = {
       id: randomUUID(),
       text: note,
       speaker: decidedBy,
-      saidAt: body.decidedAt,
+      saidAt: decidedAt,
+      recordedBy: await recorder(userId),
       createdAt: now(),
     };
     const original = find(s.patches, chk.patchId, '差分');
@@ -747,7 +776,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         patchId: fix?.id ?? null,
         decidedBy,
         ...(answeredBy && { answeredBy }),
-        decidedAt: body.decidedAt,
+        decidedAt,
         text: body.text,
         note,
       },

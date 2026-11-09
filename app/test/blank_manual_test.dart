@@ -15,7 +15,7 @@ import 'package:moon_design/moon_design.dart';
 import 'input_font.dart';
 
 final _blank = {
-  'manual': {'id': 'm1', 'title': '自分用メモ', 'base': '', 'createdAt': '2026-11-08T00:00:00Z'},
+  'owner': 'demo',  'me': 'demo',  'manual': {'id': 'm1', 'title': '自分用メモ', 'base': '', 'createdAt': '2026-11-08T00:00:00Z'},
   'lines': [],
   'utterances': [],
   'patches': [],
