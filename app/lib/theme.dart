@@ -166,6 +166,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double sidebarLeading = 24;
   final double sidebarIcon = 20;
 
+  /// サイドバーの1項目の高さ。アイコンの有る項目も無い項目（各ノート）も同じ高さにそろえる（Claude・ChatGPT のサイドバー風）
+  final double sidebarRow = 40;
+
   /// 上部バーの中身の高さ（戻るボタンの高さ）。ボタンの無い画面でも揃え、画面を移っても高さが変わらないようにする
   final double barHeight = 40;
 

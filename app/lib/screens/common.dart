@@ -104,11 +104,14 @@ class KindTag extends StatelessWidget {
 
 /// 上部バー。戻るボタンと、いまの場所を示すパンくず
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.crumbs, this.trailing});
+  const TopBar({super.key, required this.crumbs, this.trailing, this.leading});
 
   /// 画面の積み重ねと同じ順。最後がいまの画面
   final List<String> crumbs;
   final Widget? trailing;
+
+  /// 戻る先の無い画面（入力ページ）の左に置くボタン。狭い画面のメニュー（三本線）に使う
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -131,6 +134,9 @@ class TopBar extends StatelessWidget {
                 icon: Icon(LucideIcons.arrowLeft, color: k.colors.ink),
                 onTap: () => Navigator.maybePop(context),
               ),
+              SizedBox(width: k.space.xs),
+            ] else if (leading != null) ...[
+              leading!,
               SizedBox(width: k.space.xs),
             ] else
               SizedBox(width: k.space.sm),
