@@ -52,6 +52,15 @@ function gemini(): GoogleGenAI {
   return client;
 }
 
+const model = () => process.env.GEMINI_MODEL ?? 'gemini-3.8-flash';
+
+/** プロンプトに載せる文のトークン数（ADR 0016 資料）。資料の上限の判定に使う */
+export async function countTokensWithGemini(text: string): Promise<number> {
+  const { totalTokens } = await gemini().models.countTokens({ model: model(), contents: text });
+  if (totalTokens === undefined) throw new Error('Gemini がトークン数を返しませんでした');
+  return totalTokens;
+}
+
 /** responseJsonSchema に渡す形。Gemini は $schema を受け付けない */
 export function toGeminiSchema(schema: z.ZodType): Record<string, unknown> {
   const { $schema: _, ...rest } = z.toJSONSchema(schema) as Record<string, unknown>;
@@ -88,7 +97,7 @@ export function requestJson<T>(
     let res;
     try {
       res = await ai.models.generateContent({
-        model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
+        model: model(),
         contents: files?.length ? [{ role: 'user', parts: [{ text }, ...files.map((f) => ({ inlineData: f }))] }] : text,
         config: {
           systemInstruction: system,

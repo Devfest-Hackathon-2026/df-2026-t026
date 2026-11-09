@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
 import { hashPassword, sessionIdOf } from '../src/auth.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, fakeListen, fakeReadMaterial, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { FirestoreStore } from '../src/firestore-store.ts';
 import { seed } from '../src/seed.ts';
 
@@ -16,7 +16,7 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   const store = new FirestoreStore();
   await seed(store, 'demo');
   await store.putAccount({ id: 'demo', ...(await hashPassword('pass-demo')), createdAt: '' });
-  const app = createApp({ store, assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, format: fakeFormat, readNote: fakeReadNote, listen: fakeListen, dictate: fakeDictate });
+  const app = createApp({ store, assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, format: fakeFormat, readNote: fakeReadNote, readMaterial: fakeReadMaterial, countTokens: fakeCountTokens, listen: fakeListen, dictate: fakeDictate });
   const send = (method: string, path: string, body: unknown, headers = {}) =>
     app.request(path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
   const { token } = (await (await send('POST', '/login', { id: 'demo', password: 'pass-demo' })).json()) as any;
@@ -66,11 +66,23 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   assert.deepEqual(await store.listShared('sato'), []);
   assert.deepEqual(await store.list('demo', 'demo-kitchen', 'shares'), []);
 
+  // 資料はノートの下に置き、ページの無い資料（page: null）もページのある資料も保存して読める（ADR 0016 資料）
+  const pasted = await call('POST', '/manuals/demo-kitchen/materials', { title: '衛生の手引き', text: '- 手洗いは30秒\n\n- 爪は短く' });
+  const photos = await call('POST', '/manuals/demo-kitchen/materials', { files: [{ mimeType: 'image/png', data: 'iVBORw==' }] });
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/materials', undefined)).map((m: any) => m.id), [pasted.id, photos.id]);
+  assert.deepEqual((await call('GET', `/manuals/demo-kitchen/materials/${pasted.id}`, undefined)).lines, [
+    { page: null, text: '- 手洗いは30秒' },
+    { page: null, text: '- 爪は短く' },
+  ]);
+  assert.equal((await call('GET', `/manuals/demo-kitchen/materials/${photos.id}`, undefined)).lines[0].page, 1);
+  assert.equal((await send('DELETE', `/manuals/demo-kitchen/materials/${photos.id}`, undefined, { Authorization: `Bearer ${token}` })).status, 204);
+  assert.deepEqual((await store.list<any>('demo', 'demo-kitchen', 'materials')).map((m) => m.id), [pasted.id]);
+
   // ノートを消すと、下のコレクションと相手の側の索引もまとめて消える（ADR 0014）
   await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
   assert.equal((await send('DELETE', '/manuals/demo-kitchen', undefined, { Authorization: `Bearer ${token}` })).status, 204);
   assert.equal(await store.getManual('demo', 'demo-kitchen'), null);
-  for (const name of ['utterances', 'patches', 'checks', 'shares']) assert.deepEqual(await store.list('demo', 'demo-kitchen', name), [], name);
+  for (const name of ['utterances', 'patches', 'checks', 'shares', 'materials']) assert.deepEqual(await store.list('demo', 'demo-kitchen', name), [], name);
   assert.deepEqual(await store.listShared('sato'), []);
   assert.equal((await store.listManuals('demo')).length, 1);
 

@@ -11,7 +11,9 @@ import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
+import type { InlineFile } from './gemini.ts';
 import { readFiles, type Transcribe } from './intake.ts';
+import { cleanLines, materialLines, materialText, openPdf, splitImages, splitPdf, type Material, type MaterialPart, type ReadMaterial } from './material.ts';
 import type { Memo, Share, Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
@@ -26,6 +28,10 @@ export interface Deps {
   format: Format;
   /** ノートを作るときの PDF・画像の読み取り（ADR 0012） */
   readNote: ReadNote;
+  /** 資料の PDF・画像の読み取り（ADR 0016 資料） */
+  readMaterial: ReadMaterial;
+  /** プロンプトに載せる文のトークン数（ADR 0016 資料） */
+  countTokens: (text: string) => Promise<number>;
   listen: Listen;
   dictate: Dictate;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
@@ -67,6 +73,30 @@ const ReadBody = z.object({
     .min(1, '読み取るファイルを選んでください')
     .refine((fs) => fs.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS, 'ファイルは合わせて10MBまでにしてください'),
 });
+// 資料（ADR 0016 資料）の上限。数字は設計書 §5.6 の案で、評価で測って見直す
+const MAX_MATERIAL_PAGES = 30;
+const MAX_MATERIAL_IMAGES = 10;
+/** 1回の読み取りに渡すページの数。1回の出力の上限と、1本を打ち切る 90 秒に収める */
+const MATERIAL_CHUNK_PAGES = 5;
+const MAX_MATERIAL_TOKENS = 30_000;
+/** 記録先を選ばない記録は自分のノートを全部1回の assess に載せるので、ノートごとでなく1人の合計で抑える */
+const MAX_USER_MATERIAL_TOKENS = 100_000;
+const isImage = (f: { mimeType: string }) => f.mimeType.startsWith('image/');
+const NewMaterial = z
+  .object({
+    title: z.string().trim().default(''),
+    /** 貼り付けた文 */
+    text: z.string().trim().default(''),
+    files: z.array(z.object({ mimeType: z.enum(DOCUMENT_TYPES), data: z.base64() })).default([]),
+  })
+  .refine((b) => (b.text !== '') !== (b.files.length > 0), '文を貼り付けるか、ファイルを選んでください')
+  .refine((b) => !b.text || !!b.title, '貼り付けた文には題名を付けてください')
+  .refine((b) => b.files.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS, 'ファイルは合わせて10MBまでにしてください')
+  // PDF を2つ以上や画像とまぜると、ページ番号が紙と合わなくなる
+  .refine(
+    (b) => (b.files.every(isImage) ? b.files.length <= MAX_MATERIAL_IMAGES : b.files.length === 1),
+    'PDF は1つずつ、画像は10枚まで足せます。PDF と画像はまぜられません',
+  );
 const NewIntake = z
   .object({
     text: z.string().trim().default(''),
@@ -125,7 +155,28 @@ const now = () => new Date().toISOString();
 const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-export function createApp({ store, assess, check, transcribe, format, readNote, listen, dictate, allowOrigin }: Deps) {
+/** 資料のファイルを、読み取りに送るまとまりに分ける。1冊は PDF 1つか画像だけ（NewMaterial で確かめた） */
+async function partsOf(files: InlineFile[]): Promise<MaterialPart[]> {
+  if (files.every(isImage)) return splitImages(files, MATERIAL_CHUNK_PAGES);
+  const pdf = await openPdf(files[0].data);
+  if (!pdf) throw new HTTPException(422, { message: 'PDF を開けませんでした。パスワードの付いた PDF は読めません' });
+  if (pdf.getPageCount() > MAX_MATERIAL_PAGES) {
+    throw new HTTPException(400, { message: `PDF は${MAX_MATERIAL_PAGES}ページまでにしてください。分けて足してください` });
+  }
+  return splitPdf(pdf, MATERIAL_CHUNK_PAGES);
+}
+
+/** 資料の一覧の1件。貼り付けた文はページが無いので pageCount は null */
+const summaryOf = (m: Material) => ({
+  id: m.id,
+  title: m.title,
+  pageCount: m.pages[0]?.page === null ? null : m.pages.length,
+  lineCount: materialLines(m).length,
+  tokens: m.tokens,
+  createdAt: m.createdAt,
+});
+
+export function createApp({ store, assess, check, transcribe, format, readNote, readMaterial, countTokens, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
@@ -213,6 +264,9 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   }
 
   type State = Awaited<ReturnType<typeof load>>;
+
+  /** 資料は load では読まない。load の戻り値はほぼすべての API が返すので、全文が毎回の応答に乗る（ADR 0016 資料） */
+  const materialsOf = async (s: State) => (await store.list<Material>(s.owner, s.manual.id, 'materials')).sort(byCreated);
 
   /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
   const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
@@ -305,7 +359,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
   });
 
-  /** ノートを消すのは持ち主だけ（ADR 0016） */
+  /** ノートを消す（ADR 0016 共同編集）のと、資料を足す・消す（ADR 0016 資料）のは持ち主だけ */
   async function mustOwn(userId: string, manualId: string) {
     if (!(await store.getManual(userId, manualId))) throw notFound();
   }
@@ -361,6 +415,73 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const shares = await store.list<Share>(userId, manualId, 'shares');
     await Promise.all(shares.map((x) => store.removeShared(x.id, manualId)));
     await store.removeManual(userId, manualId);
+    return c.body(null, 204);
+  });
+
+  // 資料（ADR 0016 資料）。共有された人も見られるが、足す・消すのは持ち主だけ
+  app.get('/manuals/:id/materials', async (c) => {
+    const s = await load(c.var.userId, c.req.param('id'));
+    return c.json((await materialsOf(s)).map(summaryOf));
+  });
+
+  // 行番号の数え方をアプリに持たせないよう、ページの文ではなく行にして返す。lines の位置 + 1 が行番号
+  app.get('/manuals/:id/materials/:mid', async (c) => {
+    const s = await load(c.var.userId, c.req.param('id'));
+    const m = find(await materialsOf(s), c.req.param('mid'), '資料');
+    return c.json({ ...summaryOf(m), lines: materialLines(m) });
+  });
+
+  // 取り込むときに1回だけ文字にし、以後は書き換えない。原本のファイルは持たない
+  app.post('/manuals/:id/materials', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const body = NewMaterial.parse(await c.req.json());
+    await mustOwn(userId, manualId);
+    let title = body.title;
+    let pages: Material['pages'];
+    if (body.text) {
+      // 貼り付けた文は原本のまま残し、マークダウンに整えない
+      pages = [{ page: null, text: cleanLines(body.text) }];
+    } else {
+      const parts = await partsOf(body.files);
+      let read;
+      try {
+        read = await Promise.all(parts.map((p) => readMaterial(p.files, p.pages)));
+      } catch (e) {
+        console.error(e);
+        throw new HTTPException(502, { message: '資料を読み取れませんでした。少し待ってからもう一度足してください' });
+      }
+      title ||= read[0]?.title || '資料';
+      // ページ番号は Gemini に推測させず、まとまりの先頭のページとまとまりの中の位置で付ける
+      pages = read.flatMap((r, k) => r.pages.map((text, j) => ({ page: k * MATERIAL_CHUNK_PAGES + j + 1, text })));
+    }
+    if (pages.every((p) => !p.text)) throw new HTTPException(422, { message: '資料から文字を読み取れませんでした' });
+
+    const tokens = await countTokens(materialText({ pages }));
+    if (tokens > MAX_MATERIAL_TOKENS) {
+      throw new HTTPException(400, { message: `資料が大きすぎます（約${tokens}トークン。1冊${MAX_MATERIAL_TOKENS}トークンまで）。ページを分けて足してください` });
+    }
+    const manuals = await store.listManuals(userId);
+    const used = (await Promise.all(manuals.map((m) => store.list<Material>(userId, m.id, 'materials'))))
+      .flat()
+      .reduce((n, m) => n + m.tokens, 0);
+    if (used + tokens > MAX_USER_MATERIAL_TOKENS) {
+      throw new HTTPException(400, {
+        message: `資料は全部のノートで合わせて${MAX_USER_MATERIAL_TOKENS}トークンまでです（いま約${used}トークン）。使わない資料を消してから足してください`,
+      });
+    }
+    const material: Material = { id: randomUUID(), title, pages, tokens, createdAt: now() };
+    await store.put(userId, manualId, 'materials', material);
+    return c.json(summaryOf(material), 201);
+  });
+
+  // 資料に結び付いた確認は消さない。あとで確認のものも、資料を消したあとで確定できるようにする
+  app.delete('/manuals/:id/materials/:mid', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    await mustOwn(userId, manualId);
+    const m = find(await store.list<Material>(userId, manualId, 'materials'), c.req.param('mid'), '資料');
+    await store.remove(userId, manualId, 'materials', m.id);
     return c.body(null, 204);
   });
 

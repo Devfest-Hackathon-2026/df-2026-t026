@@ -6,6 +6,7 @@ import type { Memo, Profile, Shared, Store } from './store.ts';
 
 /**
  * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
+ * ノートに付けた資料は users/{userId}/manuals/{manualId}/materials/{id}（ADR 0016 資料）。
  * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。未整理メモは users/{userId}/memos/{id}（ADR 0015）。
  * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
  */
@@ -47,7 +48,7 @@ export class FirestoreStore implements Store {
   // 途中で失敗しても本文が残り、持ち主がもう一度消せる（ADR 0014）
   async removeManual(userId: string, manualId: string) {
     const doc = this.manuals(userId).doc(manualId);
-    for (const name of ['shares', 'utterances', 'patches', 'checks']) await this.db.recursiveDelete(doc.collection(name));
+    for (const name of ['shares', 'utterances', 'patches', 'checks', 'materials']) await this.db.recursiveDelete(doc.collection(name));
     await doc.delete();
   }
 

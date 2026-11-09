@@ -33,6 +33,7 @@ export interface Memo {
 /**
  * 保存先。マニュアルの下に、土台（utterances / patches）と
  * 衝突検知（checks）がそれぞれ自分のコレクションを持つ。
+ * 共有の相手（shares、ADR 0013）と資料（materials、ADR 0016 資料）も同じくマニュアルの下に置く。
  */
 export interface Store {
   listManuals(userId: string): Promise<Manual[]>;
