@@ -74,7 +74,7 @@ const NewIntake = z
     /** 利用者が選んだマニュアル。省略すると関係するマニュアルを判定する */
     manualIds: z.array(z.string().min(1)).min(1).optional(),
     today: date.optional(),
-    /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0014） */
+    /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0015） */
     memoIds: z.array(z.string().min(1)).default([]),
   })
   .refine((b) => b.text || b.files.length > 0, '言われたことを書くか、ファイルか録音を添えてください')
@@ -438,7 +438,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(memo, 201);
   });
 
-  // 未整理メモはサーバーに置き、どの端末からも同じものを見る（ADR 0014）
+  // 未整理メモはサーバーに置き、どの端末からも同じものを見る（ADR 0015）
   app.get('/memos', async (c) => {
     const memos = await store.listMemos(c.var.userId);
     return c.json(memos.sort((a, b) => a.at.localeCompare(b.at)));

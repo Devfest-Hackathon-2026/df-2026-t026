@@ -6,7 +6,7 @@ import type { Memo, Profile, Shared, Store } from './store.ts';
 
 /**
  * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
- * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。未整理メモは users/{userId}/memos/{id}（ADR 0014）。
+ * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。未整理メモは users/{userId}/memos/{id}（ADR 0015）。
  * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
  */
 export class FirestoreStore implements Store {

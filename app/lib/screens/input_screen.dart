@@ -29,7 +29,7 @@ import 'sidebar.dart';
 /// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
 const tokenKey = 'token';
 
-/// 前の版が未整理メモをブラウザ（shared_preferences）に置いていたときのキー。サーバーに移したら消す（ADR 0014）
+/// 前の版が未整理メモをブラウザ（shared_preferences）に置いていたときのキー。サーバーに移したら消す（ADR 0015）
 const memosKey = 'memos';
 
 const _noMic = 'マイクを使えません。ブラウザの設定でマイクを許可してください';

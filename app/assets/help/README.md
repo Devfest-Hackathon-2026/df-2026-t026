@@ -30,6 +30,6 @@
 
 1. 上の例だけを入れたメモリ上の API を、普段の API（8787）とは別のポートで立てる。`api/src/seed.ts` の `seedWithHistory` と同じように store に直接入れ、AI は偽物（`fake-ai.ts`）にする。偽物は発言者を「〇〇さん・先輩・店長」などでしか読まないので、例文はその形にする
 2. アプリをその API に向けて起動する：`fvm flutter run -d web-server --web-hostname 127.0.0.1 --web-port 8081 --dart-define=API_URL=http://localhost:<そのポート>`
-3. Chrome で開いて撮る。スマホの幅は `--force-device-scale-factor=2` で開いた Chrome で、幅を 390 にして撮る。リワインドは `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream` で偽のマイクを使い、未整理メモは 1. の API の store に直接入れる（`putMemo`。ADR 0014）
+3. Chrome で開いて撮る。スマホの幅は `--force-device-scale-factor=2` で開いた Chrome で、幅を 390 にして撮る。リワインドは `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream` で偽のマイクを使い、未整理メモは 1. の API の store に直接入れる（`putMemo`。ADR 0015）
 4. 押す前の状態（入力・ノートを作る・行の編集）は文字を入れたところで、「書き込む前の確認」は「ノートと照らし合わせる」を押した後の知らせの「確かめる」を押したところで撮る（迷う所が無いので先に書き込まれ、確認の中の行は「反映済み」になる）
 5. API はメモリ上なので、照らし合わせや共有をすると記録が残る。1枚撮るごとに API を立て直し、上の例だけの状態から撮る（前の画像の記録が写り込まないように）
