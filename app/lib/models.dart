@@ -283,7 +283,9 @@ class ManualState {
   List<Check> sameChecksFor(ManualLine line) =>
       checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
 
-  /// この行と食い違っていて、まだ確認していない項目
-  List<Check> openChecksFor(ManualLine line) =>
-      openChecks.where((c) => c.conflictLine == line.text).toList();
+  /// この行と食い違っていて、まだ確認していない項目。相手の行がもうノートに無ければ
+  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける
+  List<Check> openChecksFor(ManualLine line) => openChecks
+      .where((c) => lines.any((l) => l.text == c.conflictLine) ? c.conflictLine == line.text : c.patchId == line.patchId)
+      .toList();
 }
