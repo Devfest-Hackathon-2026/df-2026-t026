@@ -59,6 +59,7 @@ test('差分化と分類を1回で受け取り、行番号を行の文字列に�
   assert.deepEqual(r.items[0].check.ask, ask);
   // マニュアル全文を行番号付きで渡している
   assert.match(calls[0].prompt, /L2: - 塩 小さじ1\n/);
+  assert.equal(calls[0].hedgeMs, 12_000);
 });
 
 test('差分化：見出しや範囲外の行を置き換えようとしたら受け付けない', async () => {
