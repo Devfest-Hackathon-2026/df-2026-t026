@@ -126,8 +126,6 @@ class _CheckDetailState extends State<CheckDetail> {
             SizedBox(height: k.space.md),
             Text(chk.reason, style: k.text.body),
             if (chk.isOpen) ...[
-              SizedBox(height: k.space.xs),
-              Text('どちらに合わせるかは、聞けたときに決めます', style: k.text.small),
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
@@ -141,8 +139,6 @@ class _CheckDetailState extends State<CheckDetail> {
                 if (_recording)
                   _form(chk, p, u)
                 else ...[
-                  Text('聞いて決まったら、ここに残します。後で別の人に聞かれたときの記録になります', style: k.text.small),
-                  SizedBox(height: k.space.md),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: MoonOutlinedButton(

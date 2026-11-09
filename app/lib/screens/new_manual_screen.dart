@@ -190,7 +190,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-              PageTitle('ノートを作る', meta: [Text('以後の変更は、このノートへの差分として積み上げます', style: k.text.small)]),
+              const PageTitle('ノートを作る'),
               SizedBox(height: k.space.xl),
               Text('何のノート？', style: k.text.heading),
               SizedBox(height: k.space.sm),
@@ -201,10 +201,6 @@ class _NewManualScreenState extends State<NewManualScreen> {
               ),
               SizedBox(height: k.space.xl),
               Text('最初の本文', style: k.text.heading),
-              SizedBox(height: k.space.xs),
-              Text('今あるマニュアルやメモは、そのまま貼り付けるか、「ファイルから読み取る」で PDF や写真から読み取ってください（欄へのドロップや貼り付けでも読み取れます）。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
-                  '平文のままなら「マークダウンに整える」で、AI が見出しと箇条書きに整えた案を出します。\n'
-                  '無ければ空のままで、白紙から書き始められます。', style: k.text.small),
               SizedBox(height: k.space.sm),
               // expands を付けると moon_design 1.1.0 は文字を欄の縦の真ん中に置く。高さだけ決めて、文字・カーソル・例文を左上から始める
               MoonTextArea(

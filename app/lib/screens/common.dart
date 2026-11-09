@@ -7,6 +7,7 @@ import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'help_screen.dart';
 import 'sidebar.dart';
 
 /// YYYY-MM-DD → 11/3
@@ -104,7 +105,7 @@ class KindTag extends StatelessWidget {
 
 /// 上部バー。戻るボタンと、いまの場所を示すパンくず
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.crumbs, this.trailing, this.leading});
+  const TopBar({super.key, required this.crumbs, this.trailing, this.leading, this.help = true});
 
   /// 画面の積み重ねと同じ順。最後がいまの画面
   final List<String> crumbs;
@@ -112,6 +113,9 @@ class TopBar extends StatelessWidget {
 
   /// 戻る先の無い画面（入力ページ）の左に置くボタン。狭い画面のメニュー（三本線）に使う
   final Widget? leading;
+
+  /// 右端に使い方への（?）を出すか。使い方のページ自身では出さない
+  final bool help;
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +156,14 @@ class TopBar extends StatelessWidget {
                   : Text(crumbs.last, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.heading),
             ),
             ?trailing,
+            if (help) ...[
+              SizedBox(width: k.space.xs),
+              MoonButton.icon(
+                semanticLabel: '使い方を見る',
+                icon: Icon(LucideIcons.circleQuestionMark, color: k.colors.ink),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpScreen())),
+              ),
+            ],
           ]),
         ),
       ),

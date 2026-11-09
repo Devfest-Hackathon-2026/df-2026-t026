@@ -325,7 +325,7 @@ void main() {
     expect(area.right - mic.right, lessThan(16));
     await tester.tap(find.widgetWithText(MoonTextButton, '記録先：自動'));
     await tester.pumpAndSettle();
-    expect(find.text('選ばなければ、関係するノートを AI が選びます'), findsOneWidget);
+    expect(find.text('どのノートに記録しますか？'), findsOneWidget);
     await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
     await tester.pump();
     await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));

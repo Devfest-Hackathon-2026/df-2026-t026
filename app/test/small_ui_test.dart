@@ -69,6 +69,22 @@ Api _confirmedApi() => Api(client: MockClient((_) async => _json(_confirmed())),
 Finder _inTopBar(Finder f) => find.descendant(of: find.byType(TopBar), matching: f);
 
 void main() {
+  for (final size in const [Size(390, 844), Size(1440, 900)]) {
+    testWidgets('上部バーの右端の（?）で使い方（暫定）を開く。使い方のページには（?）を出さない（$size）', (tester) async {
+      _size(tester, size);
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
+      await tester.pumpAndSettle();
+      await tester.tap(_inTopBar(find.byIcon(LucideIcons.circleQuestionMark)));
+      await tester.pumpAndSettle();
+      expect(find.text('使い方（暫定）'), findsWidgets);
+      expect(find.byIcon(LucideIcons.circleQuestionMark), findsNothing);
+      // 開いた幅に合わせて、PC かスマホの幅で撮った画像を出す
+      final shot = size.width > 1000 ? 'wide' : 'narrow';
+      final img = tester.widgetList<Image>(find.byType(Image)).first.image as AssetImage;
+      expect(img.assetName, 'assets/help/$shot/new_note.png');
+    });
+  }
+
   group('上部バー（違和感 #11）', () {
     for (final size in const [Size(390, 844), Size(1000, 900)]) {
       testWidgets('サイドバーの出ない幅（$size）では、パンくずを出さず、いまの画面の名前だけ', (tester) async {
