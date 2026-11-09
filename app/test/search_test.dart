@@ -43,7 +43,7 @@ Api _api() {
       }
       if (path == '/shared') {
         return _json([
-          {'id': 's1', 'title': '洗い場', 'sharedBy': {'id': 'haruto', 'name': 'はると'}},
+          {'id': 's1', 'title': '洗い場', 'sharedBy': {'id': 'haruto', 'name': 'はると'}, 'openCount': 0},
         ]);
       }
       for (final MapEntry(:key, :value) in states.entries) {

@@ -70,9 +70,14 @@ class _OpenChecksScreenState extends State<OpenChecksScreen> {
     super.dispose();
   }
 
+  /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
   Future<List<ManualState>> _load() async {
-    final list = await widget.api.listManuals();
-    return Future.wait([for (final m in list) widget.api.getManual(m.id)]);
+    // 失敗を ParallelWaitError で包まず、画面にそのまま出せる ApiException で受ける
+    final ids = await Future.wait([
+      widget.api.listManuals().then((l) => [for (final m in l) m.id]),
+      widget.api.listShared().then((l) => [for (final m in l) m.id]),
+    ]);
+    return Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
   }
 
   void _reload() => setState(() {

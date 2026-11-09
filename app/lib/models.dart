@@ -40,13 +40,17 @@ class SharedManual {
   SharedManual.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         title = j['title'],
-        sharedBy = _person(j['sharedBy']);
+        sharedBy = _person(j['sharedBy']),
+        openCount = j['openCount'];
 
   final String id;
   final String title;
 
   /// ノートの持ち主
   final Person sharedBy;
+
+  /// 共有された人も確定できるので数える（ADR 0016）
+  final int openCount;
 }
 
 class ManualSummary {

@@ -131,23 +131,18 @@ class _CheckDetailState extends State<CheckDetail> {
               for (final cand in chk.candidates) _candidate(cand),
               if (chk.question != null) ...[SizedBox(height: k.space.md), _question(chk.question!)],
               SizedBox(height: k.space.xxl),
-              // 確定はノートの持ち主だけがする（ADR 0013）
-              if (s.sharedBy case final owner?)
-                Text('聞いた結果は、ノートの持ち主の ${owner.name} が記録します', style: k.text.small)
-              else ...[
-                _step('3', '聞いた結果を記録する'),
-                if (_recording)
-                  _form(chk, p, u)
-                else ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: MoonOutlinedButton(
-                      onTap: () => setState(() => _recording = true),
-                      label: const Text('聞いた結果を記録する'),
-                    ),
+              // 共有された人も確定できる（ADR 0016）
+              _step('3', '聞いた結果を記録する'),
+              if (_recording)
+                _form(chk, p, u)
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MoonOutlinedButton(
+                    onTap: () => setState(() => _recording = true),
+                    label: const Text('聞いた結果を記録する'),
                   ),
-                ],
-              ],
+                ),
             ],
           ]),
         );

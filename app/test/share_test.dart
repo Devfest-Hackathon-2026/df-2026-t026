@@ -13,7 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
-// ノートの共有（ADR 0013）
+// ノートの共有（ADR 0013）と、共有した全員での編集（ADR 0016）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
@@ -24,6 +24,9 @@ class _Server {
   final bool shared;
   final people = <Map<String, dynamic>>[];
   final sent = <String>[];
+
+  /// 次の直接編集で返す衝突。返したら空にする
+  Map<String, dynamic>? conflict;
 
   Map<String, dynamic> get state => {
         'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -69,7 +72,7 @@ class _Server {
     if (path == '/shared') {
       return _json(shared
           ? [
-              {'id': 'm1', 'title': 'キッチン', 'sharedBy': {'id': 'demo', 'name': 'かなで'}, 'sharedAt': '2026-11-09T00:00:00Z'},
+              {'id': 'm1', 'title': 'キッチン', 'sharedBy': {'id': 'demo', 'name': 'かなで'}, 'sharedAt': '2026-11-09T00:00:00Z', 'openCount': 1},
             ]
           : []);
     }
@@ -84,6 +87,11 @@ class _Server {
       return _json(people);
     }
     if (path == '/manuals/m1/shares') return _json(people);
+    if (path == '/manuals/m1/edits' && conflict != null) {
+      final x = conflict!;
+      conflict = null;
+      return _json({'error': 'ほかの人が先にこの行を直しました', 'conflict': x}, 409);
+    }
     if (path.startsWith('/manuals/m1')) return _json(state, req.method == 'POST' && path.endsWith('/edits') ? 201 : 200);
     return _json([]);
   });
@@ -142,24 +150,34 @@ void main() {
     expect(_outlined('履歴'), findsNothing);
   });
 
-  testWidgets('共有された人：持ち主が分かり、サイドバーに出る。共有と書き込む前の確認は出さず、行は直せる', (tester) async {
+  testWidgets('共有された人：持ち主が分かり、サイドバーに件数つきで出る。共有と書き込む前の確認もでき、行も直せる。消すことはできない', (tester) async {
     final server = await _pump(tester, shared: true);
     expect(find.text('かなで から共有'), findsOneWidget);
-    expect(_outlined('共有'), findsNothing);
     expect(_outlined('履歴'), findsOneWidget);
-    // サイドバーの「共有されたノート」に、持ち主の名前つきで出る
+    expect(find.bySemanticsLabel('その他'), findsNothing);
+    // サイドバーの「共有されたノート」に、持ち主の名前と、あとで確認の件数つきで出る
     expect(find.text('共有されたノート'), findsOneWidget);
-    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン'), matching: find.text('かなで')), findsOneWidget);
+    final item = find.widgetWithText(MoonMenuItem, 'キッチン');
+    expect(find.descendant(of: item, matching: find.text('かなで')), findsOneWidget);
+    expect(find.descendant(of: item, matching: find.text('1')), findsOneWidget);
+    expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'あとで確認'), matching: find.text('1')), findsOneWidget);
     // 共有された人が直した行には、誰が直したかを出す
     expect(find.descendant(of: find.byType(Speaker), matching: find.text('佐藤店長')), findsOneWidget);
 
-    // 発言の付箋を押しても、言われたことを見せるだけ
-    await tester.tap(find.text('塩は小さじ1/2でいい'));
+    // 共有のモーダルには持ち主を出す
+    await tester.tap(_outlined('共有'));
     await tester.pumpAndSettle();
-    expect(find.text('「塩は小さじ1/2でいい」'), findsOneWidget);
-    expect(find.text('ノートに書き込む'), findsNothing);
+    expect(find.text('持ち主：かなで（demo）'), findsOneWidget);
     await tester.tap(_outlined('閉じる'));
     await tester.pumpAndSettle();
+
+    // 発言の付箋から、書き込む前の確認を開ける
+    await tester.tap(find.text('塩は小さじ1/2でいい'));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('閉じる'));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsNothing);
 
     await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
     await tester.pumpAndSettle();
@@ -173,13 +191,78 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
-  testWidgets('狭い画面の共有された人には、上部バーに何も出さない', (tester) async {
+  testWidgets('狭い画面の共有された人にも、上部バーに「共有」を出す', (tester) async {
     await _pump(tester, shared: true, size: const Size(400, 800));
-    expect(_outlined('共有'), findsNothing);
+    expect(_outlined('共有'), findsOneWidget);
+    expect(find.bySemanticsLabel('その他'), findsNothing);
+  });
+
+  // 食い違っている行は押すと確認リストを開くので、食い違っていない行を直す
+  Future<void> rewrite(WidgetTester tester, String text) async {
+    await tester.tap(find.text('・だしは煮干し'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), text);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.pumpAndSettle();
+  }
+
+  Map<String, dynamic> lastEdit(_Server server) {
+    final sent = server.sent.lastWhere((x) => x.startsWith('POST /manuals/m1/edits '));
+    return jsonDecode(sent.substring('POST /manuals/m1/edits '.length)) as Map<String, dynamic>;
+  }
+
+  testWidgets('同じ行をほかの人が先に直していたら、相手と自分の直しを並べ、「自分のにする」で相手の行を書き換える', (tester) async {
+    final server = await _pump(tester, shared: true);
+    server.conflict = {'line': '- だしは煮干し', 'theirs': '- だしは昆布', 'after': null, 'by': 'かなで', 'at': '2026-11-10'};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('ほかの人が先にこの行を直しました'), findsOneWidget);
+    expect(find.text('かなで（11/10）'), findsOneWidget);
+    expect(find.descendant(of: find.byType(ConflictPair), matching: find.text('だしは昆布')), findsOneWidget);
+    expect(find.descendant(of: find.byType(ConflictPair), matching: find.text('だしはかつお')), findsOneWidget);
+
+    // 外を押しても閉じない
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(MoonFilledButton, '自分のにする'));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(lastEdit(server), allOf(containsPair('op', 'replace'), containsPair('line', '- だしは昆布'), containsPair('text', '- だしはかつお')));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('相手が消していた行は「消しました」と出し、「自分のにする」で元の場所に足す。「相手のままにする」なら何も送らない', (tester) async {
+    final server = await _pump(tester, shared: true);
+    final gone = {'line': '- だしは煮干し', 'theirs': null, 'after': '- 塩 小さじ1', 'by': 'かなで', 'at': '2026-11-10'};
+    server.conflict = {...gone};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('消しました'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonFilledButton, '自分のにする'));
+    await tester.pumpAndSettle();
+    expect(lastEdit(server), allOf(containsPair('op', 'insert'), containsPair('line', '- 塩 小さじ1'), containsPair('text', '- だしはかつお')));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+
+    server.conflict = {...gone};
+    await rewrite(tester, '- だしはあご');
+    final before = server.sent.length;
+    await tester.tap(_outlined('相手のままにする'));
+    await tester.pumpAndSettle();
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(server.sent.length, before);
+  });
+
+  testWidgets('相手と同じ直しだったら、選ばせずに読み直すだけにする', (tester) async {
+    final server = await _pump(tester, shared: true);
+    server.conflict = {'line': '- だしは煮干し', 'theirs': '- だしはかつお', 'after': null, 'by': 'かなで', 'at': '2026-11-10'};
+    await rewrite(tester, '- だしはかつお');
+    expect(find.text('ほかの人が先にこの行を直しました'), findsNothing);
+    expect(server.sent.where((x) => x.startsWith('POST /manuals/m1/edits')), hasLength(1));
   });
 
   for (final shared in [false, true]) {
-    testWidgets('確認のページ：聞いた結果を記録するのは持ち主だけ（${shared ? '共有された人' : '持ち主'}）', (tester) async {
+    testWidgets('確認のページ：聞いた結果は、持ち主も共有された人も記録できる（${shared ? '共有された人' : '持ち主'}）', (tester) async {
       final server = _Server(shared: shared);
       final c = ManualController(server.api, 'm1', ManualState.fromJson(server.state));
       tester.view.physicalSize = const Size(400, 1600);
@@ -187,8 +270,7 @@ void main() {
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: CheckScreen(c: c, checkId: 'c1')));
       await tester.pumpAndSettle();
-      expect(_outlined('聞いた結果を記録する'), shared ? findsNothing : findsOneWidget);
-      expect(find.text('聞いた結果は、ノートの持ち主の かなで が記録します'), shared ? findsOneWidget : findsNothing);
+      expect(_outlined('聞いた結果を記録する'), findsOneWidget);
       // 誰に確認するかと聞き方は、共有された人にも見せる
       expect(find.text('どちらですか？'), findsOneWidget);
     });

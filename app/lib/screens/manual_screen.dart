@@ -79,11 +79,51 @@ class _ManualScreenState extends State<ManualScreen> {
       setState(() => _editing = null);
       // 見出しと区切り線は主張ではないので確かめない
       if (!delete && !isHeading(text) && !isRule(text)) _check(p);
+    } on EditConflict catch (conflict) {
+      if (mounted) await _resolveConflict(conflict, delete ? null : text);
     } on ApiException catch (err) {
       if (mounted) showError(context, err);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// ほかの人が先に同じ行を直していたら、どちらにするかを選んでもらう（ADR 0016）。mine は自分の直し（消すなら null）
+  Future<void> _resolveConflict(EditConflict conflict, String? mine) async {
+    // 欄の位置は今のノートの行の番号なので、読み直す前に閉じる
+    setState(() => _editing = null);
+    // 選んでいる間に、さらにほかの人が同じ行を直していたら、もう一度選んでもらう
+    EditConflict? next = conflict;
+    while (next != null && mounted) {
+      final x = next!;
+      next = null;
+      // 相手と同じ直しなら、もう済んでいる
+      if (x.theirs == mine) return c.load();
+      final saved = await showMoonModal<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ConflictDialog(conflict: x, mine: mine, save: () async => next = await _saveMine(x, mine)),
+      );
+      if (saved != true) return c.load();
+    }
+  }
+
+  /// 「自分のにする」：相手の直しの上に、自分の直しを新しい編集として送る。また先を越されたら、その衝突を返す
+  Future<EditConflict?> _saveMine(EditConflict conflict, String? mine) async {
+    try {
+      final p = switch ((mine, conflict.theirs)) {
+        (null, final theirs) => await c.edit('delete', line: theirs),
+        (final text?, final theirs?) => await c.edit('replace', line: theirs, text: text),
+        (final text?, null) => await c.edit('insert', line: conflict.after, text: text),
+      };
+      if (mine != null && !isHeading(mine) && !isRule(mine)) _check(p);
+    } on EditConflict catch (again) {
+      return again;
+    } on ApiException catch (err) {
+      if (mounted) showError(context, err);
+      await c.load();
+    }
+    return null;
   }
 
   /// 書いた行を先に出し、食い違いは後から確かめる（Gemini の待ちで編集を止めない）
@@ -129,7 +169,7 @@ class _ManualScreenState extends State<ManualScreen> {
         }
         // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
         final narrow = s != null && !showsSidebar(context);
-        // 共有の相手を変えられるのは持ち主だけ。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0013）
+        // 共有は共有された人もできる。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0016）。ノートを消すのは持ち主だけ
         final mine = s != null && s.sharedBy == null;
         return Scaffold(
           extendBody: true,
@@ -137,7 +177,7 @@ class _ManualScreenState extends State<ManualScreen> {
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: [s?.title ?? ''],
-              trailing: s == null || (narrow && !mine)
+              trailing: s == null
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
                       if (!narrow) ...[
@@ -153,13 +193,13 @@ class _ManualScreenState extends State<ManualScreen> {
                           label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
                         ),
                       ],
+                      if (!narrow) SizedBox(width: context.tokens.space.sm),
+                      MoonOutlinedButton(
+                        buttonSize: MoonButtonSize.sm,
+                        onTap: () => showShare(context, widget.api, widget.manualId, owner: s.sharedBy),
+                        label: const Text('共有'),
+                      ),
                       if (mine) ...[
-                        if (!narrow) SizedBox(width: context.tokens.space.sm),
-                        MoonOutlinedButton(
-                          buttonSize: MoonButtonSize.sm,
-                          onTap: () => showShare(context, widget.api, widget.manualId),
-                          label: const Text('共有'),
-                        ),
                         SizedBox(width: context.tokens.space.xs),
                         _moreMenu(s),
                       ],
@@ -531,8 +571,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
     return StickyNote(
-      // 書き込む前の確認は持ち主だけ。共有された人には、言われたことを見せるだけにする（ADR 0013）
-      onTap: () => s.sharedBy == null ? showReview(context, [(c: c, utteranceId: u.id)]) : _showUtterance(u),
+      // 共有された人も、書き込む前の確認ができる（ADR 0016）
+      onTap: () => showReview(context, [(c: c, utteranceId: u.id)]),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),
@@ -567,6 +607,73 @@ class _ManualScreenState extends State<ManualScreen> {
       if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
       return switch (p.status) { 'applied' => '反映済み', 'discarded' => '反映しない', _ => '未反映' };
     }).toList();
+  }
+}
+
+/// 同じ行の直しがぶつかったときに、相手の直しと自分の直しを並べて選んでもらう（ADR 0016）。
+/// 「自分のにする」で保存したら true で閉じる
+class _ConflictDialog extends StatefulWidget {
+  const _ConflictDialog({required this.conflict, required this.mine, required this.save});
+  final EditConflict conflict;
+
+  /// 自分の直し。消そうとしていたなら null
+  final String? mine;
+  final Future<void> Function() save;
+
+  @override
+  State<_ConflictDialog> createState() => _ConflictDialogState();
+}
+
+class _ConflictDialogState extends State<_ConflictDialog> {
+  var _busy = false;
+
+  Future<void> _useMine() async {
+    setState(() => _busy = true);
+    await widget.save();
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    final x = widget.conflict;
+    return Padding(
+      padding: EdgeInsets.all(k.space.lg),
+      child: MoonModal(
+        backgroundColor: k.colors.canvas,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: k.modalWidth),
+          child: Padding(
+            padding: EdgeInsets.all(k.space.xl),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('ほかの人が先にこの行を直しました', style: k.text.title),
+              SizedBox(height: k.space.md),
+              Text('元の行：${plain(x.line)}', style: k.text.small),
+              SizedBox(height: k.space.md),
+              ConflictPair(
+                leftLabel: '${x.by}（${fmtDay(x.at)}）',
+                left: x.theirs ?? '消しました',
+                rightLabel: '自分',
+                right: widget.mine ?? '消す',
+              ),
+              SizedBox(height: k.space.xl),
+              Row(children: [
+                MoonFilledButton(
+                  onTap: _busy ? null : _useMine,
+                  leading: _busy ? const ButtonLoader() : null,
+                  label: Text(_busy ? '保存しています…' : '自分のにする'),
+                ),
+                SizedBox(width: k.space.sm),
+                MoonOutlinedButton(
+                  onTap: _busy ? null : () => Navigator.pop(context, false),
+                  label: const Text('相手のままにする'),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -116,6 +116,7 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
       return _json(m);
     }
     onOther?.call(req);
+    if (req.url.path == '/shared') return _json([]);
     if (req.url.path == '/manuals') {
       return _json([
         {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1},
