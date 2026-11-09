@@ -94,6 +94,9 @@ class AppRadius {
 
   /// アバターと状態のタグ
   final BorderRadius round = const BorderRadius.all(Radius.circular(999));
+
+  /// 狭い画面の下に浮かせるタブバー（試作）
+  final BorderRadius floating = const BorderRadius.all(Radius.circular(22));
 }
 
 class AppText {
@@ -185,6 +188,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
   final double graphDash = 4;
+
+  /// 狭い画面の下に浮かせるタブバーの高さ
+  final double tabBarHeight = 60;
 
   @override
   AppTokens copyWith() => this;

@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 /// ノートの履歴。版を幹、ノートに入らなかった記録を枝として、git のグラフのように新しい順に並べる。
 /// 広い画面では左にグラフ、右に選んだ版の差分を並べる。見るだけで、前の版には戻さない（spec）
@@ -37,6 +38,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final s = c.state!;
         final h = buildHistory(s);
         return Scaffold(
+          extendBody: true,
+          bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '履歴']),
             Expanded(
@@ -62,10 +65,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _scroll(Widget child) {
     final k = context.tokens;
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+    return Builder(builder: (context) => SingleChildScrollView(
+      padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl)),
       child: Narrow(child: child),
-    );
+    ));
   }
 
   Widget _list(ManualState s, History h, {String? selected, required void Function(Commit) onOpen}) {

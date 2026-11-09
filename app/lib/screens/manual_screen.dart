@@ -10,6 +10,7 @@ import 'common.dart';
 import 'history_screen.dart';
 import 'review_dialog.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 /// マニュアル1冊の画面：文書面（現行マニュアル）と、記録した発言のパネル。食い違いは確認リスト（別の画面）にまとめる
 class ManualScreen extends StatefulWidget {
@@ -88,7 +89,10 @@ class _ManualScreenState extends State<ManualScreen> {
 
   void _openCheck(Check check) => openCheckViaList(Navigator.of(context), c, check.id);
 
-  void _openList() => Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c)));
+  // 狭い画面では下のタブバーと同じ移り方にする
+  void _openList() => showsNoteTabBar(context)
+      ? openNoteTab(context, c, from: NoteTab.note, to: NoteTab.checks)
+      : Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c)));
 
   void _openHistory() => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(c: c)));
 
@@ -99,7 +103,10 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
+        final tabBar = s != null && showsNoteTabBar(context);
         return Scaffold(
+          extendBody: true,
+          bottomNavigationBar: tabBar ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
@@ -165,8 +172,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null && !_fromEdit(s, l)).length;
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl),
+    return Builder(builder: (context) => SingleChildScrollView(
+      padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl)),
       child: Narrow(
         child: PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
@@ -208,7 +215,7 @@ class _ManualScreenState extends State<ManualScreen> {
           ]),
         ),
       ),
-    );
+    ));
   }
 
   bool _fromEdit(ManualState s, ManualLine line) =>
@@ -383,15 +390,15 @@ class _ManualScreenState extends State<ManualScreen> {
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
               )
-            : ListView(
-                padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
+            : Builder(builder: (context) => ListView(
+                padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
                 children: [
                   for (final u in s.said.reversed) ...[
                     _utteranceEntry(s, u),
                     SizedBox(height: k.space.lg),
                   ],
                 ],
-              ),
+              )),
       ),
     ]);
   }
