@@ -33,6 +33,8 @@ flutter:
   assets:
     - assets/help/wide/
     - assets/help/narrow/
+    # 発言者の顔（Open Peeps、CC0）。出どころは assets/avatars/README.md
+    - assets/avatars/
   # Web では、ここに書いたフォントだけが最初の画面の前に読み終わる（fonts/README.md）
   fonts:
     - family: BIZUDPGothic

@@ -14,9 +14,10 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'open_checks_screen.dart';
 import 'profile_screen.dart';
+import 'search_screen.dart';
 
 /// サイドバーで、いまいる画面
-enum Place { input, checks, manuals, profile }
+enum Place { input, checks, search, manuals, profile }
 
 /// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
 bool showsSidebar(BuildContext context) {
@@ -157,7 +158,7 @@ class _SidebarState extends State<_Sidebar> {
         builder: (context, snap) {
           final manuals = snap.data ?? const <ManualSummary>[];
           final open = manuals.fold(0, (n, m) => n + m.openCount);
-          // 上から：アプリ名 → 言われたことを記録 → あとで確認 → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
+          // 上から：アプリ名 → 言われたことを記録 → あとで確認 → ノートを探す → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
@@ -183,6 +184,12 @@ class _SidebarState extends State<_Sidebar> {
                   selected: widget.place == Place.checks,
                   open: open,
                   onTap: () => _go(OpenChecksScreen(api: widget.api)),
+                ),
+                _item(
+                  'ノートを探す',
+                  icon: LucideIcons.search,
+                  selected: widget.place == Place.search,
+                  onTap: () => _go(SearchScreen(api: widget.api)),
                 ),
               ]),
             ),

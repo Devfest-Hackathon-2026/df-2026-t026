@@ -22,6 +22,7 @@ class AppColors {
     required this.qualifiedBg,
     required this.stamp,
     required this.action,
+    required this.found,
     required this.grid,
     required this.sticky,
     required this.avatar,
@@ -62,6 +63,9 @@ class AppColors {
 
   /// 主ボタンと選択中の印。状態の色（特に条件付きの青緑）と紛れない青にする
   final Color action;
+
+  /// 探した言葉の地。選択中の印の青を薄くして、差分・状態の色と紛れないようにする
+  final Color found;
 
   /// 地の方眼の線
   final Color grid;
@@ -284,6 +288,7 @@ const _colors = AppColors(
   qualifiedBg: Color(0xFFDDF3F5),
   stamp: Color(0xFFDE3A2E),
   action: Color(0xFF2459F5),
+  found: Color(0xFFD6E1FE),
   grid: Color(0xFFE4E4EA),
   sticky: Color(0xFFFFF6A6),
   avatar: Color(0xFFE0E0E8),
