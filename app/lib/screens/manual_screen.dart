@@ -416,7 +416,7 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
     return StickyNote(
-      onTap: () => showReview(context, c, u.id),
+      onTap: () => showReview(context, [(c: c, utteranceId: u.id)]),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),
