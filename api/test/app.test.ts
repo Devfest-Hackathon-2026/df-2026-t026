@@ -4,6 +4,7 @@ import { beforeEach, test } from 'node:test';
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
 import { hashPassword, sessionIdOf } from '../src/auth.ts';
+import type { CheckInput } from '../src/conflict/check.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
@@ -160,6 +161,63 @@ test('直接編集：食い違いを確定すると、2行が確定した内容�
   const salt = json.lines.filter((l: any) => l.text.startsWith('- 塩'));
   assert.deepEqual(salt.map((l: any) => l.text), ['- 塩 小さじ2']);
   assert.equal(json.checks.find((c: any) => c.id === chk.id).resolution.decidedBy, '店長');
+});
+
+/** 田中さんの「小さじ1/2」を店長に確認して確定し、塩の行を `- 塩 小さじ1/2` にする */
+async function confirmHalf() {
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const { status } = await call('POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, {
+    decidedBy: '店長',
+    decidedAt: '2026-11-07',
+    text: '- 塩 小さじ1/2',
+    note: '1/2で統一',
+  });
+  assert.equal(status, 200);
+}
+
+test('直接編集：確定済みの行を書き換えると、確定した行と食い違うとして確認に入る', async () => {
+  const inputs: CheckInput[] = [];
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  await signIn(store);
+  app = createApp({ store, ...ai, check: (i) => (inputs.push(i), fakeCheckPatch(i)) });
+  await confirmHalf();
+
+  const { patch } = await edit({ op: 'replace', line: '- 塩 小さじ1/2', text: '- 塩 小さじ1' });
+  const { status, json } = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(status, 200);
+  const chk = json.checks.find((c: any) => c.patchId === patch.id);
+  assert.deepEqual([chk.kind, chk.conflictLine], ['contradiction', '- 塩 小さじ1/2']);
+  // 書き換える前の行は、元の位置に確定の出どころ付きで渡る
+  assert.deepEqual(inputs[0].lines.slice(0, 3), [
+    { text: '## 味噌汁', note: null },
+    { text: '- 塩 小さじ1/2', note: '店長（2026-11-07）に確認して確定' },
+    { text: '- 味噌は火を止めてから溶く', note: null },
+  ]);
+  assert.ok(!inputs[0].lines.some((l) => l.text === '- 塩 小さじ1'));
+});
+
+test('直接編集：確定していない行の書き換えは、確定がほかにあっても書き換える前の行と食い違いにしない', async () => {
+  await confirmHalf();
+  const { patch } = await edit({ op: 'replace', line: '- 大盛りは250gまで', text: '- 大盛りは300gまで' });
+  const { json } = await call('POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(json.checks.find((c: any) => c.patchId === patch.id).kind, 'addition');
+});
+
+test('食い違っていた行を確定の前に直していても、行は変えずに確定の記録だけ残せる', async () => {
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const { state } = await edit({ op: 'replace', line: '- 塩 小さじ1', text: '- 塩 小さじ1（味見して調整）' });
+  const { status, json } = await call('POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, {
+    decidedBy: '店長',
+    decidedAt: '2026-11-07',
+    text: '- 塩 小さじ1/2',
+    note: '1/2で統一',
+  });
+  assert.equal(status, 200);
+  assert.deepEqual(json.lines, state.lines);
+  const resolved = json.checks.find((c: any) => c.id === r.check.id).resolution;
+  assert.deepEqual([resolved.decidedBy, resolved.decidedAt, resolved.text, resolved.patchId], ['店長', '2026-11-07', '- 塩 小さじ1/2', null]);
+  assert.equal(json.patches.find((p: any) => p.id === r.patch.id).status, 'discarded');
 });
 
 test('題名がなければマニュアルを作らない', async () => {
@@ -385,6 +443,53 @@ test('共有：持ち主が ID で足すと、相手のサイドバーに出て�
   assert.equal((await call('GET', '/manuals')).json.find((m: any) => m.id === 'demo-kitchen').openCount, 1);
   const resolved = await call('POST', `/manuals/demo-kitchen/checks/${chk.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-09', text: '- 塩 小さじ2' });
   assert.equal(resolved.status, 200);
+});
+
+/** 共有された佐藤さんが、確定済みの `- 塩 小さじ1/2` を `- 塩 小さじ1` に書き換えて確かめる */
+async function rewriteConfirmedAsShared() {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  await confirmHalf();
+  const edited = await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 塩 小さじ1/2', text: '- 塩 小さじ1', today: '2026-11-10' });
+  const patch = edited.json.patches.at(-1);
+  const checked = await callAs('sato', 'POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(checked.status, 200);
+  return { patch, chk: checked.json.checks.find((c: any) => c.patchId === patch.id) };
+}
+
+test('共有：共有された人が確定済みの行を書き換えると、持ち主の確認リストに入る', async () => {
+  const { chk } = await rewriteConfirmedAsShared();
+  assert.deepEqual([chk.kind, chk.conflictLine], ['contradiction', '- 塩 小さじ1/2']);
+  assert.equal((await call('GET', '/manuals')).json.find((m: any) => m.id === 'demo-kitchen').openCount, 1);
+});
+
+test('共有：確定済みの行を書き換えた食い違いを確定すると、塩の行は1本のまま選んだ内容になる', async () => {
+  const cases = [
+    { label: 'ノートのまま（前の確定に戻す）', text: '- 塩 小さじ1/2' },
+    { label: '書き換えた方', text: '- 塩 小さじ1' },
+    { label: '別の内容', text: '- 塩 小さじ2/3' },
+  ];
+  for (const { label, text } of cases) {
+    const { patch, chk } = await rewriteConfirmedAsShared();
+    const { status, json } = await call('POST', `/manuals/demo-kitchen/checks/${chk.id}/resolve`, {
+      decidedBy: '店長',
+      decidedAt: '2026-11-10',
+      text,
+      note: label,
+    });
+    assert.equal(status, 200, label);
+    const texts = json.lines.map((l: any) => l.text);
+    assert.deepEqual(texts.filter((t: string) => t.startsWith('- 塩')), [text], label);
+    const salt = json.lines[texts.indexOf('## 味噌汁') + 1];
+    assert.equal(salt.text, text, label);
+    const resolved = json.checks.find((c: any) => c.id === chk.id).resolution;
+    assert.deepEqual([resolved.decidedBy, resolved.decidedAt, resolved.text, resolved.note], ['店長', '2026-11-10', text, label], label);
+    // 書き換えた方を採るなら行は変えず、それ以外は確定した内容の行に置き換わる
+    if (text === patch.text) assert.deepEqual([resolved.patchId, salt.patchId], [null, patch.id], label);
+    else assert.ok(resolved.patchId && salt.patchId === resolved.patchId, label);
+    assert.ok(json.utterances.some((u: any) => u.id === resolved.utteranceId && u.speaker === '店長'), label);
+    assert.equal((await call('GET', '/manuals')).json.find((m: any) => m.id === 'demo-kitchen').openCount, 0, label);
+  }
 });
 
 test('共有：共有された人は、記録・書き込み・確定・共有の相手の変更ができず、ほかのノートは読めない', async () => {
