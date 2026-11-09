@@ -41,6 +41,8 @@ export interface Store {
   list<T>(userId: string, manualId: string, collection: string): Promise<T[]>;
   put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T): Promise<void>;
   remove(userId: string, manualId: string, collection: string, id: string): Promise<void>;
+  /** ノートの本文と、その下のコレクションをまとめて消す（ADR 0014） */
+  removeManual(userId: string, manualId: string): Promise<void>;
   getAccount(id: string): Promise<Account | null>;
   putAccount(account: Account): Promise<void>;
   getSession(id: string): Promise<Session | null>;
@@ -93,6 +95,11 @@ export class MemoryStore implements Store {
 
   async remove(userId: string, manualId: string, collection: string, id: string) {
     this.docs.get(`${userId}/${manualId}/${collection}`)?.delete(id);
+  }
+
+  async removeManual(userId: string, manualId: string) {
+    for (const key of this.docs.keys()) if (key.startsWith(`${userId}/${manualId}/`)) this.docs.delete(key);
+    this.manuals.get(userId)?.delete(manualId);
   }
 
   async getAccount(id: string) {

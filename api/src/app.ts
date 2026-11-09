@@ -292,7 +292,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
   });
 
-  /** 共有の相手を変えられるのは持ち主だけ */
+  /** 共有の相手を変える・ノートを消すのは持ち主だけ */
   async function mustOwn(userId: string, manualId: string) {
     if (!(await store.getManual(userId, manualId))) throw notFound();
   }
@@ -336,6 +336,18 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     await store.removeShared(target, manualId);
     await store.remove(userId, manualId, 'shares', target);
     return c.json(await sharesOf(userId, manualId));
+  });
+
+  // 元に戻せない。画面で確かめてから呼ぶ（ADR 0014）
+  app.delete('/manuals/:id', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    await mustOwn(userId, manualId);
+    // 相手の側の索引を先に消す。途中で失敗しても、相手が読める形を残さない
+    const shares = await store.list<Share>(userId, manualId, 'shares');
+    await Promise.all(shares.map((x) => store.removeShared(x.id, manualId)));
+    await store.removeManual(userId, manualId);
+    return c.body(null, 204);
   });
 
   // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）

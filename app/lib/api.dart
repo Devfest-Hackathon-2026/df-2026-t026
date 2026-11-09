@@ -69,6 +69,9 @@ class Api {
 
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
+  /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。消すと changes が増え、サイドバーや一覧が読み直す
+  Future<void> deleteManual(String id) async => _send('DELETE', '/manuals/$id');
+
   /// ほかの人から自分に共有されたノート
   Future<List<SharedManual>> listShared() async =>
       [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
@@ -188,9 +191,17 @@ class Api {
     } on http.ClientException {
       throw ApiException('サーバーにつながりません');
     }
-    final json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
+    // 本文が JSON でない（混んだときの 5xx の HTML など）ときも、画面が受けられる ApiException にする。
+    // FormatException のままだと、送る操作では何も出ず、読み込む画面では英語の例外の文が出る
+    final dynamic json;
+    try {
+      json = res.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(res.bodyBytes));
+    } on FormatException {
+      throw ApiException('エラーが起きました（${res.statusCode}）', res.statusCode);
+    }
     if (res.statusCode >= 400) {
-      throw ApiException(json?['error'] ?? 'エラーが起きました（${res.statusCode}）', res.statusCode);
+      final error = json is Map ? json['error'] : null;
+      throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode);
     }
     // ログインは login() の中で、トークンを持ってから知らせる
     if (method != 'GET' && path != '/login') changes.value++;

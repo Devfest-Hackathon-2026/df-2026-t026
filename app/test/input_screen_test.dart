@@ -1153,6 +1153,21 @@ void main() {
     expect(find.widgetWithText(MoonTextButton, '書き込む内容を直す'), findsOneWidget);
     expect(find.widgetWithText(MoonTextButton, 'それでも書き込む'), findsOneWidget);
   });
+
+  // 調査18 の A4・実装22: サーバーが JSON でない失敗（混んだときの 5xx の HTML など）を返したとき
+  testWidgets('照らし合わせで、サーバーが JSON でない失敗（502 の HTML）を返しても、「エラーが起きました」を知らせる', (tester) async {
+    await _pumpInput(tester, _client((_) async => http.Response('<html><body>502 Bad Gateway</body></html>', 502)));
+    await tester.enterText(find.byType(MoonTextArea), '佐藤さんから、保留は30秒までと言われた');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('エラーが起きました（502）'), findsOneWidget);
+    expect(find.textContaining('FormatException'), findsNothing);
+    // ボタンは押せる状態に戻る
+    expect(tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる')).onTap, isNotNull);
+    await tester.pumpAndSettle(const Duration(seconds: 5));
+  });
 }
 
 String _typed(WidgetTester tester) => tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text;

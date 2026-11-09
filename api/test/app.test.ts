@@ -29,7 +29,7 @@ async function call(method: string, path: string, body?: unknown) {
     headers: { 'Content-Type': 'application/json', ...auth },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: res.status, json: (await res.json()) as any };
+  return { status: res.status, json: res.status === 204 ? null : ((await res.json()) as any) };
 }
 
 async function record(text: string) {
@@ -342,7 +342,7 @@ async function callAs(who: string, method: string, path: string, body?: unknown)
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${who}-token` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: res.status, json: (await res.json()) as any };
+  return { status: res.status, json: res.status === 204 ? null : ((await res.json()) as any) };
 }
 
 test('共有：持ち主が ID で足すと、相手のサイドバーに出て、相手は見て行を直せる', async () => {
@@ -449,6 +449,37 @@ test('共有：相手の側の索引だけがあっても、持ち主の側に�
   await store.putShared('kim', { id: 'demo-kitchen', ownerId: 'demo', createdAt: '' });
   assert.equal((await callAs('kim', 'GET', '/manuals/demo-kitchen')).status, 404);
   assert.deepEqual((await callAs('kim', 'GET', '/shared')).json, []);
+});
+
+test('ノートを消す：本文と記録・確認・共有がまとめて消え、共有していた相手からも見えなくなる', async () => {
+  const store = await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const hall = (await call('GET', '/manuals/demo-hall')).json;
+
+  const { status } = await call('DELETE', '/manuals/demo-kitchen');
+  assert.equal(status, 204);
+  assert.equal((await call('GET', '/manuals/demo-kitchen')).status, 404);
+  assert.deepEqual((await call('GET', '/manuals')).json.map((m: any) => m.id), ['demo-hall']);
+  for (const name of ['utterances', 'patches', 'checks', 'shares']) {
+    assert.deepEqual(await store.list('demo', 'demo-kitchen', name), [], name);
+  }
+  assert.deepEqual(await store.listShared('sato'), []);
+  assert.deepEqual((await callAs('sato', 'GET', '/shared')).json, []);
+  assert.equal((await callAs('sato', 'GET', '/manuals/demo-kitchen')).status, 404);
+  assert.deepEqual((await call('GET', '/manuals/demo-hall')).json, hall);
+  assert.equal((await call('DELETE', '/manuals/demo-kitchen')).status, 404);
+});
+
+test('ノートを消す：持ち主でなければ、共有されていても消せない', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const before = (await call('GET', '/manuals/demo-kitchen')).json;
+  assert.equal((await callAs('sato', 'DELETE', '/manuals/demo-kitchen')).status, 404);
+  assert.equal((await callAs('kim', 'DELETE', '/manuals/demo-kitchen')).status, 404);
+  assert.equal((await call('DELETE', '/manuals/nothing')).status, 404);
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
+  assert.equal((await callAs('sato', 'GET', '/manuals/demo-kitchen')).status, 200);
 });
 
 test('入力の形が違えば 400 を返す', async () => {
