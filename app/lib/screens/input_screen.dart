@@ -692,7 +692,12 @@ class _InputScreenState extends State<InputScreen> {
                     height: k.composerTools,
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-                      child: Row(children: [_attach(), Flexible(child: _target(manuals)), const Spacer(), _mic()]),
+                      // Flexible と Spacer で分けると、記録先が使わなかった幅が余ってマイクが右端に届かない
+                      child: Row(children: [
+                        _attach(),
+                        Expanded(child: Align(alignment: Alignment.centerLeft, child: _target(manuals))),
+                        _mic(),
+                      ]),
                     ),
                   ),
                 ]),

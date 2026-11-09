@@ -319,6 +319,10 @@ void main() {
       }),
     );
     expect(find.text('記録先：自動'), findsOneWidget);
+    // 記録先を足しても、マイクは入力欄の右端に置いたまま（余白の分だけ内側）
+    final mic = tester.getRect(find.widgetWithIcon(MoonButton, LucideIcons.mic));
+    final area = tester.getRect(find.byType(MoonTextArea));
+    expect(area.right - mic.right, lessThan(16));
     await tester.tap(find.widgetWithText(MoonTextButton, '記録先：自動'));
     await tester.pumpAndSettle();
     expect(find.text('選ばなければ、関係するノートを AI が選びます'), findsOneWidget);
