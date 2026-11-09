@@ -85,7 +85,7 @@ void main() {
   testWidgets('末尾に行を書き足すと、すぐ出て、食い違えば確認リストに入ったと知らせる', (tester) async {
     final server = await _pump(tester);
 
-    await tester.tap(find.widgetWithText(MoonTextButton, '行を足す'));
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
     await tester.pump();

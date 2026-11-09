@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
@@ -226,9 +227,11 @@ class _ManualScreenState extends State<ManualScreen> {
                 padding: EdgeInsets.only(left: k.gutter, top: k.space.md),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: MoonTextButton(
+                  // 押せると分かるよう、枠のあるボタンにして＋を添える
+                  child: MoonOutlinedButton(
                     buttonSize: MoonButtonSize.sm,
                     onTap: () => _startEdit(s, null, insert: true),
+                    leading: const Icon(LucideIcons.plus, size: 16),
                     label: const Text('行を足す'),
                   ),
                 ),
