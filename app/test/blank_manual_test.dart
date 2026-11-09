@@ -124,9 +124,8 @@ void main() {
     );
     String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
     Future<void> pick() async {
+      // メニューを挟まず、押すとすぐ選ぶ
       await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルから読み取る'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('ファイルを選ぶ'));
       await tester.pumpAndSettle();
     }
 
@@ -148,7 +147,9 @@ void main() {
     // 受け付けない形式は送らない
     sent.clear();
     picked = [(name: 'memo.txt', type: 'text/plain', bytes: Uint8List.fromList([1]))];
-    await pick();
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルから読み取る'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(sent, isEmpty);
     expect(find.textContaining('読み取れるのは PDF と画像'), findsOneWidget);
     // 知らせが消えるまで待つ

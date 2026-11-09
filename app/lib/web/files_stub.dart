@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' show Offset;
 
 import '../models.dart';
 
@@ -10,4 +11,4 @@ Future<({Uint8List bytes, String mimeType})> squareIcon(Uint8List bytes, String 
 
 Future<List<PickedFile>> takePhoto() async => [];
 
-void Function() onFilesDropped(void Function(List<PickedFile> files) f) => () {};
+void Function() onFilesDropped(void Function(List<PickedFile> files, Offset? at) f) => () {};

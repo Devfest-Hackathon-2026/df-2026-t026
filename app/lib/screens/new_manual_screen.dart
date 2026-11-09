@@ -35,12 +35,21 @@ class _NewManualScreenState extends State<NewManualScreen> {
   bool get _ready => _title.text.trim().isNotEmpty;
   bool get _blank => _body.text.trim().isEmpty;
 
+  /// ドロップと貼り付けは、本文の欄にしたときだけ読み取る
+  final _bodyKey = GlobalKey();
+  final _bodyFocus = FocusNode();
   late final void Function() _stopWatchingDrops;
 
   @override
   void initState() {
     super.initState();
-    _stopWatchingDrops = onFilesDropped(_read);
+    _stopWatchingDrops = onFilesDropped((files, at) {
+      final box = _bodyKey.currentContext?.findRenderObject() as RenderBox?;
+      final onBody = at == null
+          ? _bodyFocus.hasFocus
+          : box != null && (box.localToGlobal(Offset.zero) & box.size).contains(at);
+      if (onBody) _read(files);
+    });
   }
 
   @override
@@ -48,6 +57,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
     _stopWatchingDrops();
     _title.dispose();
     _body.dispose();
+    _bodyFocus.dispose();
     super.dispose();
   }
 
@@ -142,12 +152,14 @@ class _NewManualScreenState extends State<NewManualScreen> {
               SizedBox(height: k.space.xl),
               Text('最初の本文', style: k.text.heading),
               SizedBox(height: k.space.xs),
-              Text('今あるマニュアルやメモは、そのまま貼り付けるか、「ファイルから読み取る」で PDF や写真から読み取ってください。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
+              Text('今あるマニュアルやメモは、そのまま貼り付けるか、「ファイルから読み取る」で PDF や写真から読み取ってください（欄へのドロップや貼り付けでも読み取れます）。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
                   '平文のままなら「マークダウンに整える」で、AI が見出しと箇条書きに整えた案を出します。\n'
                   '無ければ空のままで、白紙から書き始められます。', style: k.text.small),
               SizedBox(height: k.space.sm),
               // expands を付けると moon_design 1.1.0 は文字を欄の縦の真ん中に置く。高さだけ決めて、文字・カーソル・例文を左上から始める
               MoonTextArea(
+                key: _bodyKey,
+                focusNode: _bodyFocus,
                 controller: _body,
                 height: k.editorHeight,
                 textStyle: k.text.inputArea,
@@ -156,15 +168,10 @@ class _NewManualScreenState extends State<NewManualScreen> {
               ),
               SizedBox(height: k.space.sm),
               Wrap(spacing: k.space.sm, runSpacing: k.space.sm, children: [
-                AttachMenu(
-                  pickFiles: widget.pickFiles,
-                  onPicked: _read,
-                  dropHint: '貼り付けやドロップでも読み取れます',
-                  trigger: (open, toggle) => MoonOutlinedButton(
-                    onTap: !_reading && !_formatting && !_busy ? toggle : null,
-                    leading: _reading ? const _OutlinedLoader() : null,
-                    label: Text(_reading ? '読み取っています…' : 'ファイルから読み取る'),
-                  ),
+                MoonOutlinedButton(
+                  onTap: !_reading && !_formatting && !_busy ? () async => _read(await widget.pickFiles()) : null,
+                  leading: _reading ? const _OutlinedLoader() : null,
+                  label: Text(_reading ? '読み取っています…' : 'ファイルから読み取る'),
                 ),
                 MoonOutlinedButton(
                   onTap: !_blank && !_formatting && !_reading ? _format : null,

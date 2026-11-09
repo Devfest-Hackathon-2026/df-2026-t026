@@ -67,6 +67,7 @@ class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
   final _text = TextEditingController();
   final _files = <Attachment>[];
+  var _attachMenu = false;
   var _busy = false;
 
   /// リワインドのトグル。ON の間だけ書く欄の代わりに待ち受けの面を出し、待ち受ける
@@ -100,7 +101,7 @@ class _InputScreenState extends State<InputScreen> {
   void initState() {
     super.initState();
     // ドロップはページ全体で受けるので、上にノートを作る画面を開いている間は受けない
-    _stopWatchingDrops = onFilesDropped((f) {
+    _stopWatchingDrops = onFilesDropped((f, _) {
       if (ModalRoute.of(context)?.isCurrent ?? true) _addPicked(f);
     });
     SharedPreferences.getInstance().then((p) {
@@ -734,15 +735,39 @@ class _InputScreenState extends State<InputScreen> {
   /// 入力欄の中の＋。押すと添え方を選ぶメニューを開く
   Widget _attach() {
     final k = context.tokens;
-    return AttachMenu(
-      pickFiles: widget.pickFiles,
-      onPicked: _addPicked,
-      dropHint: '貼り付けやドロップでも添えられます',
-      trigger: (open, toggle) => MoonButton.icon(
+    Future<void> choose(Future<List<PickedFile>> Function() pick) async {
+      setState(() => _attachMenu = false);
+      _addPicked(await pick());
+    }
+
+    return MoonDropdown(
+      show: _attachMenu,
+      // 上に開くと書いている文字に重なるので、下に開く
+      dropdownAnchorPosition: MoonDropdownAnchorPosition.bottomLeft,
+      backgroundColor: k.colors.canvas,
+      borderColor: k.colors.rule,
+      onTapOutside: () => setState(() => _attachMenu = false),
+      // 既定では画面いっぱいまで広がるので、項目の幅に合わせる
+      content: IntrinsicWidth(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MoonMenuItem(
+          borderRadius: k.radius.control,
+          onTap: () => choose(widget.pickFiles),
+          label: Text('ファイルを選ぶ', style: k.text.body),
+          content: Text(onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
+        ),
+        if (onPhone)
+          MoonMenuItem(
+            borderRadius: k.radius.control,
+            onTap: () => choose(takePhoto),
+            label: Text('写真を撮る', style: k.text.body),
+          ),
+      ])),
+      child: MoonButton.icon(
         buttonSize: MoonButtonSize.sm,
         semanticLabel: 'ファイルを添える',
-        backgroundColor: open ? k.colors.shell : null,
-        onTap: _busy ? null : toggle,
+        backgroundColor: _attachMenu ? k.colors.shell : null,
+        onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
         icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
       ),
     );
