@@ -1,3 +1,4 @@
+import { ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 
 import { generateJson, type GenerateJson, type InlineFile } from './gemini.ts';
@@ -35,6 +36,9 @@ export async function transcribeWithGemini(files: InlineFile[], generate: Genera
     prompt: '添付したファイルを書き起こしてください。',
     schema: z.object({ text: z.string() }),
     files,
+    // 書き写すだけなので考えさせない。ふだん 3〜7 秒で返るので、8 秒で中身を変えた依頼を並べる（ADR 0002）
+    thinkingLevel: ThinkingLevel.LOW,
+    hedgeMs: 8_000,
   });
   return out.text.trim();
 }

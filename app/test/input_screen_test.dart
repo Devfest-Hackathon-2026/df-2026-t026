@@ -989,6 +989,53 @@ void main() {
     await tester.pumpAndSettle();
     expect([for (final f in sent!['files']) f['mimeType']], ['image/png', 'application/pdf']);
   });
+
+  testWidgets('スマホの幅でも、書き込む前の確認のボタンがはみ出さない', (tester) async {
+    Map<String, dynamic> patch(String id, String text) => {
+          'id': id,
+          'utteranceId': 'u2',
+          'op': 'insert',
+          'line': '- レジは現金とカードのみ',
+          'text': text,
+          'summary': '追記',
+          'status': 'proposed',
+          'createdAt': '2026-11-04T10:00:00Z',
+          'appliedAt': null,
+        };
+    Map<String, dynamic> check(String id, String patchId, String kind) => {
+          'id': id,
+          'patchId': patchId,
+          'utteranceId': 'u2',
+          'kind': kind,
+          'conflictLine': null,
+          'sameLine': kind == 'same' ? '- レジは現金とカードのみ' : null,
+          'reason': '理由',
+          'ask': null,
+          'resolution': null,
+        };
+    final state = {
+      ..._state('m2'),
+      'patches': [patch('p1', '- お冷やはすぐ出す'), patch('p2', '- レジは現金とカードのみ')],
+      'checks': [check('c1', 'p1', 'addition'), check('c2', 'p2', 'same')],
+    };
+    await _pumpInput(
+      tester,
+      _client((body) async => _json({
+            'text': body['text'],
+            'results': [
+              {'manualId': 'm2', 'utteranceId': 'u2', 'state': state},
+            ],
+          }, 201)),
+      size: const Size(390, 844),
+    );
+    await _record(tester, '田中さんから、お冷やはすぐ出すと言われた');
+
+    // はみ出すと描画のエラーになり、ここで落ちる
+    expect(tester.takeException(), isNull);
+    expect(find.widgetWithText(MoonFilledButton, 'ノートに書き込む'), findsOneWidget);
+    expect(find.widgetWithText(MoonTextButton, '書き込む内容を直す'), findsOneWidget);
+    expect(find.widgetWithText(MoonTextButton, 'それでも書き込む'), findsOneWidget);
+  });
 }
 
 String _typed(WidgetTester tester) => tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text;
