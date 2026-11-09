@@ -7,6 +7,7 @@ import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'sidebar.dart';
 
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
@@ -134,12 +135,15 @@ class TopBar extends StatelessWidget {
             ] else
               SizedBox(width: k.space.sm),
             Expanded(
-              child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-                for (var i = 0; i < crumbs.length; i++) ...[
-                  if (i > 0) Text(' / ', style: k.text.small),
-                  _crumb(context, i),
-                ],
-              ]),
+              // スマホ（サイドバーの出ない幅）では、パンくずを出さず、いまの画面の名前だけにする。前の画面へは戻る矢印で戻る
+              child: showsSidebar(context)
+                  ? Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+                      for (var i = 0; i < crumbs.length; i++) ...[
+                        if (i > 0) Text(' / ', style: k.text.small),
+                        _crumb(context, i),
+                      ],
+                    ])
+                  : Text(crumbs.last, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.heading),
             ),
             ?trailing,
           ]),
