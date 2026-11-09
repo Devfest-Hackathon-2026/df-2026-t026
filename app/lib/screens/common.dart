@@ -484,6 +484,18 @@ String? recordedByText(Utterance u) => switch (u.recordedBy) {
       null => null,
     };
 
+/// 確定済みの記録を、相手に見せる・言うための文。AI に作らせず、確定の記録から組み立てる。
+/// メモを書かずに確定すると決まった内容がメモに入るので、そのときはかっこを付けない。
+/// 確認のページ（check_screen.dart の _showRecord）と同じ文にする
+String showRecordText(Resolution r) {
+  final decided = plain(r.text);
+  final memo = r.note.trim();
+  final note = memo.isEmpty || memo == decided ? '' : '（$memo）';
+  // 教える人が自分で答えて決めたものは、聞いたのでなく本人が決めたと書く（ADR 0017）
+  final how = r.answeredBy == null ? 'に確認して' : 'が決めて';
+  return '${fmtDay(r.decidedAt)} に${r.decidedBy}$how、「$decided」に決まっています$note。';
+}
+
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
 class ConflictPair extends StatelessWidget {
@@ -494,6 +506,7 @@ class ConflictPair extends StatelessWidget {
     required this.rightLabel,
     required this.right,
     this.settled = false,
+    this.stacked = false,
   });
   final String leftLabel;
   final String left;
@@ -503,23 +516,33 @@ class ConflictPair extends StatelessWidget {
   /// 確認して確定済み。あとで確認の黄をやめる
   final bool settled;
 
+  /// 狭い幅で、左右の代わりに上下に並べる（ノートが上）
+  final bool stacked;
+
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    Widget side(String label, String text, TextStyle style) => Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Container(
-              color: c.shell,
-              padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
-              child: Text(label, style: k.text.small),
-            ),
-            Padding(
-              padding: EdgeInsets.all(k.space.lg),
-              child: Text(plain(text), style: style),
-            ),
-          ]),
-        );
+    Widget side(String label, String text, TextStyle style) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            color: c.shell,
+            padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+            child: Text(label, style: k.text.small),
+          ),
+          Padding(
+            padding: EdgeInsets.all(k.space.lg),
+            child: Text(plain(text), style: style),
+          ),
+        ]);
+    final band = Container(
+      width: stacked ? null : k.space.xl + k.space.sm,
+      height: stacked ? k.space.xl : null,
+      color: settled ? c.shell : c.pendingBg,
+      alignment: Alignment.center,
+      child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
+    );
+    final l = side(leftLabel, left, k.text.title);
+    final r = side(rightLabel, right, k.text.title);
     return Container(
       decoration: BoxDecoration(
         color: c.canvas,
@@ -527,18 +550,15 @@ class ConflictPair extends StatelessWidget {
         borderRadius: k.radius.surface,
       ),
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          side(leftLabel, left, k.text.title),
-          Container(
-            width: k.space.xl + k.space.sm,
-            color: settled ? c.shell : c.pendingBg,
-            alignment: Alignment.center,
-            child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
-          ),
-          side(rightLabel, right, k.text.title),
-        ]),
-      ),
+      child: stacked
+          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [l, band, r])
+          : IntrinsicHeight(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(child: l),
+                band,
+                Expanded(child: r),
+              ]),
+            ),
     );
   }
 }

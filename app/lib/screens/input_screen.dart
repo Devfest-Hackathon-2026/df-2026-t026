@@ -22,6 +22,7 @@ import 'common.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'open_checks_screen.dart';
+import 'record_result.dart';
 import 'review_dialog.dart';
 import 'rewind_panel.dart';
 import 'sidebar.dart';
@@ -85,6 +86,9 @@ class _InputScreenState extends State<InputScreen> {
   final _rewindKey = GlobalKey();
 
   final _memos = <Memo>[];
+
+  /// 確認を開かずに書き込んだ結果。入力欄の下にカードで出し、次に記録するか、閉じるまで残す（#112）
+  ({List<Recorded> records, List<ReviewTarget> targets})? _result;
 
   /// 書き直している未整理メモ
   Memo? _editingMemo;
@@ -408,12 +412,16 @@ class _InputScreenState extends State<InputScreen> {
       }
       setState(() {
         onSaved?.call();
+        _result = null;
         _busy = false;
       });
       if (r.results.isNotEmpty && mounted) {
-        await writeOrReview(context, [
+        final targets = [
           for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
-        ]);
+        ];
+        if (await writeOrReview(context, targets) && mounted) {
+          setState(() => _result = (records: r.results, targets: targets));
+        }
       }
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
@@ -553,10 +561,13 @@ class _InputScreenState extends State<InputScreen> {
                 onMemo: _addMemo,
                 onCapturing: (v) => setState(() => _capturing = v),
               ),
+              // リワインドの間に未整理メモを記録したときも、結果は待ち受けの面の下に出す
+              ..._resultCard(),
             ]
           : [
               ..._unsorted(manuals),
               _composer(manuals, wide: wide),
+              ..._resultCard(),
               SizedBox(height: k.space.xxl),
               ..._openChecks(manuals),
             ];
@@ -817,6 +828,20 @@ class _InputScreenState extends State<InputScreen> {
         ]),
       ),
     );
+  }
+
+  /// 記録した結果のカード。トーストのように消えず、下の「あとで確認」にも重ならない
+  List<Widget> _resultCard() {
+    final r = _result;
+    if (r == null) return [];
+    return [
+      SizedBox(height: context.tokens.space.lg),
+      RecordResultCard(
+        records: r.records,
+        onReview: () => showReview(context, r.targets),
+        onClose: () => setState(() => _result = null),
+      ),
+    ];
   }
 
   /// 添えたもの。画像はサムネイルで、ほかは名前で見せる

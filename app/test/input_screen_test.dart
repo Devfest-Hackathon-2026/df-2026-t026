@@ -252,7 +252,10 @@ Future<void> _record(WidgetTester tester, String text) async {
   await tester.pumpAndSettle();
 }
 
-/// 照らし合わせた後の知らせの「確かめる」から、書き込む前の確認を開く
+/// 書き込む前の確認の×。入力欄の下の結果のカードにも×があるので、確認の中のものを指す
+final _closeReview = find.descendant(of: find.byType(MoonModal), matching: find.byIcon(LucideIcons.x));
+
+/// 照らし合わせた後の結果のカードの「確かめる」から、書き込む前の確認を開く
 Future<void> _review(WidgetTester tester) async {
   await tester.tap(find.widgetWithText(MoonTextButton, '確かめる'));
   await tester.pumpAndSettle();
@@ -334,9 +337,10 @@ void main() {
 
     expect(sent, containsPair('text', '田中さんから、レジ締めは店長がやると言われた'));
     expect(sent!.containsKey('manualIds'), isFalse);
-    // 食い違いだけなので、確認は開かずに知らせる
+    // 食い違いだけなので、確認は開かずに、入力欄の下の結果のカードで見せる
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
-    expect(find.text('食い違いが1件あり、確認リストに入れました'), findsOneWidget);
+    expect(find.text('ノートと食い違っています'), findsOneWidget);
+    expect(find.text('確認リストに入れました'), findsOneWidget);
     await _review(tester);
     expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
     // どのノートの話かを題名で分け、上下に並べる
@@ -350,7 +354,7 @@ void main() {
     expect(find.descendant(of: modal, matching: find.byType(MoonTextInput)), findsOneWidget);
 
     await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
-    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.tap(_closeReview);
     await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
     // 直した発言者は、どのノートの記録にも入る
@@ -476,7 +480,7 @@ void main() {
     expectInputFontsAtLeast16(tester, count: 1); // 書き込む前の確認の、発言者
 
     await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
-    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.tap(_closeReview);
     await tester.pumpAndSettle();
 
     expect(editBody, containsPair('speaker', '田中さん（ホール）'));
@@ -537,7 +541,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(MoonChip, '佐藤さん'));
     await tester.pump();
-    await tester.tap(find.byIcon(LucideIcons.x));
+    await tester.tap(_closeReview);
     await tester.pumpAndSettle();
 
     expect(editBody, containsPair('speaker', '佐藤さん'));
@@ -1151,7 +1155,7 @@ void main() {
     await _waitToast(tester);
   });
 
-  testWidgets('発言者が分かっていれば、確認を開かずに追加は書き込み、同じ内容は記録だけ残して知らせる', (tester) async {
+  testWidgets('発言者が分かっていれば、確認を開かずに追加は書き込み、同じ内容は記録だけ残して結果を出す', (tester) async {
     final posted = <String>[];
     await _pumpInput(
       tester,
