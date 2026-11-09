@@ -90,8 +90,17 @@ export const lineNo = (lines: string[]) => (lines.length ? z.number().int().min(
 /** 中身のある行か。空行は同じ文字列が他にもあり、行の特定に使えない */
 export const hasText = (line: string | undefined) => !!line?.trim();
 
-/** 書き換えや衝突の相手にできる行か（見出しと空行は除く） */
-export const isItem = (line: string | undefined) => hasText(line) && !line!.startsWith('## ');
+/** マークダウンの見出し（「# 」〜「###### 」）の行か。ノートは1行を1まとまりとするマークダウン（ADR 0009） */
+export const isHeading = (line: string) => /^#{1,6}[ \t]/.test(line);
+
+/** マークダウンの区切り線（「---」など）の行か */
+export const isRule = (line: string) => /^ {0,3}([-*_])(\s*\1){2,}\s*$/.test(line);
+
+/** 行頭のマークダウンの印（見出し・箇条書き・番号・引用）を外す */
+export const unmark = (line: string) => line.replace(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+|\d+[.)][ \t]+|>[ \t]?)?/, '');
+
+/** 書き換えや衝突の相手にできる行か（見出し・区切り線・空行は除く） */
+export const isItem = (line: string | undefined) => hasText(line) && !isHeading(line!) && !isRule(line!);
 
 export const isoDate = z
   .string()
