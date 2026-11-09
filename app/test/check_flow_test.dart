@@ -215,7 +215,7 @@ void main() {
     expect(find.textContaining('どちらに合わせればよいですか'), findsOneWidget);
 
     // 確定の入力欄は、確認できたと利用者が言うまで出さない
-    final note = find.widgetWithText(MoonTextInput, '例: 1/2で統一');
+    final note = find.widgetWithText(MoonTextInput, '例: 店長に聞いて、こちらに統一');
     expect(note, findsNothing);
     final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
     await tester.ensureVisible(start);

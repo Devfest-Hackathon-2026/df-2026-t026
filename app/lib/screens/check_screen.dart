@@ -68,6 +68,9 @@ class _CheckDetailState extends State<CheckDetail> {
   late var _outcome = widget.c.state!.confirmedRecordFor(_initial) != null ? _Outcome.keep : _Outcome.adopt;
   var _busy = false;
 
+  /// 「記録を見せて、ノートのままにする」を送っている間。送っている間は、どちらの確定も押せない
+  var _keeping = false;
+
   /// 確定の入力欄を開いたか。急がせないよう、利用者が「確認できたので記録する」を押すまで閉じておく
   var _recording = false;
 
@@ -158,6 +161,25 @@ class _CheckDetailState extends State<CheckDetail> {
     }
   }
 
+  /// 聞き直さず、確定済みの記録を見せて済ませる。前の確定と同じ相手・日付で「ノートのまま」に確定する。
+  /// 共有された人は、今までどおりサーバーがその人と今日を決めた人と日付にする（ADR 0017）
+  Future<void> _keepByRecord(Check chk, Resolution r) async {
+    final answering = widget.c.state!.sharedBy != null;
+    setState(() => _keeping = true);
+    try {
+      await widget.c.resolve(chk.id,
+          decidedBy: answering ? null : r.decidedBy,
+          decidedAt: answering ? today() : r.decidedAt,
+          text: chk.conflictLine!,
+          note: '${fmtDay(today())} に、${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}した記録を見せた');
+      if (mounted) showToast(context, answering ? '確定しました。あなたが決めた記録に残しています' : '確定しました。確認の記録に残しています');
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _keeping = false);
+    }
+  }
+
   // Moon に日付選択が無いので、ここだけ Material の showDatePicker を使う（.claude/rules/flutter-ui.md）
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -213,17 +235,35 @@ class _CheckDetailState extends State<CheckDetail> {
             ],
             SizedBox(height: k.space.md),
             Text(chk.reason, style: k.text.body),
+            // 相手が確定済みの記録なら、聞き直さず記録を見せて済ませるのを主にし、聞き直す流れはその下に二番手として残す
             if (confirmed != null) ...[
+              SizedBox(height: k.space.xl),
+              _copyable('記録を見せる', _showRecord(confirmed.resolution!), '記録を見せる文をコピーする', lead: true),
               SizedBox(height: k.space.md),
-              _copyable('記録を見せる', _showRecord(confirmed.resolution!), '記録を見せる文をコピーする'),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: MoonFilledButton(
+                  onTap: _busy || _keeping ? null : () => _keepByRecord(chk, confirmed.resolution!),
+                  leading: _keeping ? const ButtonLoader() : null,
+                  // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
+                  label: Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(_gone(chk) ? '記録を見せて、書き換える前に戻す' : '記録を見せて、ノートのままにする'),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(height: k.space.xxl),
+              _divider(s.sharedBy != null ? '自分で答えるなら' : 'もう一度聞くなら'),
             ],
             // 共有された人は聞かれる側なので、誰に確認するか・聞き方は出さず、すぐ答えてもらう（ADR 0017）
             if (chk.isOpen && s.sharedBy != null) ...[
-              SizedBox(height: k.space.xxl),
+              SizedBox(height: confirmed != null ? k.space.xl : k.space.xxl),
               _step('2', '答える'),
               _form(chk, p, u, answering: true),
             ] else if (chk.isOpen) ...[
-              SizedBox(height: k.space.xxl),
+              SizedBox(height: confirmed != null ? k.space.xl : k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
               SizedBox(height: k.space.md),
@@ -292,8 +332,18 @@ class _CheckDetailState extends State<CheckDetail> {
     );
   }
 
-  /// 聞き方の例・記録を見せる文。そのまま相手に送れるようコピーできる
-  Widget _copyable(String label, String text, String copyLabel) {
+  /// 確定済みの記録を見せて済ませる所と、聞き直す流れの間の区切り。箱にせず、罫線と小さな文字で分ける
+  Widget _divider(String label) {
+    final k = context.tokens;
+    return Row(children: [
+      Text(label, style: k.text.small),
+      SizedBox(width: k.space.sm),
+      const Expanded(child: Rule()),
+    ]);
+  }
+
+  /// 聞き方の例・記録を見せる文。そのまま相手に送れるようコピーできる。lead なら、このページの主として文を大きく出す
+  Widget _copyable(String label, String text, String copyLabel, {bool lead = false}) {
     final k = context.tokens;
     return Container(
       padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.sm, k.space.md),
@@ -303,7 +353,7 @@ class _CheckDetailState extends State<CheckDetail> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label, style: k.text.small),
             SizedBox(height: k.space.xs),
-            Text(text, style: k.text.body),
+            Text(text, style: lead ? k.text.heading : k.text.body),
           ]),
         ),
         MoonButton.icon(
@@ -322,8 +372,7 @@ class _CheckDetailState extends State<CheckDetail> {
   Widget _form(Check chk, Patch p, Utterance u, {required bool answering}) {
     final k = context.tokens;
     final ready = (answering || _decidedBy.text.trim().isNotEmpty) && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    // 相手の行が書き換えられてもうノートに無いときは、「ノートのまま」だと今のノートの行と読めてしまう（#86）
-    final gone = !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
+    final gone = _gone(chk);
     final keep = _choice(
         _Outcome.keep, gone ? '書き換える前の内容' : 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
@@ -367,18 +416,22 @@ class _CheckDetailState extends State<CheckDetail> {
       SizedBox(height: k.space.xl),
       Text(answering ? 'メモ（理由など）' : 'メモ（何と言われたか）', style: k.text.small),
       SizedBox(height: k.space.xs),
-      MoonTextInput(controller: _note, hintText: '例: 1/2で統一'),
+      // どの項目でも読める例にする（#111）
+      MoonTextInput(controller: _note, hintText: answering ? '例: こちらに統一する' : '例: 店長に聞いて、こちらに統一'),
       SizedBox(height: k.space.xl),
       Align(
         alignment: Alignment.centerRight,
         child: MoonFilledButton(
-          onTap: ready && !_busy ? () => _resolve(chk, p, answering: answering) : null,
+          onTap: ready && !_busy && !_keeping ? () => _resolve(chk, p, answering: answering) : null,
           leading: _busy ? const ButtonLoader() : null,
           label: Text(answering ? '答えて確定する' : '確認済みにする'),
         ),
       ),
     ]);
   }
+
+  /// 相手の行が書き換えられてもうノートに無いか。そのときは「ノートのまま」だと今のノートの行と読めてしまう（#86）
+  bool _gone(Check chk) => !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
 
   /// 結果の選択肢。選ぶと枠が濃くなる
   Widget _choice(_Outcome value, String title, Widget? detail) {
