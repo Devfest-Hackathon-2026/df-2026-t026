@@ -104,6 +104,7 @@ class AppText {
     required this.body,
     required this.small,
     required this.label,
+    required this.input,
   });
 
   /// 内容の頭に置く題名
@@ -115,6 +116,9 @@ class AppText {
 
   /// タグ・確認印・アバターなど、小さく太い文字
   final TextStyle label;
+
+  /// 入力欄の文字。iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないので、16 以上にする（調査17）
+  final TextStyle input;
 
 }
 
@@ -245,6 +249,7 @@ ThemeData appTheme() {
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
     label: printBold.copyWith(fontSize: 12, height: 1.2),
+    input: printed.copyWith(fontSize: 16, height: 1.6),
   );
 
   final moonColors = MoonColors.light.copyWith(
@@ -292,6 +297,20 @@ ThemeData appTheme() {
     ),
   );
 
+  // Moon の入力欄の既定の文字（sm・md は 14px）も入力欄の文字にそろえ、textStyle を付け忘れても 16 以上になるようにする
+  final inputBase = MoonTextInputTheme(tokens: moonTokens);
+  final inputSizes = inputBase.sizes;
+  final textInputTheme = inputBase.copyWith(
+    sizes: inputSizes.copyWith(
+      sm: inputSizes.sm.copyWith(textStyle: text.input),
+      md: inputSizes.md.copyWith(textStyle: text.input),
+      lg: inputSizes.lg.copyWith(textStyle: text.input),
+      xl: inputSizes.xl.copyWith(textStyle: text.input),
+    ),
+  );
+  final areaBase = MoonTextAreaTheme(tokens: moonTokens);
+  final textAreaTheme = areaBase.copyWith(properties: areaBase.properties.copyWith(textStyle: text.input));
+
   return ThemeData(
     colorScheme: ColorScheme.light(
       primary: c.action,
@@ -303,6 +322,9 @@ ThemeData appTheme() {
     ),
     scaffoldBackgroundColor: c.shell,
     fontFamily: printed.fontFamily,
-    extensions: [MoonTheme(tokens: moonTokens), AppTokens(colors: c, text: text)],
+    extensions: [
+      MoonTheme(tokens: moonTokens, textInputTheme: textInputTheme, textAreaTheme: textAreaTheme),
+      AppTokens(colors: c, text: text),
+    ],
   );
 }

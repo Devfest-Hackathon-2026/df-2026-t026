@@ -18,6 +18,8 @@ import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'input_font.dart';
+
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 Map<String, dynamic> _utterance(String id, String text, String createdAt) =>
@@ -306,6 +308,7 @@ void main() {
       ),
     );
     await _record(tester, '塩は小さじ1/2');
+    expectInputFontsAtLeast16(tester, count: 1); // 書き込む前の確認の、発言者
 
     await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
     await tester.tap(find.byIcon(LucideIcons.x));
@@ -335,6 +338,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(MoonTextButton, '言われたことを直す'));
     await tester.pump();
+    expectInputFontsAtLeast16(tester, count: 2); // 発言者・言われたことを直す欄
     await tester.enterText(find.widgetWithText(MoonTextInput, '塩は小さじ1/2'), '塩は大さじ1/2');
     await tester.tap(find.widgetWithText(MoonFilledButton, '直して照らし合わせ直す'));
     await tester.pumpAndSettle();
@@ -553,6 +557,7 @@ void main() {
       final field = find.descendant(of: area, matching: find.byType(EditableText));
       final box = tester.getRect(area);
       final hint = tester.getRect(find.text('例: 田中さんから、塩は小さじ1/2でいいと言われた'));
+      expectInputFontsAtLeast16(tester, count: 1); // 書く欄
       // 例文とカーソルは同じ高さ。余白（12）の分だけ下から始まる（前はカーソルだけ 40 下、expands では真ん中だった）
       expect((tester.getRect(field).top - hint.top).abs(), lessThanOrEqualTo(1));
       expect(hint.top - box.top, lessThanOrEqualTo(13));
@@ -579,6 +584,7 @@ void main() {
     final area = find.widgetWithText(MoonTextArea, '塩は小さじいち');
     final field = find.descendant(of: area, matching: find.byType(EditableText));
     expect(tester.getRect(field).top - tester.getRect(area).top, lessThanOrEqualTo(17));
+    expectInputFontsAtLeast16(tester, count: 1); // 未整理メモを書き直す欄
   });
 
   testWidgets('リワインドの間は、未整理メモを押すとその場で書き直して保存できる', (tester) async {

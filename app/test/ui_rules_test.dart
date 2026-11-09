@@ -39,4 +39,28 @@ void main() {
     }
     expect(violations, isEmpty, reason: violations.join('\n'));
   });
+
+  // iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さない（調査17）。
+  // 入力欄の文字の大きさを決めるなら、入力欄の文字（k.text.input、16px 以上）だけにする。付けなければテーマの既定（16px 以上）になる
+  test('入力欄に文字の大きさを付けるなら、入力欄の文字（text.input）だけ', () {
+    final call = RegExp(r'\b(MoonTextInput|MoonTextArea)\(');
+    final violations = <String>[];
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
+      final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
+      for (final m in call.allMatches(src)) {
+        // 呼び出しの引数を、かっこの対応で切り出す
+        var depth = 0, i = m.end - 1;
+        for (; i < src.length; i++) {
+          if (src[i] == '(') depth++;
+          if (src[i] == ')' && --depth == 0) break;
+        }
+        final args = src.substring(m.end, i);
+        final style = RegExp(r'\btextStyle:\s*([^,\n]+)').firstMatch(args)?.group(1);
+        if (style != null && !style.contains('.text.input')) {
+          violations.add('${f.path}:${src.substring(0, m.start).split('\n').length} ${m[1]} の textStyle: $style');
+        }
+      }
+    }
+    expect(violations, isEmpty, reason: violations.join('\n'));
+  });
 }

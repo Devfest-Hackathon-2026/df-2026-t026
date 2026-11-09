@@ -67,7 +67,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
               MoonTextArea(
                 controller: _body,
                 height: k.editorHeight,
-                textStyle: k.text.body,
+                textStyle: k.text.input,
                 onChanged: (_) => setState(() {}),
               ),
               SizedBox(height: k.space.xl),
