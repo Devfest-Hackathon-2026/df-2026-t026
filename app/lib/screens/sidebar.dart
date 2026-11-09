@@ -74,11 +74,28 @@ class _SidebarState extends State<_Sidebar> {
         _manuals = _load();
       });
 
-  /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く
+  /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く。
+  /// サイドバーが出ている（広い画面）ときだけ使うので、戻る動き・横から出る動きは付けない（違和感 #1）。
+  /// pop だと上の画面の戻る動きが出るので、上の画面は remove で外す（remove は動きなしで外れる）
   void _go(Widget? screen) {
     final nav = Navigator.of(context);
-    nav.popUntil((r) => r.isFirst);
-    if (screen != null) nav.push(MaterialPageRoute(builder: (_) => screen));
+    for (;;) {
+      // いちばん上の画面を見るだけ（true を返すので何も外さない）
+      late Route<dynamic> top;
+      nav.popUntil((r) {
+        top = r;
+        return true;
+      });
+      if (top.isFirst) break;
+      nav.removeRoute(top);
+    }
+    if (screen != null) {
+      nav.push(PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => screen,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ));
+    }
   }
 
   @override

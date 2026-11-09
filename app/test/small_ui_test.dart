@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/common.dart';
+import 'package:diff_note/screens/home_screen.dart';
 import 'package:diff_note/screens/new_manual_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
@@ -63,5 +64,47 @@ void main() {
     expect(find.descendant(of: record, matching: find.byIcon(LucideIcons.squarePen)), findsOneWidget);
     final name = find.descendant(of: find.widgetWithText(MoonMenuItem, 'かなで'), matching: find.text('かなで'));
     expect(tester.getTopLeft(find.text('言われたことを記録')).dx, closeTo(tester.getTopLeft(name).dx, 1));
+  });
+
+  group('サイドバーからの移動に動きを付けない（違和感 #1）', () {
+    /// 最初の画面（入力ページの代わり）の上に、ふつうの横から出る動きで「ノートを作る」を開いた状態
+    Future<void> openNewManualOnTop(WidgetTester tester) async {
+      _size(tester, const Size(1440, 900));
+      final api = _meApi();
+      await tester.pumpWidget(MaterialApp(
+        theme: appTheme(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => NewManualScreen(api: api))),
+              child: const Text('最初の画面'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('最初の画面'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NewManualScreen), findsOneWidget);
+    }
+
+    testWidgets('サイドバーの「ノート」：時間を進めなくても、すぐノート一覧になり、前の画面は残らない', (tester) async {
+      await openNewManualOnTop(tester);
+      await tester.tap(find.widgetWithText(MoonMenuItem, 'ノート'));
+      // 時間は進めない（ふつうの動きなら 300ms かかる）。1枚目は Hero の下調べで画面に出ないことがあるので2枚まで見る
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byType(NewManualScreen, skipOffstage: false), findsNothing);
+      // 動いている途中の画面が無い（いちばん上の画面がそのまま全部見えている）
+      expect(tester.getTopLeft(find.byType(HomeScreen)).dx, 0);
+    });
+
+    testWidgets('サイドバーの「言われたことを記録」：時間を進めなくても、すぐ最初の画面に戻り、戻る動きが無い', (tester) async {
+      await openNewManualOnTop(tester);
+      await tester.tap(find.widgetWithText(MoonMenuItem, '言われたことを記録'));
+      await tester.pump();
+      expect(find.text('最初の画面'), findsOneWidget);
+      expect(find.byType(NewManualScreen, skipOffstage: false), findsNothing);
+    });
   });
 }
