@@ -111,7 +111,8 @@ const Edit = z
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
 const NewShare = z.object({ userId: z.string().trim().min(1, '共有する相手のログイン ID を入れてください') });
 const Resolve = z.object({
-  decidedBy: z.string().trim().min(1),
+  /** 確認した相手。共有された人が答えるときは送らない（ADR 0017） */
+  decidedBy: z.string().trim().min(1).optional(),
   decidedAt: date,
   text: z.string().trim().min(1),
   note: z.string().trim().default(''),
@@ -150,14 +151,16 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
 
   const notFound = () => new HTTPException(404, { message: 'ノートが見つかりません' });
 
+  const openCountOf = (checks: Check[]) => checks.filter((x) => x.kind === 'contradiction' && !x.resolution).length;
+
   /**
-   * ノートを読む。既定では持ち主だけに許す。shared なら、共有された人にも持ち主のノートを読ませる（ADR 0013）。
+   * ノートを読む。共有された人にも、持ち主と同じく読ませる（ADR 0016）。
    * 書き込むときは userId ではなく、返した owner の下に書く
    */
-  async function load(userId: string, manualId: string, { shared = false } = {}) {
+  async function load(userId: string, manualId: string) {
     let owner = userId;
     let manual = await store.getManual(userId, manualId);
-    if (!manual && shared) {
+    if (!manual) {
       const pointer = await store.getShared(userId, manualId);
       if (pointer) {
         owner = pointer.ownerId;
@@ -185,14 +188,28 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       patches,
       checks,
       owner,
+      /** 読んでいる人。画面が自分の記録かを決めるのに使う（ADR 0018） */
+      me: userId,
       /** 共有されたノートなら持ち主。自分のノートなら null */
       sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
     };
   }
 
+  /** 外された直後などで、相手の側の索引だけが残っているノートは null にする */
+  const loadShared = (userId: string, manualId: string) =>
+    load(userId, manualId).catch((e) => {
+      if (e instanceof HTTPException && e.status === 404) return null;
+      throw e;
+    });
+
+  /** 自分のノートと、共有されたノート（ADR 0016） */
   async function loadAll(userId: string) {
-    const manuals = await store.listManuals(userId);
-    return Promise.all(manuals.map((m) => load(userId, m.id)));
+    const [manuals, pointers] = await Promise.all([store.listManuals(userId), store.listShared(userId)]);
+    const [own, shared] = await Promise.all([
+      Promise.all(manuals.map((m) => load(userId, m.id))),
+      Promise.all(pointers.map((x) => loadShared(userId, x.id))),
+    ]);
+    return [...own, ...shared.filter((x) => x !== null)];
   }
 
   type State = Awaited<ReturnType<typeof load>>;
@@ -244,7 +261,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           ...m,
           // 直接編集は口頭の記録ではないので数えない
           utteranceCount: s.utterances.filter((u) => !u.fromEdit).length,
-          openCount: s.checks.filter((x) => x.kind === 'contradiction' && !x.resolution).length,
+          openCount: openCountOf(s.checks),
         };
       }),
     );
@@ -272,27 +289,23 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(read);
   });
 
-  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'), { shared: true })));
+  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
 
-  // 自分に共有されたノート。サイドバーに並べる（ADR 0013）
+  // 自分に共有されたノート。サイドバーに並べる（ADR 0013）。確定もできるので、あとで確認の件数も返す（ADR 0016）
   app.get('/shared', async (c) => {
     const { userId } = c.var;
     const pointers = await store.listShared(userId);
     const items = await Promise.all(
       pointers.map(async (x) => {
-        const [manual, shares, name] = await Promise.all([
-          store.getManual(x.ownerId, x.id),
-          store.list<Share>(x.ownerId, x.id, 'shares'),
-          nameOf(x.ownerId),
-        ]);
-        if (!manual || !shares.some((s) => s.id === userId)) return null;
-        return { id: manual.id, title: manual.title, sharedBy: { id: x.ownerId, name }, sharedAt: x.createdAt };
+        const s = await loadShared(userId, x.id);
+        if (!s?.sharedBy) return null;
+        return { id: s.manual.id, title: s.manual.title, sharedBy: s.sharedBy, sharedAt: x.createdAt, openCount: openCountOf(s.checks) };
       }),
     );
     return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
   });
 
-  /** 共有の相手を変える・ノートを消すのは持ち主だけ */
+  /** ノートを消すのは持ち主だけ（ADR 0016） */
   async function mustOwn(userId: string, manualId: string) {
     if (!(await store.getManual(userId, manualId))) throw notFound();
   }
@@ -302,11 +315,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return Promise.all(shares.map(async (x) => ({ id: x.id, name: await nameOf(x.id) })));
   }
 
+  // 共有された人も、共有の相手を見て・足して・外せる（ADR 0016）
   app.get('/manuals/:id/shares', async (c) => {
-    const { userId } = c.var;
     const manualId = c.req.param('id');
-    await mustOwn(userId, manualId);
-    return c.json(await sharesOf(userId, manualId));
+    const { owner } = await load(c.var.userId, manualId);
+    return c.json(await sharesOf(owner, manualId));
   });
 
   // 招待や承認は無く、足すとすぐ相手のサイドバーに出る（ADR 0013）
@@ -314,28 +327,29 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const { userId } = c.var;
     const manualId = c.req.param('id');
     const body = NewShare.parse(await c.req.json());
-    await mustOwn(userId, manualId);
+    const { owner } = await load(userId, manualId);
     if (body.userId === userId) throw new HTTPException(400, { message: '自分には共有できません。相手のログイン ID を入れてください' });
+    if (body.userId === owner) throw new HTTPException(400, { message: `「${owner}」はこのノートの持ち主です` });
     const account = loginIdPattern.test(body.userId) ? await store.getAccount(body.userId) : null;
     if (!account) throw new HTTPException(404, { message: `ID「${body.userId}」のアカウントはありません。ID を確かめてください` });
     const createdAt = now();
     // 持ち主の側を先に書く。途中で失敗しても、持ち主の知らない相手が読める形を残さない
-    await store.put<Share>(userId, manualId, 'shares', { id: account.id, createdAt });
-    await store.putShared(account.id, { id: manualId, ownerId: userId, createdAt });
-    return c.json(await sharesOf(userId, manualId), 201);
+    await store.put<Share>(owner, manualId, 'shares', { id: account.id, createdAt });
+    await store.putShared(account.id, { id: manualId, ownerId: owner, createdAt });
+    return c.json(await sharesOf(owner, manualId), 201);
   });
 
+  // 共有された人が自分を外すと、そのノートを読めなくなる
   app.delete('/manuals/:id/shares/:uid', async (c) => {
-    const { userId } = c.var;
     const manualId = c.req.param('id');
     const target = c.req.param('uid');
-    await mustOwn(userId, manualId);
-    const shares = await store.list<Share>(userId, manualId, 'shares');
+    const { owner } = await load(c.var.userId, manualId);
+    const shares = await store.list<Share>(owner, manualId, 'shares');
     if (!shares.some((x) => x.id === target)) throw new HTTPException(404, { message: 'この人には共有していません' });
     // 相手の側を先に消す。途中で失敗しても、外したはずの相手が読める形を残さない
     await store.removeShared(target, manualId);
-    await store.remove(userId, manualId, 'shares', target);
-    return c.json(await sharesOf(userId, manualId));
+    await store.remove(owner, manualId, 'shares', target);
+    return c.json(await sharesOf(owner, manualId));
   });
 
   // 元に戻せない。画面で確かめてから呼ぶ（ADR 0014）
@@ -356,6 +370,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (states.length === 0) return [];
     const draft = await assess({ manuals: states.map(contextOf), text, today, speakers: speakersOf(states) });
     const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
+    const recordedBy = await recorder(userId);
     return Promise.all(
       targets.map(async (s) => {
         const utterance: Utterance = {
@@ -363,21 +378,34 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           text,
           speaker: draft.speaker,
           saidAt: draft.saidAt ?? today,
+          recordedBy,
           createdAt: now(),
         };
         const items = draft.items.filter((x) => x.manual === states.indexOf(s));
-        await propose(userId, s.manual.id, utterance, items);
+        await propose(s.owner, s.manual.id, utterance, items);
         return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
       }),
     );
+  }
+
+  const recorder = async (userId: string) => ({ id: userId, name: await nameOf(userId) });
+
+  /** 記録した人。前からある記録は、共有された人の直接の編集ならその人、それ以外は持ち主とみなす（ADR 0018） */
+  const recorderOf = (s: State, u: Utterance) => u.recordedBy?.id ?? u.editedBy ?? s.owner;
+
+  /** 記録を直す・書き込むかを決めるのは、記録した本人だけ（ADR 0018） */
+  function mustBeRecorder(s: State, u: Utterance, userId: string) {
+    if (recorderOf(s, u) === userId) return;
+    const name = u.recordedBy?.name ?? (u.editedBy ? u.speaker : s.sharedBy?.name) ?? recorderOf(s, u);
+    throw new HTTPException(403, { message: `この記録を直せるのは、記録した ${name} だけです` });
   }
 
   const contextOf = (s: State) => ({ title: s.manual.title, ...manualContext(s.lines, s.patches, s.utterances, s.checks) });
   const speakersOf = (states: State[]) =>
     [...new Set(states.flatMap((s) => s.utterances.map((u) => u.speaker)).filter((x): x is string => !!x))];
 
-  /** 発言と、その差分の候補・分類を保存する */
-  async function propose(userId: string, manualId: string, utterance: Utterance, items: AssessResult['items']) {
+  /** 発言と、その差分の候補・分類を、ノートの持ち主の下に保存する */
+  async function propose(owner: string, manualId: string, utterance: Utterance, items: AssessResult['items']) {
     const patches: Patch[] = items.map(({ patch: p }) => ({
       ...p,
       id: randomUUID(),
@@ -394,9 +422,9 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       resolution: null,
       createdAt: now(),
     }));
-    await store.put(userId, manualId, 'utterances', utterance);
-    await Promise.all(patches.map((p) => store.put(userId, manualId, 'patches', p)));
-    await Promise.all(checks.map((x) => store.put(userId, manualId, 'checks', x)));
+    await store.put(owner, manualId, 'utterances', utterance);
+    await Promise.all(patches.map((p) => store.put(owner, manualId, 'patches', p)));
+    await Promise.all(checks.map((x) => store.put(owner, manualId, 'checks', x)));
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
@@ -518,9 +546,10 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const body = EditUtterance.parse(await c.req.json());
     const s = await load(userId, manualId);
     const u = find(s.utterances, c.req.param('uid'), '発言');
+    mustBeRecorder(s, u, userId);
     const { text, ...meta } = body;
     if (!text || text === u.text) {
-      await store.put(userId, manualId, 'utterances', { ...u, ...meta });
+      await store.put(s.owner, manualId, 'utterances', { ...u, ...meta });
       return c.json(await load(userId, manualId));
     }
 
@@ -541,8 +570,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     // 記録先は決まっているので、そのマニュアルだけを渡して読み直す（Gemini は1回、ADR 0006）
     const draft = await assess({ manuals: [contextOf(rest)], text, today: recordedOn, speakers: speakersOf([rest]) });
     await Promise.all([
-      ...patches.map((p) => store.remove(userId, manualId, 'patches', p.id)),
-      ...checks.map((x) => store.remove(userId, manualId, 'checks', x.id)),
+      ...patches.map((p) => store.remove(s.owner, manualId, 'patches', p.id)),
+      ...checks.map((x) => store.remove(s.owner, manualId, 'checks', x.id)),
     ]);
     // 利用者が確認モーダルで入れた発言者・日付を、読み直した結果より優先する
     const fixed: Utterance = {
@@ -551,7 +580,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       speaker: meta.speaker ?? draft.speaker ?? u.speaker,
       saidAt: meta.saidAt ?? draft.saidAt ?? u.saidAt,
     };
-    await propose(userId, manualId, fixed, draft.items);
+    await propose(s.owner, manualId, fixed, draft.items);
     return c.json(await load(userId, manualId));
   });
 
@@ -561,14 +590,39 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const body = ApplyPatch.parse(await c.req.json().catch(() => ({})));
     const s = await load(userId, manualId);
     const p = find(s.patches, c.req.param('pid'), '差分');
-    if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
     const u = find(s.utterances, p.utteranceId, '発言');
+    mustBeRecorder(s, u, userId);
+    if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
     if (!u.speaker) throw new HTTPException(400, { message: '誰が言ったかを入れてから反映してください' });
     const applied: Patch = { ...p, text: body.text ?? p.text, status: 'applied', appliedAt: now() };
     applyPatch(s.lines, applied);
-    await store.put(userId, manualId, 'patches', applied);
+    await store.put(s.owner, manualId, 'patches', applied);
     return c.json(await load(userId, manualId));
   });
+
+  /**
+   * 直そうとした行がもう無いとき、その行を最後に書き換えた・消した反映済みのパッチから、だれがどう直したかを返す（ADR 0016）。
+   * 見つからなければ null
+   */
+  function conflictOf(s: State, userId: string, line: string) {
+    const applied = s.patches.filter((p) => p.status === 'applied').sort((a, b) => a.appliedAt!.localeCompare(b.appliedAt!));
+    const i = applied.findLastIndex((p) => p.op !== 'insert' && p.line === line);
+    if (i < 0) return null;
+    const p = applied[i];
+    const u = find(s.utterances, p.utteranceId, '発言');
+    // 消された行の場所は、消す前の版でその1つ上にあった行で示す。その行も今は無ければ末尾
+    const before = render(s.manual.base, applied.slice(0, i));
+    const above = before[before.findIndex((l) => l.text === line) - 1]?.text ?? null;
+    // 持ち主の直接編集は発言者が「自分」なので、ほかの人には持ち主の名前で見せる
+    const by = !u.fromEdit ? u.speaker : u.editedBy === undefined ? (s.sharedBy?.name ?? SELF) : u.editedBy === userId ? SELF : u.speaker;
+    return {
+      line,
+      theirs: p.op === 'replace' ? p.text : null,
+      after: above !== null && s.lines.some((l) => l.text === above) ? above : null,
+      by: by ?? '発言者未入力',
+      at: u.saidAt,
+    };
+  }
 
   // ノートの直接編集。「誰がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）。
   // 共有された人も編集でき、その人が書いたとして残す（ADR 0013）
@@ -576,7 +630,13 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const { userId } = c.var;
     const manualId = c.req.param('id');
     const body = Edit.parse(await c.req.json());
-    const s = await load(userId, manualId, { shared: true });
+    const s = await load(userId, manualId);
+    // ほかの人が先に同じ行を直していたら、書き換え・削除は本人に選んでもらう。足す位置だけが変わったなら、だまって新しい位置に足す
+    const conflict = body.line !== null && !s.lines.some((l) => l.text === body.line) ? conflictOf(s, userId, body.line) : null;
+    if (conflict && body.op !== 'insert') {
+      return c.json({ error: 'ほかの人が先にこの行を直しました', conflict }, 409);
+    }
+    const line = conflict ? (conflict.theirs ?? conflict.after) : body.line;
     const utterance: Utterance = {
       id: randomUUID(),
       text: body.op === 'delete' ? `「${body.line}」を消した` : body.text,
@@ -584,13 +644,14 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       saidAt: body.today ?? todayInJapan(),
       fromEdit: true,
       ...(s.sharedBy && { editedBy: userId }),
+      recordedBy: await recorder(userId),
       createdAt: now(),
     };
     const patch: Patch = {
       id: randomUUID(),
       utteranceId: utterance.id,
       op: body.op,
-      line: body.line,
+      line,
       text: body.text,
       summary: { insert: '追記', replace: '書き換え', delete: '削除' }[body.op],
       status: 'applied',
@@ -600,7 +661,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     applyPatch(s.lines, patch);
     await store.put(s.owner, manualId, 'utterances', utterance);
     await store.put(s.owner, manualId, 'patches', patch);
-    return c.json(await load(userId, manualId, { shared: true }), 201);
+    return c.json(await load(userId, manualId), 201);
   });
 
   // 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを見る。
@@ -608,7 +669,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   app.post('/manuals/:id/patches/:pid/check', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
-    const s = await load(userId, manualId, { shared: true });
+    const s = await load(userId, manualId);
     const p = find(s.patches, c.req.param('pid'), '差分');
     const u = find(s.utterances, p.utteranceId, '発言');
     if (!u.fromEdit || p.op === 'delete' || s.checks.some((x) => x.patchId === p.id)) {
@@ -640,7 +701,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     });
     const chk: Check = { ...result, id: randomUUID(), patchId: p.id, utteranceId: u.id, resolution: null, createdAt: now() };
     await store.put(s.owner, manualId, 'checks', chk);
-    return c.json(await load(userId, manualId, { shared: true }));
+    return c.json(await load(userId, manualId));
   });
 
   app.post('/manuals/:id/patches/:pid/discard', async (c) => {
@@ -648,8 +709,9 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const manualId = c.req.param('id');
     const s = await load(userId, manualId);
     const p = find(s.patches, c.req.param('pid'), '差分');
+    mustBeRecorder(s, find(s.utterances, p.utteranceId, '発言'), userId);
     if (p.status !== 'proposed') throw new HTTPException(409, { message: 'この差分はもう処理済みです' });
-    await store.put(userId, manualId, 'patches', { ...p, status: 'discarded' });
+    await store.put(s.owner, manualId, 'patches', { ...p, status: 'discarded' });
     return c.json(await load(userId, manualId));
   });
 
@@ -663,12 +725,19 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (chk.kind !== 'contradiction' || chk.resolution || !chk.conflictLine) {
       throw new HTTPException(409, { message: 'この項目は確定できません' });
     }
+    // 共有された人は、自分の答えとして確定する。決めた人は送られた名前でなく、ログインしている人にする（ADR 0017）
+    const answeredBy = s.sharedBy ? userId : undefined;
+    const decidedBy = answeredBy ? await nameOf(userId) : body.decidedBy;
+    if (!decidedBy) throw new HTTPException(400, { message: '確認した相手を入れてください' });
+    // 本人の答えは、答えた日（日本時間の今日）に決めたものとして残す
+    const decidedAt = answeredBy ? todayInJapan() : body.decidedAt;
     const note = body.note || body.text;
     const answer: Utterance = {
       id: randomUUID(),
       text: note,
-      speaker: body.decidedBy,
-      saidAt: body.decidedAt,
+      speaker: decidedBy,
+      saidAt: decidedAt,
+      recordedBy: await recorder(userId),
       createdAt: now(),
     };
     const original = find(s.patches, chk.patchId, '差分');
@@ -709,24 +778,25 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       };
       applyPatch(lines, fix);
     }
-    await store.put(userId, manualId, 'utterances', answer);
-    if (merge) await store.put(userId, manualId, 'patches', merge);
-    if (fix) await store.put(userId, manualId, 'patches', fix);
+    await store.put(s.owner, manualId, 'utterances', answer);
+    if (merge) await store.put(s.owner, manualId, 'patches', merge);
+    if (fix) await store.put(s.owner, manualId, 'patches', fix);
     if (original.status === 'proposed') {
-      await store.put(userId, manualId, 'patches', { ...original, status: 'discarded' });
+      await store.put(s.owner, manualId, 'patches', { ...original, status: 'discarded' });
     }
     const resolved: Check = {
       ...chk,
       resolution: {
         utteranceId: answer.id,
         patchId: fix?.id ?? null,
-        decidedBy: body.decidedBy,
-        decidedAt: body.decidedAt,
+        decidedBy,
+        ...(answeredBy && { answeredBy }),
+        decidedAt,
         text: body.text,
         note,
       },
     };
-    await store.put(userId, manualId, 'checks', resolved);
+    await store.put(s.owner, manualId, 'checks', resolved);
     return c.json(await load(userId, manualId));
   });
 

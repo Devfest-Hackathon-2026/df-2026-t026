@@ -7,9 +7,12 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'models.dart';
 
 class ApiException implements Exception {
-  ApiException(this.message, [this.status]);
+  ApiException(this.message, [this.status, this.body]);
   final String message;
   final int? status;
+
+  /// エラーの応答の本文（JSON）。メッセージのほかに渡すものがあるときに読む
+  final Object? body;
 
   @override
   String toString() => message;
@@ -146,15 +149,22 @@ class Api {
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
 
-  /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete
+  /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete。
+  /// 書き換える・消す行をほかの人が先に直していたら [EditConflict] を投げる（ADR 0016）
   Future<ManualState> edit(String manualId,
-          {required String op, String? line, String text = '', required String today}) async =>
-      ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
+      {required String op, String? line, String text = '', required String today}) async {
+    try {
+      return ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
         'op': op,
         'line': line,
         'text': text,
         'today': today,
       }));
+    } on ApiException catch (e) {
+      if (e.body case {'conflict': final Map<String, dynamic> j}) throw EditConflict.fromJson(e.message, j);
+      rethrow;
+    }
+  }
 
   /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめる
   Future<ManualState> checkEdit(String manualId, String patchId) async =>
@@ -163,16 +173,17 @@ class Api {
   Future<ManualState> discardPatch(String manualId, String id) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
 
+  /// 確定する。共有された人は decidedBy を送らず、自分の答えとして確定する（ADR 0017）
   Future<ManualState> resolve(
     String manualId,
     String checkId, {
-    required String decidedBy,
+    String? decidedBy,
     required String decidedAt,
     required String text,
     required String note,
   }) async =>
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {
-        'decidedBy': decidedBy,
+        'decidedBy': ?decidedBy,
         'decidedAt': decidedAt,
         'text': text,
         'note': note,
@@ -201,10 +212,34 @@ class Api {
     }
     if (res.statusCode >= 400) {
       final error = json is Map ? json['error'] : null;
-      throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode);
+      throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode, json);
     }
     // ログインは login() の中で、トークンを持ってから知らせる
     if (method != 'GET' && path != '/login') changes.value++;
     return json;
   }
+}
+
+/// 直そうとした行を、ほかの人が先に書き換えた・消していた（ADR 0016）
+class EditConflict extends ApiException {
+  EditConflict.fromJson(String message, Map<String, dynamic> j)
+      : line = j['line'],
+        theirs = j['theirs'],
+        after = j['after'],
+        by = j['by'],
+        at = j['at'],
+        super(message, 409);
+
+  /// 直そうとした元の行
+  final String line;
+
+  /// 相手が書き換えた行。消していれば null
+  final String? theirs;
+
+  /// 相手が消した行の1つ上にあり、今も残っている行。無ければ null（末尾）
+  final String? after;
+  final String by;
+
+  /// YYYY-MM-DD
+  final String at;
 }

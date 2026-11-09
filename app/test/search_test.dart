@@ -15,7 +15,7 @@ import 'package:moon_design/moon_design.dart';
 http.Response _json(Object body) => http.Response.bytes(utf8.encode(jsonEncode(body)), 200);
 
 Map<String, dynamic> _state(String id, String title, List<String> lines, {bool shared = false}) => {
-      'manual': {'id': id, 'title': title, 'base': lines.join('\n'), 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': id, 'title': title, 'base': lines.join('\n'), 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         for (final l in lines) {'text': l, 'patchId': null},
       ],
@@ -43,7 +43,7 @@ Api _api() {
       }
       if (path == '/shared') {
         return _json([
-          {'id': 's1', 'title': '洗い場', 'sharedBy': {'id': 'haruto', 'name': 'はると'}},
+          {'id': 's1', 'title': '洗い場', 'sharedBy': {'id': 'haruto', 'name': 'はると'}, 'openCount': 0},
         ]);
       }
       for (final MapEntry(:key, :value) in states.entries) {

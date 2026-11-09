@@ -31,6 +31,8 @@ export interface Resolution {
   patchId: string | null;
   decidedBy: string;
   decidedAt: string;
+  /** 共有された人が自分の答えとして確定したときの、その人のログイン ID。持ち主が聞いた結果を記録したときは付けない（ADR 0017） */
+  answeredBy?: string;
   /** 確定した行の内容 */
   text: string;
   note: string;

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:moon_design/moon_design.dart';
@@ -385,11 +386,13 @@ class Speaker extends StatelessWidget {
   }
 }
 
-/// 確認して確定したことの印。日付印（上に「確認」、帯に日付、下に確認した相手）の形
+/// 確認して確定したことの印。日付印（上に「確認」、帯に日付、下に確認した相手）の形。
+/// 本人が答えて決めたものは、上を「決定」にする（ADR 0017）
 class ConfirmStamp extends StatelessWidget {
-  const ConfirmStamp({super.key, required this.who, required this.day, this.compact = false, this.onTap});
+  const ConfirmStamp({super.key, required this.who, required this.day, this.decided = false, this.compact = false, this.onTap});
   final String who;
   final String day;
+  final bool decided;
 
   /// マニュアルの行に添える小さい形（1行）
   final bool compact;
@@ -405,7 +408,7 @@ class ConfirmStamp extends StatelessWidget {
       stamp = Container(
         padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.xs),
         decoration: BoxDecoration(border: Border.fromBorderSide(line), borderRadius: k.radius.control),
-        child: Text('${fmtDay(day)} $whoに確認', style: ink),
+        child: Text('${fmtDay(day)} $who${decided ? 'が決定' : 'に確認'}', style: ink),
       );
     } else {
       stamp = Container(
@@ -416,7 +419,7 @@ class ConfirmStamp extends StatelessWidget {
             color: k.colors.stamp.withValues(alpha: 0.06),
             border: Border.fromBorderSide(line.copyWith(width: k.hairline * 2))),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text('確認', style: ink),
+          Text(decided ? '決定' : '確認', style: ink),
           Container(
             margin: EdgeInsets.symmetric(vertical: k.space.xs),
             padding: EdgeInsets.symmetric(horizontal: k.space.sm),
@@ -474,6 +477,12 @@ class PatchDiff extends StatelessWidget {
         ]),
       );
 }
+
+/// 「記録した人：かなで（11/10）」。前からある記録で、記録した人が分からなければ null（ADR 0018）
+String? recordedByText(Utterance u) => switch (u.recordedBy) {
+      final p? => '記録した人：${p.name}（${fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(u.createdAt).toLocal()))}）',
+      null => null,
+    };
 
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。

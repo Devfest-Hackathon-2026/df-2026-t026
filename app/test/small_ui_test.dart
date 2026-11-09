@@ -37,7 +37,7 @@ void _size(WidgetTester tester, Size size) {
 
 /// 塩の量の食い違いを店長に確認して 1/2 に決めた（確認して決めた行が1つある）
 Map<String, dynamic> _confirmed() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '- 塩 小さじ1/2', 'patchId': 'p2'},
       ],

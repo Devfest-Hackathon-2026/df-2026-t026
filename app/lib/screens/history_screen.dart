@@ -351,7 +351,7 @@ class _Who extends StatelessWidget {
     final r = x.onBranch ? null : x.check?.resolution;
     // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
     if (r != null) {
-      return Speaker(name: r.decidedBy, day: r.decidedAt, after: 'に確認');
+      return Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb);
     }
     if (x.said case final u?) return Speaker(name: u.speaker, day: u.saidAt);
     return Text(_createdDay(x), style: k.text.small);
@@ -365,7 +365,7 @@ InlineSpan _whoSpan(AppTokens k, Commit x) {
   if (r != null) {
     return TextSpan(children: [
       TextSpan(text: r.decidedBy, style: k.text.small.copyWith(color: k.colors.ink)),
-      TextSpan(text: '  ${fmtDay(r.decidedAt)} に確認'),
+      TextSpan(text: '  ${fmtDay(r.decidedAt)} ${r.verb}'),
     ]);
   }
   if (x.said case final u?) {

@@ -86,8 +86,8 @@ class _Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<_Sidebar> {
-  late Future<List<ManualSummary>> _manuals = _load();
-  late Future<List<SharedManual>> _shared = _loadShared();
+  /// 自分のノートと、共有されたノート。あとで確認の合計に両方を数えるので一緒に読む（ADR 0016）
+  late Future<(List<ManualSummary>, List<SharedManual>)> _notes = _load();
 
   @override
   void initState() {
@@ -102,14 +102,13 @@ class _SidebarState extends State<_Sidebar> {
   }
 
   // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
-  Future<List<ManualSummary>> _load() => widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]);
-
-  Future<List<SharedManual>> _loadShared() =>
-      widget.api.listShared().catchError((Object _) => const <SharedManual>[]);
+  Future<(List<ManualSummary>, List<SharedManual>)> _load() => (
+        widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]),
+        widget.api.listShared().catchError((Object _) => const <SharedManual>[]),
+      ).wait;
 
   void _reload() => setState(() {
-        _manuals = _load();
-        _shared = _loadShared();
+        _notes = _load();
       });
 
   /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く。
@@ -154,10 +153,10 @@ class _SidebarState extends State<_Sidebar> {
     return Container(
       color: k.colors.canvas,
       child: FutureBuilder(
-        future: _manuals,
+        future: _notes,
         builder: (context, snap) {
-          final manuals = snap.data ?? const <ManualSummary>[];
-          final open = manuals.fold(0, (n, m) => n + m.openCount);
+          final (manuals, shared) = snap.data ?? (const <ManualSummary>[], const <SharedManual>[]);
+          final open = manuals.fold<int>(0, (n, m) => n + m.openCount) + shared.fold<int>(0, (n, m) => n + m.openCount);
           // 上から：アプリ名 → 言われたことを記録 → あとで確認 → ノートを探す → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -196,41 +195,36 @@ class _SidebarState extends State<_Sidebar> {
             SizedBox(height: k.space.lg),
             Padding(padding: EdgeInsets.symmetric(horizontal: k.space.sm), child: _notesHeading()),
             Expanded(
-              child: FutureBuilder(
-                future: _shared,
-                builder: (context, snap) {
-                  final shared = snap.data ?? const <SharedManual>[];
-                  return ListView(
-                    padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-                    children: [
-                      for (final m in manuals)
-                        _item(
-                          m.title,
-                          selected: widget.manualId == m.id,
-                          open: m.openCount,
-                          onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
-                        ),
-                      // ほかの人から共有されたノート。確定は持ち主がするので、あとで確認の件数は付けない（ADR 0013）
-                      if (shared.isNotEmpty) ...[
-                        SizedBox(height: k.space.lg),
-                        SizedBox(
-                          height: k.sidebarRow,
-                          child: Padding(
-                            padding: EdgeInsets.only(left: k.space.sm),
-                            child: Align(alignment: Alignment.centerLeft, child: Text('共有されたノート', style: k.text.small)),
-                          ),
-                        ),
-                        for (final m in shared)
-                          _item(
-                            m.title,
-                            owner: m.sharedBy.name,
-                            selected: widget.manualId == m.id,
-                            onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
-                          ),
-                      ],
-                    ],
-                  );
-                },
+              child: ListView(
+                padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+                children: [
+                  for (final m in manuals)
+                    _item(
+                      m.title,
+                      selected: widget.manualId == m.id,
+                      open: m.openCount,
+                      onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
+                    ),
+                  // ほかの人から共有されたノート。共有された人も確定できるので、あとで確認の件数も付ける（ADR 0016）
+                  if (shared.isNotEmpty) ...[
+                    SizedBox(height: k.space.lg),
+                    SizedBox(
+                      height: k.sidebarRow,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: k.space.sm),
+                        child: Align(alignment: Alignment.centerLeft, child: Text('共有されたノート', style: k.text.small)),
+                      ),
+                    ),
+                    for (final m in shared)
+                      _item(
+                        m.title,
+                        owner: m.sharedBy.name,
+                        selected: widget.manualId == m.id,
+                        open: m.openCount,
+                        onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
+                      ),
+                  ],
+                ],
               ),
             ),
             Container(height: k.hairline, color: k.colors.rule),
@@ -319,14 +313,17 @@ class _SidebarState extends State<_Sidebar> {
         overflow: TextOverflow.ellipsis,
         style: k.text.body.copyWith(fontWeight: selected || strong ? FontWeight.w700 : null),
       ),
-      trailing: open > 0
-          ? StatusTag('$open', bg: k.colors.pendingBg, fg: k.colors.pending)
-          : owner == null
-              ? null
-              : ConstrainedBox(
+      trailing: open == 0 && owner == null
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: [
+              if (owner != null)
+                ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: k.sidebarWidth / 3),
                   child: Text(owner, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.small),
                 ),
+              if (owner != null && open > 0) SizedBox(width: k.space.xs),
+              if (open > 0) StatusTag('$open', bg: k.colors.pendingBg, fg: k.colors.pending),
+            ]),
     );
   }
 }

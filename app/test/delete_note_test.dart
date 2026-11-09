@@ -58,6 +58,7 @@ class _Server {
             },
         ],
         'owner': shared && id == 'm1' ? 'sato' : 'kanade',
+        'me': 'kanade',
         'sharedBy': shared && id == 'm1' ? {'id': 'sato', 'name': '佐藤店長'} : null,
       };
 

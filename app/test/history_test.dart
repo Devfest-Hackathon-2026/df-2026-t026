@@ -53,7 +53,7 @@ Map<String, dynamic> _check(String id, String patchId, String uid, String confli
 
 /// 田中さんの「塩は1/2」がノートと食い違い、店長に確認して1/2に決めた。その後の佐藤さんの指示はまだ確認していない
 Map<String, dynamic> _kitchen() => {
-      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '## 味噌汁\n- 塩 小さじ1\n- 味噌 大さじ2', 'createdAt': '2026-11-01T00:00:00Z'},
+      'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '## 味噌汁\n- 塩 小さじ1\n- 味噌 大さじ2', 'createdAt': '2026-11-01T00:00:00Z'},
       'lines': [
         {'text': '## 味噌汁', 'patchId': null},
         {'text': '- 塩 小さじ1/2', 'patchId': 'p3'},
@@ -139,7 +139,7 @@ void main() {
 
     test('確定で続けて当てたパッチは1つの版にし、ノートのままと確定した記録もパッチなしの版として残す', () {
       final s = ManualState.fromJson({
-        'manual': {'id': 'm1', 'title': 'メモ', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'メモ', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [
           {'text': '- 塩 小さじ1/2', 'patchId': 'p3'},
         ],
@@ -181,7 +181,7 @@ void main() {
             'ask': null,
           };
       final s = ManualState.fromJson({
-        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1\n- 味噌 大さじ2', 'createdAt': '2026-11-01T00:00:00Z'},
+        'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1\n- 味噌 大さじ2', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [
           {'text': '- 塩 小さじ1', 'patchId': null},
           {'text': '- 味噌 大さじ2', 'patchId': null},

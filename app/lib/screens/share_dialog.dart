@@ -6,16 +6,20 @@ import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
 
-/// ノートを共有する相手を足す・外す。招待や承認は無く、足すとすぐ相手のサイドバーに出る（ADR 0013）
-Future<void> showShare(BuildContext context, Api api, String manualId) => showMoonModal<void>(
+/// ノートを共有する相手を足す・外す。招待や承認は無く、足すとすぐ相手のサイドバーに出る（ADR 0013）。
+/// 共有された人も開ける。そのときは owner に持ち主を渡す（ADR 0016）
+Future<void> showShare(BuildContext context, Api api, String manualId, {Person? owner}) => showMoonModal<void>(
   context: context,
-  builder: (_) => _ShareDialog(api: api, manualId: manualId),
+  builder: (_) => _ShareDialog(api: api, manualId: manualId, owner: owner),
 );
 
 class _ShareDialog extends StatefulWidget {
-  const _ShareDialog({required this.api, required this.manualId});
+  const _ShareDialog({required this.api, required this.manualId, this.owner});
   final Api api;
   final String manualId;
+
+  /// 共有されたノートなら持ち主。自分のノートなら null
+  final Person? owner;
 
   @override
   State<_ShareDialog> createState() => _ShareDialogState();
@@ -106,7 +110,11 @@ class _ShareDialogState extends State<_ShareDialog> {
                 children: [
                   Text('共有', style: k.text.title),
                   SizedBox(height: k.space.xs),
-                  Text('共有した人は、このノートを見て行を直せます。言われたことの記録と確定は、持ち主のあなただけができます', style: k.text.small),
+                  Text('共有した人も、このノートに記録・書き込み・確定ができます。ノートを消せるのは持ち主だけです', style: k.text.small),
+                  if (widget.owner case final o?) ...[
+                    SizedBox(height: k.space.md),
+                    Text('持ち主：${o.name == o.id ? o.id : '${o.name}（${o.id}）'}', style: k.text.body),
+                  ],
                   SizedBox(height: k.space.lg),
                   Text('相手のログイン ID', style: k.text.small),
                   SizedBox(height: k.space.xs),

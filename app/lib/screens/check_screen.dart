@@ -68,7 +68,8 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 確定の入力欄を開いたか。急がせないよう、利用者が「確認できたので記録する」を押すまで閉じておく
   var _recording = false;
 
-  Future<void> _resolve(Check chk, Patch p) async {
+  /// 共有された人は、自分の答えとして確定する。確認した相手は送らない（ADR 0017）
+  Future<void> _resolve(Check chk, Patch p, {required bool answering}) async {
     final text = switch (_outcome) {
       _Outcome.keep => chk.conflictLine!,
       _Outcome.adopt => p.text,
@@ -78,8 +79,11 @@ class _CheckDetailState extends State<CheckDetail> {
     try {
       final note = _note.text.trim();
       await widget.c.resolve(chk.id,
-          decidedBy: _decidedBy.text.trim(), decidedAt: _decidedAt, text: text, note: note.isEmpty ? plain(text) : note);
-      if (mounted) showToast(context, '確定しました。確認の記録に残しています');
+          decidedBy: answering ? null : _decidedBy.text.trim(),
+          decidedAt: answering ? today() : _decidedAt,
+          text: text,
+          note: note.isEmpty ? plain(text) : note);
+      if (mounted) showToast(context, answering ? '確定しました。あなたが決めた記録に残しています' : '確定しました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -115,7 +119,11 @@ class _CheckDetailState extends State<CheckDetail> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             PageTitle(
               chk.isOpen ? 'あとで確認すること' : '確認の記録',
-              meta: [Speaker(name: u.speaker, day: u.saidAt), Text('元の発言：「${u.text}」', style: k.text.small)],
+              meta: [
+                Speaker(name: u.speaker, day: u.saidAt),
+                Text('元の発言：「${u.text}」', style: k.text.small),
+                if (recordedByText(u) case final by?) Text(by, style: k.text.small),
+              ],
             ),
             SizedBox(height: k.space.xl),
             if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
@@ -142,7 +150,12 @@ class _CheckDetailState extends State<CheckDetail> {
               SizedBox(height: k.space.md),
               _copyable('記録を見せる', _showRecord(confirmed.resolution!), '記録を見せる文をコピーする'),
             ],
-            if (chk.isOpen) ...[
+            // 共有された人は聞かれる側なので、誰に確認するか・聞き方は出さず、すぐ答えてもらう（ADR 0017）
+            if (chk.isOpen && s.sharedBy != null) ...[
+              SizedBox(height: k.space.xxl),
+              _step('2', '答える'),
+              _form(chk, p, u, answering: true),
+            ] else if (chk.isOpen) ...[
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
@@ -151,23 +164,17 @@ class _CheckDetailState extends State<CheckDetail> {
                 _copyable('聞き方の例', chk.question!, '聞き方をコピーする'),
               ],
               SizedBox(height: k.space.xxl),
-              // 確定はノートの持ち主だけがする（ADR 0013）
-              if (s.sharedBy case final owner?)
-                Text('聞いた結果は、ノートの持ち主の ${owner.name} が記録します', style: k.text.small)
-              else ...[
-                _step('3', '聞いた結果を記録する'),
-                if (_recording)
-                  _form(chk, p, u)
-                else ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: MoonOutlinedButton(
-                      onTap: () => setState(() => _recording = true),
-                      label: const Text('聞いた結果を記録する'),
-                    ),
+              _step('3', '聞いた結果を記録する'),
+              if (_recording)
+                _form(chk, p, u, answering: false)
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MoonOutlinedButton(
+                    onTap: () => setState(() => _recording = true),
+                    label: const Text('聞いた結果を記録する'),
                   ),
-                ],
-              ],
+                ),
             ],
           ]),
         );
@@ -239,9 +246,10 @@ class _CheckDetailState extends State<CheckDetail> {
     );
   }
 
-  Widget _form(Check chk, Patch p, Utterance u) {
+  /// answering なら、共有された人が自分で答える欄。確認した相手と日付は無い
+  Widget _form(Check chk, Patch p, Utterance u, {required bool answering}) {
     final k = context.tokens;
-    final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
+    final ready = (answering || _decidedBy.text.trim().isNotEmpty) && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
     // 相手の行が書き換えられてもうノートに無いときは、「ノートのまま」だと今のノートの行と読めてしまう（#86）
     final gone = !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
     final keep = _choice(
@@ -249,19 +257,21 @@ class _CheckDetailState extends State<CheckDetail> {
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('確認した相手', style: k.text.small),
-      SizedBox(height: k.space.xs),
-      Row(children: [
-        Expanded(child: MoonTextInput(controller: _decidedBy, onChanged: (_) => setState(() {}))),
-        SizedBox(width: k.space.sm),
-        MoonOutlinedButton(
-          onTap: _pickDate,
-          leading: const Icon(LucideIcons.calendar),
-          label: Text('${fmtDay(_decidedAt)} に聞いた'),
-        ),
-      ]),
-      SizedBox(height: k.space.xl),
-      Text('どちらに決まった？', style: k.text.small),
+      if (!answering) ...[
+        Text('確認した相手', style: k.text.small),
+        SizedBox(height: k.space.xs),
+        Row(children: [
+          Expanded(child: MoonTextInput(controller: _decidedBy, onChanged: (_) => setState(() {}))),
+          SizedBox(width: k.space.sm),
+          MoonOutlinedButton(
+            onTap: _pickDate,
+            leading: const Icon(LucideIcons.calendar),
+            label: Text('${fmtDay(_decidedAt)} に聞いた'),
+          ),
+        ]),
+        SizedBox(height: k.space.xl),
+      ],
+      Text(answering ? 'どちらにする？' : 'どちらに決まった？', style: k.text.small),
       SizedBox(height: k.space.sm),
       // 選択肢は上の比較と同じ並び（左＝マニュアル、右＝言われたこと）にする
       LayoutBuilder(
@@ -278,20 +288,20 @@ class _CheckDetailState extends State<CheckDetail> {
       SizedBox(height: k.space.sm),
       _choice(
         _Outcome.custom,
-        '別の内容に決まった',
+        answering ? '別の内容にする' : '別の内容に決まった',
         _outcome == _Outcome.custom ? MoonTextInput(controller: _custom, onChanged: (_) => setState(() {})) : null,
       ),
       SizedBox(height: k.space.xl),
-      Text('メモ（何と言われたか）', style: k.text.small),
+      Text(answering ? 'メモ（理由など）' : 'メモ（何と言われたか）', style: k.text.small),
       SizedBox(height: k.space.xs),
       MoonTextInput(controller: _note, hintText: '例: 1/2で統一'),
       SizedBox(height: k.space.xl),
       Align(
         alignment: Alignment.centerRight,
         child: MoonFilledButton(
-          onTap: ready && !_busy ? () => _resolve(chk, p) : null,
+          onTap: ready && !_busy ? () => _resolve(chk, p, answering: answering) : null,
           leading: _busy ? const ButtonLoader() : null,
-          label: const Text('確認済みにする'),
+          label: Text(answering ? '答えて確定する' : '確認済みにする'),
         ),
       ),
     ]);
@@ -342,13 +352,13 @@ class _CheckDetailState extends State<CheckDetail> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${fmtDay(r.decidedAt)} ${r.decidedBy}に確認：${r.note}', style: k.text.title),
+            Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
             SizedBox(height: k.space.sm),
             Text('確定した内容：${plain(r.text)}', style: k.text.body),
           ]),
         ),
         SizedBox(width: k.space.lg),
-        ConfirmStamp(who: r.decidedBy, day: r.decidedAt),
+        ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null),
       ]),
     );
     if (onTap == null) return box;
@@ -364,6 +374,8 @@ class _CheckDetailState extends State<CheckDetail> {
     final decided = plain(r.text);
     final memo = r.note.trim();
     final note = memo.isEmpty || memo == decided ? '' : '（$memo）';
-    return '${fmtDay(r.decidedAt)} に${r.decidedBy}に確認して、「$decided」に決まっています$note。';
+    // 教える人が自分で答えて決めたものは、聞いたのでなく本人が決めたと書く（ADR 0017）
+    final how = r.answeredBy == null ? 'に確認して' : 'が決めて';
+    return '${fmtDay(r.decidedAt)} に${r.decidedBy}$how、「$decided」に決まっています$note。';
   }
 }
