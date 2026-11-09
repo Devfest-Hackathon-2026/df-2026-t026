@@ -85,8 +85,8 @@ class RecordResultCard extends StatelessWidget {
               );
         return PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.xl),
-          // 黄は面を塗らないのが決まりだが、このカードの食い違いだけは例外（flutter-ui.md）。黄の線で囲み、付箋と見分ける
-          tint: conflicted ? (bg: k.colors.pendingBg, line: k.colors.pending) : null,
+          // 食い違いは黄の線で囲んで目立たせる。黄は付箋の色でもあるので面は塗らない（flutter-ui.md）
+          outline: conflicted ? k.colors.pending : null,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (stamp != null && stacked) ...[
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, const Spacer(), close]),

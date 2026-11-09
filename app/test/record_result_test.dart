@@ -198,19 +198,19 @@ Finder _inCard(Finder f) => find.descendant(of: _card, matching: f);
 
 final _k = appTheme().extension<AppTokens>()!;
 
-/// カードの見た目の要素。食い違いがあれば黄で塗った見せ場の形、無ければ白い落ち着いた形か
+/// カードの見た目の要素。食い違いがあれば黄の線で囲んだ見せ場の形（面は白のまま）、無ければ線の無い落ち着いた形か
 void _expectLook(WidgetTester tester, String title, {required bool conflicted}) {
   final sheet = tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first);
   final heading = tester.widget<Text>(_inCard(find.text(title)));
   final filled = _inCard(find.widgetWithText(MoonFilledButton, '確かめる'));
   final text = _inCard(find.widgetWithText(MoonTextButton, '確かめる'));
   if (conflicted) {
-    expect(sheet.tint, (bg: _k.colors.pendingBg, line: _k.colors.pending));
+    expect(sheet.outline, _k.colors.pending);
     expect(heading.style, _k.text.display);
     expect(filled, findsOneWidget);
     expect(text, findsNothing);
   } else {
-    expect(sheet.tint, isNull);
+    expect(sheet.outline, isNull);
     expect(heading.style, _k.text.title);
     expect(filled, findsNothing);
     expect(text, findsOneWidget);
@@ -272,7 +272,7 @@ void main() {
       // 前の知らせのように数秒で消えない
       await tester.pump(const Duration(seconds: 10));
       expect(_card, findsOneWidget);
-      // 食い違いは見せ場：黄で塗り、見出しを大きく、「確かめる」を主のボタンにする
+      // 食い違いは見せ場：白地のまま黄の線で囲み、見出しを大きく、「確かめる」を主のボタンにする
       _expectLook(tester, 'ノートと食い違っています', conflicted: true);
 
       // 「確かめる」で、書き込む前の確認と同じダイアログを開く。振り分けはもう済んでいるので題名は「記録した結果」

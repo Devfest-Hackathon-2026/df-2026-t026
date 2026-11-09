@@ -578,14 +578,12 @@ class ConflictPair extends StatelessWidget {
 }
 
 /// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く。
-/// tint を渡すと、その状態の色で薄く塗って同じ色の線で囲む（記録した結果のカードの食い違いだけ）
+/// outline を渡すと、白いままその状態の色の線で囲む（記録した結果のカードの食い違いだけ。黄は面を塗らない）
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding, this.tint});
+  const PaperSheet({super.key, required this.child, required this.padding, this.outline});
   final Widget child;
   final EdgeInsets padding;
-
-  /// 地の色と線の色
-  final ({Color bg, Color line})? tint;
+  final Color? outline;
 
   @override
   Widget build(BuildContext context) {
@@ -593,8 +591,8 @@ class PaperSheet extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: tint?.bg ?? k.colors.canvas,
-        border: tint == null ? null : Border.all(color: tint!.line, width: k.hairline),
+        color: k.colors.canvas,
+        border: outline == null ? null : Border.all(color: outline!, width: k.hairline * 2),
         borderRadius: k.radius.paper,
       ),
       child: child,
