@@ -8,6 +8,7 @@ import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -258,6 +259,25 @@ void main() {
           ? find.byWidgetPredicate((w) => w is CheckScreen && w.checkId == 'c1')
           : find.byWidgetPredicate((w) => w is CheckDetail && w.checkId == 'c1');
       expect(top, findsOneWidget);
+    });
+  }
+
+  // #126：幅 390 では確認印が文の横に並び、文が印の横の狭い幅（146）に押し込まれて「11/7 店長に確」「認：1/2で統一」と折れていた
+  for (final size in const [Size(390, 844), Size(1440, 900)]) {
+    testWidgets('確認の記録の文は確認印に横幅を取られない。狭い画面では印を文の上に、広い画面では右に置く（$size）', (tester) async {
+      await _pumpCheck(tester, _confirmed(), 'c1', size: size);
+      final title = find.text(_record);
+      final stamp = tester.getRect(find.byWidgetPredicate((w) => w is ConfirmStamp && !w.compact));
+      final text = tester.getRect(title);
+      if (size.width < 900) {
+        expect(stamp.bottom, lessThanOrEqualTo(text.top));
+        // 文は記録の枠の内側の幅いっぱいで折れる
+        final box = find.ancestor(of: title, matching: find.byType(Container)).first;
+        final k = appTheme().extension<AppTokens>()!;
+        expect(tester.renderObject<RenderParagraph>(title).constraints.maxWidth, tester.getSize(box).width - 2 * k.space.xl);
+      } else {
+        expect(stamp.left, greaterThanOrEqualTo(text.right));
+      }
     });
   }
 
