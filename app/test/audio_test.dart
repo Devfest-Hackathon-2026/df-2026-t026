@@ -55,6 +55,15 @@ void main() {
     expect(const EnergyVad().chunks(s, gap: f, pad: 0, minVoice: 2 * f), isEmpty);
   });
 
+  test('切り出しは、押した所に最も近いかたまりから、間が短く続く前のかたまりまでをまとめる', () {
+    const chunks = [(start: 0, end: 10), (start: 30, end: 40), (start: 45, end: 50), (start: 52, end: 60)];
+    // 返事のあとの無音で押しても、その前の言われたことまで取る
+    expect(conversation(chunks, 70, gap: 10), chunks.sublist(1));
+    // 言われている途中で押したら、その後の返事は取らない
+    expect(conversation(chunks, 35, gap: 10), [(start: 30, end: 40)]);
+    expect(conversation(chunks, 47, gap: 10), [(start: 30, end: 40), (start: 45, end: 50)]);
+  });
+
   test('WAV は 16bit・モノラルのヘッダーを付ける', () {
     final w = wav(Int16List.fromList([1, -1]), sampleRate: 16000);
     final d = ByteData.sublistView(w);
