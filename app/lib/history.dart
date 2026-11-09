@@ -201,6 +201,35 @@ List<ManualLine> _apply(List<ManualLine> lines, Patch p) {
   return [...lines.sublist(0, p.op == 'insert' ? i + 1 : i), ...added, ...lines.sublist(i + 1)];
 }
 
+/// 2つの本文を行の文字列で突き合わせた差分。同じ行を最も多く残す並べ方（最長共通部分列）にする。
+/// AI が整えた本文のように、行の出どころを持たない文どうしを比べるときに使う
+List<DiffLine> lineDiff(List<String> before, List<String> after) {
+  final n = before.length, m = after.length;
+  // common[i][j]: before[i..] と after[j..] に共通して残せる行の数
+  final common = List.generate(n + 1, (_) => List.filled(m + 1, 0));
+  for (var i = n - 1; i >= 0; i--) {
+    for (var j = m - 1; j >= 0; j--) {
+      common[i][j] = before[i] == after[j]
+          ? common[i + 1][j + 1] + 1
+          : (common[i + 1][j] >= common[i][j + 1] ? common[i + 1][j] : common[i][j + 1]);
+    }
+  }
+  final out = <DiffLine>[];
+  var i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && before[i] == after[j]) {
+      out.add((text: after[j], change: LineChange.kept));
+      i++;
+      j++;
+    } else if (i < n && (j == m || common[i + 1][j] >= common[i][j + 1])) {
+      out.add((text: before[i++], change: LineChange.removed));
+    } else {
+      out.add((text: after[j++], change: LineChange.added));
+    }
+  }
+  return out;
+}
+
 /// パッチは行を差し込むだけで並びを入れ替えないので、残った行を同じ物かどうかで突き合わせれば差分になる
 List<DiffLine> _diff(List<ManualLine> before, List<ManualLine> after) {
   final kept = after.toSet();

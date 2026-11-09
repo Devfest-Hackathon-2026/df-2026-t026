@@ -94,6 +94,9 @@ class AppRadius {
 
   /// アバターと状態のタグ
   final BorderRadius round = const BorderRadius.all(Radius.circular(999));
+
+  /// 狭い画面の下に浮かせるタブバー（試作）
+  final BorderRadius floating = const BorderRadius.all(Radius.circular(22));
 }
 
 class AppText {
@@ -104,6 +107,8 @@ class AppText {
     required this.body,
     required this.small,
     required this.label,
+    required this.input,
+    required this.inputArea,
   });
 
   /// 内容の頭に置く題名
@@ -115,6 +120,13 @@ class AppText {
 
   /// タグ・確認印・アバターなど、小さく太い文字
   final TextStyle label;
+
+  /// 入力欄の文字。iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないので、16 以上にする（調査17）。
+  /// 1行の欄（MoonTextInput）は行の高さを決めない（Moon の既定と同じ。決めると Web で文字が下に寄る）
+  final TextStyle input;
+
+  /// 複数行の入力欄（MoonTextArea）の文字。input と同じ大きさで、行の間は本文と同じにする
+  final TextStyle inputArea;
 
 }
 
@@ -162,8 +174,11 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// マニュアルを貼り付ける欄の高さ
   final double editorHeight = 320;
 
-  /// 入力ページで言われたことを書く欄の高さ
+  /// 入力ページで言われたことを書く欄の高さ（下の添付・マイクの行を含む）
   final double composerHeight = 160;
+
+  /// 書く欄の下の、添付・マイクのボタンを置く行の高さ
+  final double composerTools = 48;
 
   /// 入力ページの最近の記録に並べる付箋の幅
   final double stickyWidth = 220;
@@ -191,6 +206,27 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
   final double graphDash = 4;
+
+  /// 狭い画面の下に浮かせるタブバー（試作。スマホで重くないかを見る）。高さ・後ろをぼかす強さ・半透明の白・影
+  final double tabBarHeight = 60;
+
+  /// 後ろをぼかす強さ。強すぎると後ろの色や形が消えて白い板に見えるので、ぼやけて見える程度にとどめる
+  final double tabBarBlur = 12;
+
+  /// 後ろの色の鮮やかさ（1 でそのまま）。iPhone の Liquid Glass のように少し上げると、透けた色がガラス越しに見える
+  final double tabBarSaturation = 1.6;
+
+  /// ガラスの白。後ろが透けて見えるよう半分より薄くする（ぼかしを切ったときは、不透明の白い帯 canvas にする）
+  final Color tabBarGlass = const Color(0x66FFFFFF);
+
+  /// ガラスの縁。細い白の半透明と、上側に少し明るい線（光が当たって見える）
+  final Color tabBarEdge = const Color(0x8CFFFFFF);
+  final Color tabBarEdgeLight = const Color(0xE6FFFFFF);
+  final List<BoxShadow> tabBarShadow = const [BoxShadow(color: Color(0x2417173D), blurRadius: 24, offset: Offset(0, 8))];
+
+  /// 選んでいるタブの後ろに敷くカプセル（action の青を薄く）と、横に動く時間
+  final Color tabBarPill = const Color(0x262459F5);
+  final Duration tabBarPillMove = const Duration(milliseconds: 220);
 
   @override
   AppTokens copyWith() => this;
@@ -242,6 +278,8 @@ ThemeData appTheme() {
     body: printed.copyWith(fontSize: 15, height: 1.7),
     small: printed.copyWith(fontSize: 13, height: 1.5, color: c.inkMuted),
     label: printBold.copyWith(fontSize: 12, height: 1.2),
+    input: printed.copyWith(fontSize: 16),
+    inputArea: printed.copyWith(fontSize: 16, height: 1.7),
   );
 
   final moonColors = MoonColors.light.copyWith(
@@ -289,6 +327,20 @@ ThemeData appTheme() {
     ),
   );
 
+  // Moon の入力欄の既定の文字（sm・md は 14px）も入力欄の文字にそろえ、textStyle を付け忘れても 16 以上になるようにする
+  final inputBase = MoonTextInputTheme(tokens: moonTokens);
+  final inputSizes = inputBase.sizes;
+  final textInputTheme = inputBase.copyWith(
+    sizes: inputSizes.copyWith(
+      sm: inputSizes.sm.copyWith(textStyle: text.input),
+      md: inputSizes.md.copyWith(textStyle: text.input),
+      lg: inputSizes.lg.copyWith(textStyle: text.input),
+      xl: inputSizes.xl.copyWith(textStyle: text.input),
+    ),
+  );
+  final areaBase = MoonTextAreaTheme(tokens: moonTokens);
+  final textAreaTheme = areaBase.copyWith(properties: areaBase.properties.copyWith(textStyle: text.inputArea));
+
   return ThemeData(
     colorScheme: ColorScheme.light(
       primary: c.action,
@@ -300,6 +352,9 @@ ThemeData appTheme() {
     ),
     scaffoldBackgroundColor: c.shell,
     fontFamily: printed.fontFamily,
-    extensions: [MoonTheme(tokens: moonTokens), AppTokens(colors: c, text: text)],
+    extensions: [
+      MoonTheme(tokens: moonTokens, textInputTheme: textInputTheme, textAreaTheme: textAreaTheme),
+      AppTokens(colors: c, text: text),
+    ],
   );
 }

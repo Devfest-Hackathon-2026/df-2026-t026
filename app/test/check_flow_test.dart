@@ -2,12 +2,15 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
+
+import 'input_font.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
       'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -174,6 +177,7 @@ void main() {
     await tester.ensureVisible(start);
     await tester.tap(start);
     await tester.pumpAndSettle();
+    expectInputFontsAtLeast16(tester, count: 2); // 確認した相手・メモ
 
     await tester.ensureVisible(note);
     await tester.enterText(note, '1/2で統一');
@@ -209,7 +213,9 @@ void main() {
     Map<String, dynamic>? resolveBody;
     await _pumpManual(tester, _client((b) => resolveBody = b), const Size(400, 860));
 
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+    // 狭い画面では、上部バーでなく下のタブバーから確認リストへ移る
+    expect(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'), findsNothing);
+    await tester.tap(find.descendant(of: find.byType(NoteTabBar), matching: find.text('確認リスト')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();

@@ -52,6 +52,7 @@ paths:
 ## トークン
 
 - 色・余白・角丸・文字スタイルは `context.tokens`（`lib/theme.dart` の `AppTokens`）から取る。`Color(0x…)`・`Colors.*`・数値を直接書いた `EdgeInsets`/`SizedBox`/`BorderRadius`/`fontSize` は `theme.dart` 以外に書かない
+- 入力欄の文字は 16px 以上にする（1行は `k.text.input`、複数行は `k.text.inputArea`。iPhone は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さないため）。Moon の入力欄の既定も theme.dart でこれにそろえている
 - Moon の色・角丸・書体・影も `theme.dart` でトークンから作る。Moon の既定（紫の主色 #5C33CF、純黒）を画面に出さない
 - 色は役割の名前で持つ（`shell`・`canvas`・`ink`・`inkMuted`・`rule`・`added`・`removed`・`pending`・`qualified`・`stamp` など）。文字は紺がかった黒（`ink`）で、純黒 `#000000` は使わない。補足の文字は `inkMuted`
 - 余白は `space.xs`(4)〜`space.xxl`(40) の段階だけ。まとまりの内側は狭く、まとまりの間は広くして、全部を同じ値にしない
@@ -60,6 +61,7 @@ paths:
 ## 構成
 
 - グラデーション・すりガラス・光彩は使わない。影は付箋（`StickyNote`）の下側にだけ付ける。白い面・カード・タグ・衝突の左右の面には付けない。本文の区切りは罫線（`rule`）と左余白の色線で付ける
+  - 例外は、狭い画面の下に浮かせるタブバー（`tab_bar.dart`）だけ。後ろが透けるガラスにしてよい：後ろをぼかして色を少し鮮やかにし（`BackdropFilter`、`ImageFilter.compose`）、薄い白と細い白の縁、軽い影、選んでいるタブの後ろの青い薄いカプセル（2026-11-09 決定。ぼかしは `TABBAR_BLUR` で切れる。値はトークン `tabBar*`。影 `tabBarShadow` を使ってよいのは tab_bar.dart だけ。グラデーションは使わない。`ui_rules_test.dart` の例外と合わせる）
 - 箱の中に箱を作らない
 - 文字は左揃え。中央揃えは、空状態のように画面に一つしかない短い案内だけ
 - 番号（1・2・3）は、本当に順に進む手順にだけ付ける

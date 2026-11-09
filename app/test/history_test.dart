@@ -4,12 +4,12 @@ import 'package:diff_note/api.dart';
 import 'package:diff_note/history.dart';
 import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:moon_design/moon_design.dart';
 
 Map<String, dynamic> _u(String id, String text, String speaker, String at, {bool fromEdit = false}) =>
     {'id': id, 'text': text, 'speaker': speaker, 'saidAt': at.substring(0, 10), 'fromEdit': fromEdit, 'createdAt': at};
@@ -79,6 +79,21 @@ Map<String, dynamic> _kitchen() => {
 List<String> _texts(Commit c, LineChange change) => [for (final l in c.diff) if (l.change == change) l.text];
 
 void main() {
+  test('lineDiff：同じ行を最も多く残し、消えた行を増えた行より先に並べる', () {
+    final d = lineDiff(['仕込み', '野菜を切る', '', '片付け'], ['## 仕込み', '- 野菜を切る', '', '## 片付け']);
+    expect([for (final l in d) '${l.change.name}:${l.text}'], [
+      'removed:仕込み',
+      'removed:野菜を切る',
+      'added:## 仕込み',
+      'added:- 野菜を切る',
+      'kept:',
+      'removed:片付け',
+      'added:## 片付け',
+    ]);
+    expect(lineDiff(['a', 'b'], ['a', 'b']).every((l) => l.change == LineChange.kept), isTrue);
+    expect(lineDiff([], ['a']).single, (text: 'a', change: LineChange.added));
+  });
+
   group('buildHistory', () {
     test('反映した順に版を積み、食い違った記録は記録した時点の版から分かれて、確定した版に合流する', () {
       final s = ManualState.fromJson(_kitchen());
@@ -216,7 +231,8 @@ void main() {
         home: ManualScreen(api: Api(client: client, baseUrl: 'http://api'), manualId: 'm1'),
       ));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MoonOutlinedButton, '履歴'));
+      // サイドバーが出ない幅（ここでは 390 と 1000）では、上部バーでなく下のタブバーから移る
+      await tester.tap(find.descendant(of: find.byType(NoteTabBar), matching: find.text('履歴')));
       await tester.pumpAndSettle();
     }
 

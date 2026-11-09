@@ -6,10 +6,12 @@ import '../theme.dart';
 import 'check_screen.dart';
 import 'common.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 /// 確認リストの外（マニュアルの行・記録直後のモーダル）から食い違いを開く。戻ると確認リストに出るよう、リストを挟む
-void openCheckViaList(NavigatorState nav, ManualController c, String checkId) {
-  nav.push(MaterialPageRoute(builder: (_) => CheckListScreen(c: c, initialCheckId: checkId)));
+void openCheckViaList(NavigatorState nav, ManualController c, String checkId, {RouteSettings? settings}) {
+  // settings: ノートの上に積むときの印（tab_bar.dart の aboveNote）。下のタブバーの「ノート」で、積んだ分を外して戻れるようにする
+  nav.push(MaterialPageRoute(settings: settings, builder: (_) => CheckListScreen(c: c, initialCheckId: checkId)));
   // 広い画面では確認リストの右に詳細が出るので、詳細の画面は重ねない
   if (MediaQuery.sizeOf(nav.context).width < nav.context.tokens.wideLayout) {
     nav.push(MaterialPageRoute(builder: (_) => CheckScreen(c: c, checkId: checkId)));
@@ -47,6 +49,8 @@ class _CheckListScreenState extends State<CheckListScreen> {
       builder: (context, _) {
         final s = c.state!;
         return Scaffold(
+          extendBody: true,
+          bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.checks) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト']),
             Expanded(
@@ -70,10 +74,10 @@ class _CheckListScreenState extends State<CheckListScreen> {
 
   Widget _scroll(Widget child) {
     final k = context.tokens;
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),
+    return Builder(builder: (context) => SingleChildScrollView(
+      padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl)),
       child: Narrow(child: child),
-    );
+    ));
   }
 
   Widget _detail(ManualState s) {

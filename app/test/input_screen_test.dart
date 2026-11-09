@@ -18,6 +18,8 @@ import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'input_font.dart';
+
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 Map<String, dynamic> _utterance(String id, String text, String createdAt) =>
@@ -187,7 +189,7 @@ Future<void> _startRewind(WidgetTester tester) async {
 Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) async {
   mic
     ..add(_pcm(500, voice: true))
-    ..add(_pcm(2000, voice: false))
+    ..add(_pcm(6000, voice: false))
     ..add(_pcm(1000, voice: true));
   await tester.pump();
   await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
@@ -306,6 +308,7 @@ void main() {
       ),
     );
     await _record(tester, '塩は小さじ1/2');
+    expectInputFontsAtLeast16(tester, count: 1); // 書き込む前の確認の、発言者
 
     await tester.enterText(find.widgetWithText(MoonTextInput, '田中さん'), '田中さん（ホール）');
     await tester.tap(find.byIcon(LucideIcons.x));
@@ -335,6 +338,7 @@ void main() {
 
     await tester.tap(find.widgetWithText(MoonTextButton, '言われたことを直す'));
     await tester.pump();
+    expectInputFontsAtLeast16(tester, count: 2); // 発言者・言われたことを直す欄
     await tester.enterText(find.widgetWithText(MoonTextInput, '塩は小さじ1/2'), '塩は大さじ1/2');
     await tester.tap(find.widgetWithText(MoonFilledButton, '直して照らし合わせ直す'));
     await tester.pumpAndSettle();
@@ -406,7 +410,7 @@ void main() {
     expect(find.text('最近の記録'), findsOneWidget);
   });
 
-  testWidgets('切り出すと、押した時刻の発話だけを書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
+  testWidgets('切り出すと、押す前の会話を書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
     final mic = StreamController<Uint8List>();
     final heard = <Completer<http.Response>>[];
     final sent = <Map<String, dynamic>>[];
@@ -421,10 +425,13 @@ void main() {
     );
     await _startRewind(tester);
 
+    // 前の話・長い無音・言われたこと・返事の順に話してから押す
     mic
       ..add(_pcm(500, voice: true))
+      ..add(_pcm(6000, voice: false))
+      ..add(_pcm(1000, voice: true))
       ..add(_pcm(2000, voice: false))
-      ..add(_pcm(1000, voice: true));
+      ..add(_pcm(400, voice: true));
     await tester.pump();
     await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
     await tester.pump();
@@ -433,8 +440,8 @@ void main() {
 
     mic.add(_pcm(1200, voice: false));
     await tester.pump();
-    // 1秒の発話に前後300msの余白を足した長さ（16kHz・16bit）だけを切り出す
-    expect(base64Decode(sent.single['data']).length, 44 + 1600 * 16 * 2);
+    // 言われたこと（1秒）と返事（0.4秒）に、それぞれ前後300msの余白を足し、間の無音を詰めてつなぐ（16kHz・16bit）
+    expect(base64Decode(sent.single['data']).length, 44 + (1600 + 1000) * 16 * 2);
     expect(find.text('書き起こし中 1 件'), findsOneWidget);
 
     // 書き起こしを待たずに、もう一度切り出せる
@@ -543,6 +550,44 @@ void main() {
     final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
     expect([for (final m in saved) jsonDecode(m)['text']], ['えーと']);
     expect(find.text('入力欄に入れました'), findsNothing);
+  });
+
+  for (final size in const [Size(390, 844), Size(1200, 1400)]) {
+    testWidgets('書く欄は、例文・カーソル・書いた文字がそろって左上から始まる（$size）', (tester) async {
+      await _pumpInput(tester, _client((_) async => _json({})), size: size);
+
+      final area = find.byType(MoonTextArea);
+      final field = find.descendant(of: area, matching: find.byType(EditableText));
+      final box = tester.getRect(area);
+      final hint = tester.getRect(find.text('例: 田中さんから、塩は小さじ1/2でいいと言われた'));
+      expectInputFontsAtLeast16(tester, count: 1); // 書く欄
+      // 例文とカーソルは同じ高さ。余白（12）の分だけ下から始まる（前はカーソルだけ 40 下、expands では真ん中だった）
+      expect((tester.getRect(field).top - hint.top).abs(), lessThanOrEqualTo(1));
+      expect(hint.top - box.top, lessThanOrEqualTo(13));
+
+      await tester.enterText(field, '田中さんから\n塩は小さじ1/2でいいと言われた');
+      await tester.pumpAndSettle();
+      expect(tester.getRect(field).top - box.top, lessThanOrEqualTo(13));
+      // 添付とマイクのボタンは、文字の下の行に置く（文字がボタンの下に潜らない）
+      for (final label in ['ファイルを添える', '声で入力する']) {
+        expect(tester.getRect(find.bySemanticsLabel(label)).top, greaterThanOrEqualTo(box.bottom), reason: label);
+      }
+    });
+  }
+
+  testWidgets('未整理メモを書き直す欄も、文字が左上から始まる', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじいち').toJson())],
+    });
+    await _pumpInput(tester, _client((_) async => _json({})), mic: StreamController());
+    await _startRewind(tester);
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+
+    final area = find.widgetWithText(MoonTextArea, '塩は小さじいち');
+    final field = find.descendant(of: area, matching: find.byType(EditableText));
+    expect(tester.getRect(field).top - tester.getRect(area).top, lessThanOrEqualTo(17));
+    expectInputFontsAtLeast16(tester, count: 1); // 未整理メモを書き直す欄
   });
 
   testWidgets('リワインドの間は、未整理メモを押すとその場で書き直して保存できる', (tester) async {

@@ -19,6 +19,14 @@ final _rules = {
 final _shadow = RegExp(r'\bBoxShadow\b');
 const _shadowAllowed = 'lib/screens/common.dart';
 
+/// 例外：下のタブバー（狭い画面）だけ、後ろが透けるガラス（ぼかしと色の鮮やかさの BackdropFilter・ImageFilter）を許す
+/// （2026-11-09 決定。.claude/rules/flutter-ui.md の構成の節）。グラデーションは許さない
+const _blurTrial = 'lib/screens/tab_bar.dart';
+final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b');
+
+/// 下のタブバーの影はトークン（theme.dart の tabBarShadow）で持つ。theme.dart は検査の外なので、使ってよいのは tab_bar.dart だけと確かめる
+final _tabBarShadow = RegExp(r'\btabBarShadow\b');
+
 void main() {
   test('画面のコードが UI ルールに沿っている', () {
     final violations = <String>[];
@@ -29,11 +37,48 @@ void main() {
     for (final f in files) {
       // コメント中の語は検査しない。行の位置は保つ
       final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
-      final rules = {..._rules, if (f.path != _shadowAllowed) '影': _shadow};
+      final rules = {
+        ..._rules,
+        if (f.path != _shadowAllowed) '影': _shadow,
+        if (f.path == _blurTrial) 'グラデーション・ぼかし': _gradientOnly,
+        if (f.path != _blurTrial) 'タブバーの影（tab_bar.dart だけ）': _tabBarShadow,
+      };
       for (final MapEntry(key: name, value: re) in rules.entries) {
         for (final m in re.allMatches(src)) {
           final line = src.substring(0, m.start).split('\n').length;
           violations.add('${f.path}:$line $name: ${m[0]!.split('\n').first}');
+        }
+      }
+    }
+    expect(violations, isEmpty, reason: violations.join('\n'));
+  });
+
+  // iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さない（調査17）。
+  // 入力欄の文字の大きさを決めるなら、入力欄の文字（k.text.input・inputArea、16px 以上）だけにする。付けなければテーマの既定（16px 以上）になる
+  test('入力欄に文字の大きさを付けるなら、入力欄の文字（text.input・inputArea）だけ', () {
+    final call = RegExp(r'\b(MoonTextInput|MoonTextArea)\(');
+    final violations = <String>[];
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
+      final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
+      for (final m in call.allMatches(src)) {
+        // 呼び出しの引数を、かっこの対応で切り出す
+        var depth = 0, i = m.end - 1;
+        for (; i < src.length; i++) {
+          if (src[i] == '(') depth++;
+          if (src[i] == ')' && --depth == 0) break;
+        }
+        final args = src.substring(m.end, i);
+        // 引数のいちばん外側の style:・textStyle: だけを見る（中の Text(style: …) などは入力欄の文字ではない）
+        var d = 0;
+        for (var j = 0; j < args.length; j++) {
+          final ch = args[j];
+          if ('([{'.contains(ch)) d++;
+          if (')]}'.contains(ch)) d--;
+          if (d != 0) continue;
+          final named = RegExp(r'^(textStyle|style):\s*([^,\n]+)').firstMatch(args.substring(j));
+          if (named != null && (j == 0 || !RegExp(r'\w').hasMatch(args[j - 1])) && !named.group(2)!.contains('.text.input')) {
+            violations.add('${f.path}:${src.substring(0, m.start).split('\n').length} ${m[1]} の ${named.group(1)}: ${named.group(2)}');
+          }
         }
       }
     }

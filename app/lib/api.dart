@@ -49,6 +49,9 @@ class Api {
   Future<ManualState> createManual(String title, String body) async =>
       ManualState.fromJson(await _send('POST', '/manuals', {'title': title, 'body': body}));
 
+  /// 本文を AI にマークダウンへ整えさせた案を返す。保存はしない
+  Future<String> format(String text) async => (await _send('POST', '/format', {'text': text}))['text'] as String;
+
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
   /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
