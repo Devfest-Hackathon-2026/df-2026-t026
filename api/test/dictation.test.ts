@@ -7,14 +7,16 @@ import { serve } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 
 import { createApp, type Deps } from '../src/app.ts';
+import { sessionIdOf } from '../src/auth.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
-/** 本物のサーバーを立て、音声入力の WebSocket につなげる URL を返す */
+/** 本物のサーバーを立て、demo としてログインして音声入力の WebSocket につなげる URL を返す */
 async function start(t: { after(fn: () => void): void }, deps: Partial<Deps> = {}) {
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await store.putSession({ id: sessionIdOf('test-token'), userId: 'demo', createdAt: '' });
   const app = createApp({
     store,
     assess: fakeAssess,
@@ -31,7 +33,8 @@ async function start(t: { after(fn: () => void): void }, deps: Partial<Deps> = {
     wss.close();
     server.close();
   });
-  return { url: `ws://127.0.0.1:${(server.address() as AddressInfo).port}/dictation`, store };
+  const base = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/dictation`;
+  return { url: `${base}?token=test-token`, base, store };
 }
 
 /** 音声を送り、届いた文面を集めて、閉じられるまで待つ */
@@ -77,12 +80,14 @@ test('音声入力：書き起こしに失敗したら、どうすればいい�
   assert.deepEqual(got, [{ error: '書き起こせませんでした。もう一度話すか、文字で書いてください' }]);
 });
 
-test('音声入力：合言葉はクエリで受け、違えばつながない', async (t) => {
-  const { url } = await start(t, { passcode: 'ひみつ' });
-  const ok = await dictate(`${url}?passcode=${encodeURIComponent('ひみつ')}`, [8000]);
+test('音声入力：ログインのトークンはクエリで受け、違えばつながない', async (t) => {
+  const { url, base } = await start(t);
+  const ok = await dictate(url, [8000]);
   assert.equal(ok.at(-1).done, true);
 
-  const ws = new WebSocket(`${url}?passcode=ちがう`);
-  const [e] = await once(ws, 'close');
-  assert.notEqual((e as CloseEvent).code, 1000);
+  for (const wrong of [base, `${base}?token=made-up-token`]) {
+    const ws = new WebSocket(wrong);
+    const [e] = await once(ws, 'close');
+    assert.notEqual((e as CloseEvent).code, 1000);
+  }
 });

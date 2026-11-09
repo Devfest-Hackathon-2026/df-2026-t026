@@ -11,7 +11,7 @@
 
 ## 決定
 
-- アカウントはこちらで作って ID とパスワードを本人に渡す。登録の画面や API は作らない。作るときは `api/scripts/add-user.ts`（`pnpm add-user <ID>`）で Firestore に直接書く。パスワードを省くと作って表示する。同じ ID で回すとパスワードを置き換える。
+- アカウントはこちらで作って ID とパスワードを本人に渡す。登録の画面や API は作らない。作るときは `api/scripts/create-account.ts`（`pnpm create-account <ID>`）で Firestore に直接書く。パスワードを省くと作って表示する。同じ ID で回すとパスワードを置き換える。
 - ログイン ID をそのまま `userId` にし、データは `users/{ログイン ID}/manuals/...` に分かれる。これまでのデータ（`users/demo`）は、ID `demo` のアカウントを作ると引き継げる。
 - アカウントは `accounts/{ログイン ID}` に、パスワードを scrypt（`node:crypto`）でハッシュにして持つ。
 - `POST /login` で ID とパスワードが合えばトークンを返し、`sessions/{トークンの SHA-256}` に誰のトークンかを持つ。以後は `Authorization: Bearer <トークン>` で受け、トークンから `userId` を決める（`/health`・`/login` は除く）。ブラウザの WebSocket はヘッダーを付けられないので、音声入力（`/dictation`）だけはクエリ `token` でも受ける。

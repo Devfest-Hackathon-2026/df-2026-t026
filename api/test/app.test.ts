@@ -3,6 +3,7 @@ import { beforeEach, test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
 import type { AssessInput } from '../src/assess.ts';
+import { hashPassword, sessionIdOf } from '../src/auth.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { seed, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
@@ -12,15 +13,20 @@ let app: ReturnType<typeof createApp>;
 beforeEach(async () => {
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await signIn(store);
   app = createApp({ store, ...ai });
 });
 
 const ai = { assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate };
 
+/** demo としてログインした状態にする。ログインそのものは別のテストで確かめる */
+const auth = { Authorization: 'Bearer test-token' };
+const signIn = (store: MemoryStore) => store.putSession({ id: sessionIdOf('test-token'), userId: 'demo', createdAt: '' });
+
 async function call(method: string, path: string, body?: unknown) {
   const res = await app.request(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...auth },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, json: (await res.json()) as any };
@@ -175,6 +181,7 @@ test('マニュアルと同じ内容は same になり、次の判定でその�
   const inputs: AssessInput[] = [];
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await signIn(store);
   app = createApp({ store, ...ai, assess: (i) => (inputs.push(i), fakeAssess(i)) });
   await record('佐藤さんから塩は小さじ1と言われた');
   await record('田中さんから塩は小さじ1/2でいいと言われた');
@@ -229,32 +236,57 @@ test('CORS は指定したオリジンだけを許可する', async () => {
   assert.equal(await origin('https://evil.example.com'), null);
 });
 
-test('合言葉を決めたら、合っているときだけ通す', async () => {
+test('配った ID とパスワードでログインすると、その人のノートだけを読み書きできる', async () => {
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await store.putAccount({ id: 'demo', ...(await hashPassword('pass-demo')), createdAt: '' });
+  await store.putAccount({ id: 'sato', ...(await hashPassword('pass-sato')), createdAt: '' });
   const origin = 'https://a.web.app';
-  const locked = createApp({ store, ...ai, allowOrigin: origin, passcode: 'open-sesame-1' });
-  const get = (path: string, passcode?: string) =>
-    locked.request(path, { headers: { Origin: origin, ...(passcode && { 'X-Passcode': passcode }) } });
+  const locked = createApp({ store, ...ai, allowOrigin: origin });
+  const login = async (id: string, password: string) => {
+    const res = await locked.request('/login', {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, password }),
+    });
+    return { status: res.status, json: (await res.json()) as any };
+  };
+  const get = (path: string, token?: string) =>
+    locked.request(path, { headers: { Origin: origin, ...(token && { Authorization: `Bearer ${token}` }) } });
 
   const preflight = await locked.request('/manuals', {
     method: 'OPTIONS',
-    headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-passcode' },
+    headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' },
   });
   assert.equal(preflight.status, 204);
-  assert.match(preflight.headers.get('Access-Control-Allow-Headers') ?? '', /x-passcode/i);
+  assert.match(preflight.headers.get('Access-Control-Allow-Headers') ?? '', /authorization/i);
 
   const missing = await get('/manuals');
   assert.equal(missing.status, 401);
-  assert.equal(((await missing.json()) as any).error, '合言葉を入れてください');
+  assert.equal(((await missing.json()) as any).error, 'ログインしてください');
   // CORS のヘッダーがないと、ブラウザからは 401 ではなく通信エラーに見えてしまう
   assert.equal(missing.headers.get('Access-Control-Allow-Origin'), origin);
+  assert.equal((await get('/manuals', 'made-up-token')).status, 401);
 
-  const wrong = await get('/manuals', 'open-sesame');
-  assert.equal(wrong.status, 401);
-  assert.equal(((await wrong.json()) as any).error, '合言葉が違います');
+  for (const [id, password] of [['demo', 'pass-sato'], ['nobody', 'pass-demo'], ['../demo', 'pass-demo']]) {
+    const wrong = await login(id, password);
+    assert.equal(wrong.status, 401);
+    assert.equal(wrong.json.error, 'ID かパスワードが違います');
+  }
 
-  assert.equal((await get('/manuals', 'open-sesame-1')).status, 200);
+  const demo = await login('demo', 'pass-demo');
+  assert.equal(demo.status, 200);
+  const mine = await get('/manuals', demo.json.token);
+  assert.equal(mine.status, 200);
+  assert.equal(((await mine.json()) as any).length, 2);
+  // トークンそのものは保存しない
+  assert.equal(await store.getSession(demo.json.token), null);
+
+  // ほかの人のノートは見えない
+  const sato = (await login('sato', 'pass-sato')).json.token;
+  assert.deepEqual(await (await get('/manuals', sato)).json(), []);
+  assert.equal((await get('/manuals/demo-kitchen', sato)).status, 404);
+
   assert.equal((await get('/health')).status, 200);
 });
 
@@ -304,6 +336,7 @@ test('入力ページから：録音は Speech-to-Text、PDF・画像は Gemini 
   const read: string[] = [];
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await signIn(store);
   const split = createApp({
     store,
     ...ai,
@@ -313,7 +346,7 @@ test('入力ページから：録音は Speech-to-Text、PDF・画像は Gemini 
   const data = Buffer.from('x').toString('base64');
   const res = await split.request('/utterances', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...auth },
     body: JSON.stringify({
       files: [
         { mimeType: 'audio/wav', data },
@@ -341,10 +374,11 @@ test('リワインド：切り出した録音を書き起こすだけで、記�
   const heard: string[][] = [];
   const store = new MemoryStore();
   await seed(store, 'demo');
+  await signIn(store);
   const rewind = createApp({ store, ...ai, listen: async (_, phrases) => (heard.push(phrases), '塩は小さじ1/2') });
   const res = await rewind.request('/listen', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...auth },
     body: JSON.stringify({ data: Buffer.from('RIFF').toString('base64') }),
   });
   assert.equal(res.status, 200);
@@ -355,9 +389,10 @@ test('リワインド：切り出した録音を書き起こすだけで、記�
 
 test('リワインド：聞き取れなければ 422、録音が無ければ 400 を返す', async () => {
   const store = new MemoryStore();
+  await signIn(store);
   const silent = createApp({ store, ...ai, listen: async () => '' });
   const post = (body: unknown) =>
-    silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    silent.request('/listen', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(body) });
   assert.equal((await post({ data: Buffer.from('x').toString('base64') })).status, 422);
   assert.equal((await post({ data: '' })).status, 400);
 });
@@ -365,6 +400,7 @@ test('リワインド：聞き取れなければ 422、録音が無ければ 400
 test('起動時のデモの履歴は、反映済みのパッチが順に当たり、食い違いの確認が1件だけ残る', async () => {
   const store = new MemoryStore();
   await seedWithHistory(store, 'demo');
+  await signIn(store);
   app = createApp({ store, ...ai });
 
   const { status, json } = await call('GET', '/manuals/demo-kitchen');
