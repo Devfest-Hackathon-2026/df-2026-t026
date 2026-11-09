@@ -95,13 +95,14 @@ Finder _menu(String label) => find.widgetWithText(MoonMenuItem, label);
 Finder _plus() => find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'ノートを作る');
 
 void main() {
-  testWidgets('PC のサイドバーは上から「言われたことを記録」→「あとで確認」→「ノート」と＋→全部のノート→自分。自分はいちばん下', (tester) async {
+  testWidgets('PC のサイドバーは上から「言われたことを記録」→「あとで確認」→「ノートを探す」→「ノート」と＋→全部のノート→自分。自分はいちばん下', (tester) async {
     await _pump(tester);
 
     final tops = [
       for (final f in [
         _menu('言われたことを記録'),
         _menu('あとで確認'),
+        _menu('ノートを探す'),
         _menu('ノート'),
         _menu('キッチン'),
         _menu('ホール'),
