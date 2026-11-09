@@ -231,7 +231,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   child: MoonOutlinedButton(
                     buttonSize: MoonButtonSize.sm,
                     onTap: () => _startEdit(s, null, insert: true),
-                    leading: const Icon(LucideIcons.plus, size: 16),
+                    leading: Icon(LucideIcons.plus, size: k.buttonIconSm),
                     label: const Text('行を足す'),
                   ),
                 ),
