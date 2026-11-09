@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
@@ -57,7 +59,7 @@ class SidebarDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     return MoonDrawer(
-      width: k.sidebarWidth,
+      width: math.min(MediaQuery.sizeOf(context).width * k.drawerWidthFactor, k.drawerMaxWidth),
       semanticLabel: 'メニュー',
       decoration: BoxDecoration(
         color: k.colors.canvas,

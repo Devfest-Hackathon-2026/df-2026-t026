@@ -215,8 +215,19 @@ void main() {
       // メニューは左端から出る。影は付けない
       final drawer = find.byType(MoonDrawer);
       expect(tester.getRect(drawer).left, 0);
+      // メニューは画面の幅の8割
+      expect(tester.getRect(drawer).width, closeTo(tester.view.physicalSize.width / tester.view.devicePixelRatio * 0.8, 0.5));
       expect(tester.widget<MoonDrawer>(drawer).decoration, isA<BoxDecoration>());
       expect((tester.widget<MoonDrawer>(drawer).decoration! as BoxDecoration).boxShadow, isNull);
+    });
+
+    testWidgets('メニューの幅は画面の8割だが、iPad の縦のような広い画面では 360 まで', (tester) async {
+      _size(tester, const Size(820, 1180));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: _api())));
+      await tester.pumpAndSettle();
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(MoonDrawer)).width, 360);
     });
 
     testWidgets('奥の画面（ノート）には三本線を出さず、戻る矢印のまま', (tester) async {
