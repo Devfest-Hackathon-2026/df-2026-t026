@@ -18,20 +18,17 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
-import '../web/screen.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'review_dialog.dart';
+import 'rewind_screen.dart';
 import 'sidebar.dart';
 
 /// 合言葉をブラウザ（shared_preferences）に覚えておくときのキー
 const passcodeKey = 'passcode';
-
-/// リワインドを開いていた（待ち受けていた）かをブラウザ（shared_preferences）に覚えておくときのキー
-const listeningKey = 'listening';
 
 /// リワインドでためた未整理メモをブラウザ（shared_preferences）に覚えておくときのキー
 const memosKey = 'memos';
@@ -51,11 +48,8 @@ const _fileTypes = {
 /// バックエンドの上限（base64 で 15MB）に収まる元の大きさ
 const _maxAttachmentBytes = 10 * 1024 * 1024;
 
-/// 最近の記録・リワインドのストックに並べる数
+/// 最近の記録に並べる数
 const _recentCount = 5;
-
-const _rewind = 0;
-const _organize = 1;
 
 /// サムネイルで見せる形式（HEIC は Safari 以外で描けないので名前だけにする）
 const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
@@ -65,8 +59,8 @@ Future<List<PickedFile>> _pickWithFilePicker() async => [
         (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
     ];
 
-/// アプリを開いて最初の画面。「リワインド」で常時待ち受けから切り出して未整理メモにため、
-/// 「整理・入力」でメモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。どのマニュアルかは選ばない（ADR 0005）
+/// アプリを開いて最初の画面。リワインド（別のページ）でためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
+/// どのマニュアルかは選ばない（ADR 0005）
 class InputScreen extends StatefulWidget {
   const InputScreen({
     super.key,
@@ -93,30 +87,10 @@ class _InputScreenState extends State<InputScreen> {
   var _attachMenu = false;
   var _busy = false;
 
-  /// 常時待ち受けはリワインドを開いている間だけ。ブラウザはマイクを操作のあとでないと開けないので、
-  /// リワインドから開いたときは最初の操作で待ち受けを再開する
-  bool get _wantListening => _tab == _rewind;
-  CaptureRecorder? _listener;
-  var _starting = false;
-
-  /// マイクを開けなかった。押すたびに開き直して同じ失敗を繰り返さないよう、もう一度試すボタンだけで開き直す
-  var _micDenied = false;
-
-  /// 切り出しボタンを押してから、話し終わりを待って切り出すまで
-  var _capturing = false;
-
-  /// 裏で書き起こしている切り出しの数
-  var _transcribing = 0;
-
   final _memos = <Memo>[];
 
   /// 入力欄に流し込んだメモ。差分を作れたら未整理メモから消す
   final _poured = <Memo>[];
-
-  var _tab = _organize;
-
-  /// 最初のタブは前回開いていたタブで決める。決まったら切り替えを作り直す
-  var _tabRestored = false;
 
   /// 音声入力の録音。話し終わると null になり、確定の文面が届いてソケットが閉じるのを待つ
   Dictation? _dictation;
@@ -125,33 +99,22 @@ class _InputScreenState extends State<InputScreen> {
   /// 音声入力を始めたときの入力欄。届いた文面はこの後ろに足す
   var _beforeDictation = '';
 
-  late final void Function() _stopWatchingScreen;
   late final void Function() _stopWatchingDrops;
 
   @override
   void initState() {
     super.initState();
-    // 画面に戻ったら、待ち受けのマイクが止められていないかを確かめる
-    _stopWatchingScreen = onScreenShown(() => _listener?.checkAlive());
     _stopWatchingDrops = onFilesDropped(_addPicked);
     SharedPreferences.getInstance().then((p) {
       if (!mounted) return;
-      final listening = p.getBool(listeningKey) == true;
-      setState(() {
-        _tab = listening ? _rewind : _organize;
-        _tabRestored = true;
-        _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]);
-      });
+      setState(() => _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]));
     });
   }
 
   @override
   void dispose() {
     _text.dispose();
-    _stopWatchingScreen();
     _stopWatchingDrops();
-    if (_listener != null) keepScreenOn(false);
-    _listener?.stop();
     _dictation?.stop();
     _dictationSocket?.sink.close();
     super.dispose();
@@ -206,91 +169,24 @@ class _InputScreenState extends State<InputScreen> {
     setState(() => _files.addAll(added));
   }
 
-  /// リワインドに切り替えたら待ち受けを始め、整理・入力に切り替えたら止める
-  Future<void> _selectTab(int tab) async {
-    setState(() {
-      _tab = tab;
-      _micDenied = false;
-    });
-    final on = tab == _rewind;
-    unawaited(SharedPreferences.getInstance().then((p) => p.setBool(listeningKey, on)));
-    if (on) {
-      await _startListening();
-    } else {
-      final c = _listener;
-      setState(() => _listener = null);
-      keepScreenOn(false);
-      await c?.stop();
-    }
+  /// リワインドを開く。開いている間だけ待ち受ける。トグルを押した操作で開くので、ブラウザはそのままマイクを開ける
+  Future<void> _openRewind() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RewindScreen(api: widget.api, newRecorder: widget.newRecorder, memos: _memos, onMemo: _addMemo),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
-  Future<void> _startListening() async {
-    if (_listener != null || _starting) return;
-    setState(() {
-      _starting = true;
-      _micDenied = false;
-    });
-    final c = await CaptureRecorder.start(widget.newRecorder(), onStopped: _onListenerStopped);
-    if (!mounted) {
-      await c?.stop();
-      return;
-    }
-    setState(() => _starting = false);
-    // マイクを開いている間に整理・入力へ切り替えられたら閉じる
-    if (!_wantListening) {
-      await c?.stop();
-      return;
-    }
-    if (c == null) {
-      setState(() => _micDenied = true);
-      return;
-    }
-    setState(() => _listener = c);
-    keepScreenOn(true);
-  }
-
-  /// 画面が消えている間などにマイクが止まったら知らせる。ON は覚えたままにし、次の操作で再開する
-  void _onListenerStopped() {
-    final c = _listener;
-    if (!mounted || c == null) return;
-    setState(() => _listener = null);
-    keepScreenOn(false);
-    c.stop();
-    showError(context, '待ち受けが止まっていました。画面のどこかを押すと再開します');
-  }
-
-  /// 言われた後に押す。話し終わりを待って直前の発話だけを切り出す。書き起こしは裏で行い、
-  /// 待ち受けを止めず確認も出さないので、切り出し終われば続けて押せる
-  Future<void> _capture() async {
-    final c = _listener;
-    if (c == null || _capturing) return;
-    final at = DateTime.now();
-    setState(() => _capturing = true);
-    final wav = await c.capture();
-    if (!mounted) return;
-    setState(() => _capturing = false);
-    if (wav == null) {
-      showError(context, '声が入っていませんでした。言われた直後にもう一度押してください');
-      return;
-    }
-    unawaited(_transcribe(wav, at));
-  }
-
-  /// 書き起こせたら未整理メモにためる。書き起こせなければ音声は残さず知らせる
-  Future<void> _transcribe(Uint8List wav, DateTime at) async {
-    setState(() => _transcribing++);
-    try {
-      final text = await widget.api.listen(wav);
-      // 書き起こしは前後して返るので、切り出した順に並べ直す
-      _memos
-        ..add(Memo(at: at, text: text))
-        ..sort((a, b) => a.at.compareTo(b.at));
-      _saveMemos();
-    } on ApiException catch (e) {
-      if (mounted) showError(context, e);
-    } finally {
-      if (mounted) setState(() => _transcribing--);
-    }
+  /// リワインドで書き起こせたメモ。書き起こしは前後して返るので、切り出した順に並べ直す
+  void _addMemo(Memo m) {
+    _memos
+      ..add(m)
+      ..sort((a, b) => a.at.compareTo(b.at));
+    _saveMemos();
+    if (mounted) setState(() {});
   }
 
   void _saveMemos() {
@@ -486,29 +382,23 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Listener(
-        // 指を離した操作（タブの切り替えなど）が済んでから確かめる。「整理・入力」を押したときにマイクを開かないため
-        onPointerUp: (_) => scheduleMicrotask(() {
-          if (mounted && _wantListening && _listener == null && !_micDenied) _startListening();
-        }),
-        child: WithSidebar(
-          api: widget.api,
-          place: Place.input,
-          child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(
-              crumbs: const ['DiffNote（仮）'],
-              // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
-              trailing: showsSidebar(context)
-                  ? null
-                  : MoonOutlinedButton(
-                      buttonSize: MoonButtonSize.sm,
-                      onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('ノートを見る'),
-                    ),
-            ),
-            Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
-          ])),
-        ),
+      body: WithSidebar(
+        api: widget.api,
+        place: Place.input,
+        child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          TopBar(
+            crumbs: const ['DiffNote（仮）'],
+            // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
+            trailing: showsSidebar(context)
+                ? null
+                : MoonOutlinedButton(
+                    buttonSize: MoonButtonSize.sm,
+                    onTap: () => _push(HomeScreen(api: widget.api)),
+                    label: const Text('ノートを見る'),
+                  ),
+          ),
+          Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+        ])),
       ),
     );
   }
@@ -523,8 +413,8 @@ class _InputScreenState extends State<InputScreen> {
 
     final k = context.tokens;
     return LayoutBuilder(builder: (context, box) {
-      // 広い画面の「整理・入力」では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
-      final wide = box.maxWidth >= k.wideLayout && _tab != _rewind;
+      // 広い画面では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
+      final wide = box.maxWidth >= k.wideLayout;
       final input = [
         ..._unsorted(),
         _composer(manuals, wide: wide),
@@ -534,29 +424,28 @@ class _InputScreenState extends State<InputScreen> {
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
-          PageTitle('言われたことを記録', meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)]),
+          PageTitle(
+            '言われたことを記録',
+            meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)],
+            // リワインドのページの同じ位置にも ON のトグルがあり、OFF にすると戻ってくる
+            trailing: manuals.isEmpty
+                ? null
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text('リワインド', style: k.text.heading),
+                    SizedBox(width: k.space.sm),
+                    MoonSwitch(
+                      value: false,
+                      semanticLabel: 'リワインド',
+                      // 音声入力とマイクを取り合わない
+                      onChanged: _dictating ? null : (_) => _openRewind(),
+                    ),
+                  ]),
+          ),
           SizedBox(height: k.space.xl),
           if (manuals.isEmpty)
             _empty()
           else ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: MoonSegmentedControl(
-                // 前回のタブを読み込めたら、そのタブで作り直す
-                key: ValueKey(_tabRestored),
-                initialIndex: _tab,
-                // 切り出しの途中で待ち受けを止めない
-                isDisabled: _capturing,
-                onSegmentChanged: _selectTab,
-                segments: const [Segment(label: Text('リワインド')), Segment(label: Text('整理・入力'))],
-              ),
-            ),
-            SizedBox(height: k.space.lg),
-            if (_tab == _rewind) ...[
-              _listening(),
-              SizedBox(height: k.space.xxl),
-              ..._stock(),
-            ] else if (wide)
+            if (wide)
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: input)),
                 SizedBox(width: k.space.xxl),
@@ -576,76 +465,7 @@ class _InputScreenState extends State<InputScreen> {
     });
   }
 
-  /// 常時待ち受け。待ち受け中は、何も送っていないことと音量をいつも見せる。白い面に載せる
-  Widget _listening() {
-    final k = context.tokens;
-    final c = _listener;
-    return PaperSheet(
-      padding: EdgeInsets.all(k.space.lg),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text('常時待ち受け', style: k.text.heading),
-        SizedBox(height: k.space.sm),
-        if (_starting)
-          Row(children: [
-            MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s),
-            SizedBox(width: k.space.sm),
-            Text('マイクを準備しています', style: k.text.small),
-          ])
-        else if (_micDenied) ...[
-          Text(_noMic, style: k.text.body),
-          SizedBox(height: k.space.md),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoonOutlinedButton(onTap: _startListening, label: const Text('待ち受けを始める')),
-          ),
-        ] else if (c == null)
-          Text('画面のどこかを押すと、待ち受けを再開します', style: k.text.small)
-        else ...[
-          Text('端末内で直前60秒を保持中（送信していません）', style: k.text.small),
-          Text('押したときだけ、その発話を文字に起こすために送ります。音声は保存しません', style: k.text.small),
-          SizedBox(height: k.space.xs),
-          ValueListenableBuilder(
-            valueListenable: c.level,
-            builder: (_, v, _) => MoonLinearProgress(
-              value: v,
-              semanticLabel: '音量',
-              color: k.colors.ink,
-              backgroundColor: k.colors.rule,
-            ),
-          ),
-          SizedBox(height: k.space.xl),
-          // 指導中に画面を見なくても押せるよう、幅いっぱいの大きなボタンにする
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.xl,
-            isFullWidth: true,
-            onTap: _capturing ? null : _capture,
-            leading: _capturing ? const ButtonLoader() : null,
-            label: Text(_capturing ? '話し終わるのを待っています…' : 'いま言われたことをメモする'),
-          ),
-        ],
-      ]),
-    );
-  }
-
-  /// リワインドで直近にためたメモ。書き起こし中の数も出し、押せたかを確かめられるようにする
-  List<Widget> _stock() {
-    final k = context.tokens;
-    return [
-      Text('未整理メモ', style: k.text.title),
-      SizedBox(height: k.space.sm),
-      Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        Text('${_memos.length} 件', style: k.text.small),
-        if (_transcribing > 0) StatusTag('書き起こし中 $_transcribing 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-      ]),
-      SizedBox(height: k.space.sm),
-      if (_memos.isEmpty)
-        Text('残したメモは、あとで「整理・入力」で発言者や言葉を補ってから記録します', style: k.text.small)
-      else
-        _memoNotes(_memos.reversed.take(_recentCount)),
-    ];
-  }
-
-  /// 「整理・入力」に出す未整理メモ。押すと入力欄に入れる。無ければ何も出さない
+  /// リワインドでためた未整理メモ。押すと入力欄に入れる。無ければ何も出さない
   List<Widget> _unsorted() {
     if (_memos.isEmpty) return [];
     final k = context.tokens;
@@ -653,12 +473,12 @@ class _InputScreenState extends State<InputScreen> {
       Text('未整理メモ', style: k.text.title),
       SizedBox(height: k.space.xs),
       Text('押すと入力欄に入ります。続けて押すと1つにまとめられます', style: k.text.small),
-      _memoNotes(_memos, organizing: true),
+      _memoNotes(_memos),
       SizedBox(height: k.space.xxl),
     ];
   }
 
-  Widget _memoNotes(Iterable<Memo> memos, {bool organizing = false}) {
+  Widget _memoNotes(Iterable<Memo> memos) {
     final k = context.tokens;
     return Padding(
       padding: EdgeInsets.only(top: k.space.sm),
@@ -667,17 +487,16 @@ class _InputScreenState extends State<InputScreen> {
           SizedBox(
             width: k.stickyWidth,
             child: StickyNote(
-              onTap: organizing && !_poured.contains(m) && !_busy && !_dictating ? () => _pour(m) : null,
+              onTap: !_poured.contains(m) && !_busy && !_dictating ? () => _pour(m) : null,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
                   Expanded(child: Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small)),
-                  if (organizing)
-                    MoonButton.icon(
-                      buttonSize: MoonButtonSize.xs,
-                      semanticLabel: 'メモを消す',
-                      icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
-                      onTap: _busy ? null : () => _deleteMemo(m),
-                    ),
+                  MoonButton.icon(
+                    buttonSize: MoonButtonSize.xs,
+                    semanticLabel: 'メモを消す',
+                    icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+                    onTap: _busy ? null : () => _deleteMemo(m),
+                  ),
                 ]),
                 SizedBox(height: k.space.sm),
                 Text(m.text, style: k.text.body),
