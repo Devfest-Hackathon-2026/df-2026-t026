@@ -8,6 +8,22 @@ export interface Profile {
 }
 
 /**
+ * 共有の記録（ADR 0013）。持ち主の側はノートの下の shares（id は相手の ID）、
+ * 相手の側は users/{相手}/shared（id はノートの ID）に置く
+ */
+export interface Share {
+  id: string;
+  createdAt: string;
+}
+
+/** 相手の側に置く、共有されたノートの索引 */
+export interface Shared {
+  id: string;
+  ownerId: string;
+  createdAt: string;
+}
+
+/**
  * 保存先。マニュアルの下に、土台（utterances / patches）と
  * 衝突検知（checks）がそれぞれ自分のコレクションを持つ。
  */
@@ -24,6 +40,10 @@ export interface Store {
   putSession(session: Session): Promise<void>;
   getProfile(userId: string): Promise<Profile | null>;
   putProfile(userId: string, profile: Profile): Promise<void>;
+  listShared(userId: string): Promise<Shared[]>;
+  getShared(userId: string, manualId: string): Promise<Shared | null>;
+  putShared(userId: string, shared: Shared): Promise<void>;
+  removeShared(userId: string, manualId: string): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
@@ -33,6 +53,7 @@ export class MemoryStore implements Store {
   private accounts = new Map<string, Account>();
   private sessions = new Map<string, Session>();
   private profiles = new Map<string, Profile>();
+  private shared = new Map<string, Map<string, Shared>>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -84,5 +105,22 @@ export class MemoryStore implements Store {
 
   async putProfile(userId: string, profile: Profile) {
     this.profiles.set(userId, structuredClone(profile));
+  }
+
+  async listShared(userId: string) {
+    return [...(this.shared.get(userId)?.values() ?? [])].map((x) => structuredClone(x));
+  }
+
+  async getShared(userId: string, manualId: string) {
+    return structuredClone(this.shared.get(userId)?.get(manualId) ?? null);
+  }
+
+  async putShared(userId: string, shared: Shared) {
+    if (!this.shared.has(userId)) this.shared.set(userId, new Map());
+    this.shared.get(userId)!.set(shared.id, structuredClone(shared));
+  }
+
+  async removeShared(userId: string, manualId: string) {
+    this.shared.get(userId)?.delete(manualId);
   }
 }

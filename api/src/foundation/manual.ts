@@ -15,6 +15,8 @@ export interface Utterance {
   saidAt: string;
   /** 利用者がノートを直接編集した記録。口頭で言われたことではない */
   fromEdit?: boolean;
+  /** 共有された人が直接編集したときの、その人のログイン ID。持ち主の編集では付けない（ADR 0013） */
+  editedBy?: string;
   createdAt: string;
 }
 

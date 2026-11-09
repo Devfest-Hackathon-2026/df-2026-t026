@@ -109,7 +109,7 @@ test('直接編集：行を足す・書き換える・消すと、自分が書�
   const added = await edit({ op: 'insert', line: '- 塩 小さじ1', text: '- だしは煮干し' });
   assert.equal(added.texts[added.texts.indexOf('- 塩 小さじ1') + 1], '- だしは煮干し');
   const u = added.state.utterances.find((x: any) => x.id === added.patch.utteranceId);
-  assert.deepEqual([u.speaker, u.saidAt, u.fromEdit], ['自分', '2026-11-08', true]);
+  assert.deepEqual([u.speaker, u.saidAt, u.fromEdit, u.editedBy], ['自分', '2026-11-08', true, undefined]);
   assert.equal(added.state.lines.find((l: any) => l.text === '- だしは煮干し').patchId, added.patch.id);
 
   const replaced = await edit({ op: 'replace', line: '- だしは煮干し', text: '- だしは昆布' });
@@ -320,6 +320,135 @@ test('配った ID とパスワードでログインすると、その人のノ�
   assert.equal((await get('/manuals/demo-kitchen', sato)).status, 404);
 
   assert.equal((await get('/health')).status, 200);
+});
+
+/** 持ち主 demo・共有する相手 sato・無関係の kim。共有の相手はアカウントがあるかを確かめるので、アカウントも作る */
+async function withAccounts() {
+  const store = new MemoryStore();
+  await seed(store, 'demo');
+  await signIn(store);
+  for (const id of ['sato', 'kim']) {
+    await store.putAccount({ id, salt: '', hash: '', createdAt: '' });
+    await store.putSession({ id: sessionIdOf(`${id}-token`), userId: id, createdAt: '' });
+  }
+  await store.putProfile('sato', { name: '佐藤店長', icon: null });
+  app = createApp({ store, ...ai });
+  return store;
+}
+
+async function callAs(who: string, method: string, path: string, body?: unknown) {
+  const res = await app.request(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${who}-token` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { status: res.status, json: (await res.json()) as any };
+}
+
+test('共有：持ち主が ID で足すと、相手のサイドバーに出て、相手は見て行を直せる', async () => {
+  await withAccounts();
+  const added = await call('POST', '/manuals/demo-kitchen/shares', { userId: ' sato ' });
+  assert.equal(added.status, 201);
+  assert.deepEqual(added.json, [{ id: 'sato', name: '佐藤店長' }]);
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/shares')).json, [{ id: 'sato', name: '佐藤店長' }]);
+
+  const shared = await callAs('sato', 'GET', '/shared');
+  assert.deepEqual(
+    shared.json.map((m: any) => [m.id, m.title, m.sharedBy]),
+    [['demo-kitchen', 'キッチンマニュアル（定食屋 みのり）', { id: 'demo', name: 'demo' }]],
+  );
+  // 自分のノートの一覧には混ぜない
+  assert.deepEqual((await callAs('sato', 'GET', '/manuals')).json, []);
+
+  const seen = await callAs('sato', 'GET', '/manuals/demo-kitchen');
+  assert.equal(seen.status, 200);
+  assert.deepEqual(seen.json.sharedBy, { id: 'demo', name: 'demo' });
+  assert.ok(seen.json.lines.some((l: any) => l.text === '- 塩 小さじ1'));
+  assert.equal((await call('GET', '/manuals/demo-kitchen')).json.sharedBy, null);
+
+  // 直した行は、共有された人が書いたとして持ち主のノートに積まれる
+  const edited = await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: '- 塩 小さじ1', text: '- だしは煮干し', today: '2026-11-09' });
+  assert.equal(edited.status, 201);
+  const mine = (await call('GET', '/manuals/demo-kitchen')).json;
+  const texts = mine.lines.map((l: any) => l.text);
+  assert.equal(texts[texts.indexOf('- 塩 小さじ1') + 1], '- だしは煮干し');
+  const u = mine.utterances.at(-1);
+  assert.deepEqual([u.speaker, u.saidAt, u.fromEdit, u.editedBy], ['佐藤店長', '2026-11-09', true, 'sato']);
+
+  // ほかの行と食い違えば、持ち主の確認リストに入り、持ち主が確定する
+  const conflicting = await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- 塩 小さじ2' });
+  const patch = conflicting.json.patches.at(-1);
+  const checked = await callAs('sato', 'POST', `/manuals/demo-kitchen/patches/${patch.id}/check`);
+  assert.equal(checked.status, 200);
+  const chk = checked.json.checks.find((c: any) => c.patchId === patch.id);
+  assert.deepEqual([chk.kind, chk.conflictLine], ['contradiction', '- 塩 小さじ1']);
+  assert.equal((await call('GET', '/manuals')).json.find((m: any) => m.id === 'demo-kitchen').openCount, 1);
+  const resolved = await call('POST', `/manuals/demo-kitchen/checks/${chk.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-09', text: '- 塩 小さじ2' });
+  assert.equal(resolved.status, 200);
+});
+
+test('共有：共有された人は、記録・書き込み・確定・共有の相手の変更ができず、ほかのノートは読めない', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  const before = (await call('GET', '/manuals/demo-kitchen')).json;
+
+  const denied: [string, string, unknown?][] = [
+    ['POST', '/manuals/demo-kitchen/utterances', { text: '塩は小さじ2' }],
+    ['POST', '/utterances', { text: '塩は小さじ2', manualIds: ['demo-kitchen'] }],
+    ['PATCH', `/manuals/demo-kitchen/utterances/${r.utterance.id}`, { speaker: '佐藤さん' }],
+    ['POST', `/manuals/demo-kitchen/patches/${r.patch.id}/apply`, {}],
+    ['POST', `/manuals/demo-kitchen/patches/${r.patch.id}/discard`, {}],
+    ['POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-09', text: '- 塩 小さじ1' }],
+    ['GET', '/manuals/demo-kitchen/shares'],
+    ['POST', '/manuals/demo-kitchen/shares', { userId: 'kim' }],
+    ['DELETE', '/manuals/demo-kitchen/shares/sato'],
+    // 共有されていない持ち主のノート
+    ['GET', '/manuals/demo-hall'],
+    ['POST', '/manuals/demo-hall/edits', { op: 'insert', line: null, text: '- x' }],
+  ];
+  for (const [method, path, body] of denied) {
+    assert.equal((await callAs('sato', method, path, body)).status, 404, `${method} ${path}`);
+  }
+  // 記録先を選ばなければ、自分のノートにだけ振り分ける
+  assert.deepEqual((await callAs('sato', 'POST', '/utterances', { text: '田中さんから塩は小さじ2と言われた' })).json.results, []);
+
+  // 共有されていない人は、見ることも直すこともできない
+  assert.equal((await callAs('kim', 'GET', '/manuals/demo-kitchen')).status, 404);
+  assert.equal((await callAs('kim', 'POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- x' })).status, 404);
+  assert.deepEqual((await callAs('kim', 'GET', '/shared')).json, []);
+
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
+});
+
+test('共有：外すとすぐ読めなくなり、無い ID と自分の ID には共有できない', async () => {
+  await withAccounts();
+  assert.equal((await call('POST', '/manuals/demo-kitchen/shares', { userId: 'demo' })).status, 400);
+  assert.equal((await call('POST', '/manuals/demo-kitchen/shares', { userId: ' ' })).status, 400);
+  for (const id of ['nobody', '../sato']) {
+    const missing = await call('POST', '/manuals/demo-kitchen/shares', { userId: id });
+    assert.equal(missing.status, 404);
+    assert.match(missing.json.error, /アカウントはありません/);
+  }
+  assert.deepEqual((await call('GET', '/manuals/demo-kitchen/shares')).json, []);
+
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'kim' });
+  const removed = await call('DELETE', '/manuals/demo-kitchen/shares/sato');
+  assert.equal(removed.status, 200);
+  assert.deepEqual(removed.json, [{ id: 'kim', name: 'kim' }]);
+  assert.equal((await callAs('sato', 'GET', '/manuals/demo-kitchen')).status, 404);
+  assert.equal((await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- x' })).status, 404);
+  assert.deepEqual((await callAs('sato', 'GET', '/shared')).json, []);
+  assert.equal((await callAs('kim', 'GET', '/manuals/demo-kitchen')).status, 200);
+  assert.equal((await call('DELETE', '/manuals/demo-kitchen/shares/sato')).status, 404);
+});
+
+test('共有：相手の側の索引だけがあっても、持ち主の側に共有の記録が無ければ読めない', async () => {
+  const store = await withAccounts();
+  await store.putShared('kim', { id: 'demo-kitchen', ownerId: 'demo', createdAt: '' });
+  assert.equal((await callAs('kim', 'GET', '/manuals/demo-kitchen')).status, 404);
+  assert.deepEqual((await callAs('kim', 'GET', '/shared')).json, []);
 });
 
 test('入力の形が違えば 400 を返す', async () => {
