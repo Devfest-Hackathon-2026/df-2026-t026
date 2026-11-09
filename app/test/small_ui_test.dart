@@ -69,21 +69,32 @@ Api _confirmedApi() => Api(client: MockClient((_) async => _json(_confirmed())),
 Finder _inTopBar(Finder f) => find.descendant(of: find.byType(TopBar), matching: f);
 
 void main() {
+  // 実装25: 使い方（?）は上部バーでなく、サイドバー（スマホは三本線のメニュー）の自分の右
+  Finder help() => find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '使い方を見る');
   for (final size in const [Size(390, 844), Size(1440, 900)]) {
-    testWidgets('上部バーの右端の（?）で使い方（暫定）を開く。使い方のページには（?）を出さない（$size）', (tester) async {
+    testWidgets('上部バーには（?）を出さない（$size）', (tester) async {
       _size(tester, size);
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
       await tester.pumpAndSettle();
-      await tester.tap(_inTopBar(find.byIcon(LucideIcons.circleQuestionMark)));
-      await tester.pumpAndSettle();
-      expect(find.text('使い方（暫定）'), findsWidgets);
-      expect(find.byIcon(LucideIcons.circleQuestionMark), findsNothing);
-      // 開いた幅に合わせて、PC かスマホの幅で撮った画像を出す
-      final shot = size.width > 1000 ? 'wide' : 'narrow';
-      final img = tester.widgetList<Image>(find.byType(Image)).first.image as AssetImage;
-      expect(img.assetName, 'assets/help/$shot/new_note.png');
+      expect(_inTopBar(find.byIcon(LucideIcons.circleQuestionMark)), findsNothing);
+      expect(_inTopBar(help()), findsNothing);
     });
   }
+
+  testWidgets('広い幅では、サイドバーの（?）で使い方（暫定）を開き、PC の幅の画像を出す。使い方のページには（?）を出さず、戻ると元の画面', (tester) async {
+    _size(tester, const Size(1440, 900));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
+    await tester.pumpAndSettle();
+    await tester.tap(help());
+    await tester.pumpAndSettle();
+    expect(find.text('使い方（暫定）'), findsWidgets);
+    expect(find.byIcon(LucideIcons.circleQuestionMark), findsNothing);
+    final img = tester.widgetList<Image>(find.byType(Image)).first.image as AssetImage;
+    expect(img.assetName, 'assets/help/wide/new_note.png');
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NewManualScreen), findsOneWidget);
+  });
 
   group('上部バー（違和感 #11）', () {
     for (final size in const [Size(390, 844), Size(1000, 900)]) {
@@ -97,12 +108,12 @@ void main() {
       });
     }
 
-    testWidgets('広い幅（サイドバーが出る）では、パンくずは今のまま', (tester) async {
+    testWidgets('広い幅（サイドバーが出る）では、パンくずの先頭に「DiffNote（仮）」を出さない（アプリ名はサイドバーの一番上）', (tester) async {
       _size(tester, const Size(1440, 900));
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: NewManualScreen(api: _emptyApi())));
       await tester.pumpAndSettle();
-      expect(_inTopBar(find.text('DiffNote（仮）')), findsOneWidget);
-      expect(_inTopBar(find.text(' / ')), findsOneWidget);
+      expect(_inTopBar(find.text('DiffNote（仮）')), findsNothing);
+      expect(_inTopBar(find.text(' / ')), findsNothing);
       expect(_inTopBar(find.text('ノートを作る')), findsOneWidget);
     });
   });

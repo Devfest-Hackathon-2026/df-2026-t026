@@ -14,7 +14,7 @@ class HelpScreen extends StatelessWidget {
     final k = context.tokens;
     return Scaffold(
       body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）', '使い方（暫定）'], help: false),
+        const TopBar(crumbs: ['使い方（暫定）']),
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [

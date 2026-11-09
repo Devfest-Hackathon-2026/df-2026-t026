@@ -444,7 +444,9 @@ class _InputScreenState extends State<InputScreen> {
         place: Place.input,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
-            crumbs: const ['DiffNote（仮）'],
+            // アプリ名は、広い画面ではサイドバーの一番上に出すので、上部バーには何も出さない。
+            // 狭い画面はサイドバーが無いので、三本線の隣にアプリ名を出す
+            crumbs: narrow ? const ['DiffNote（仮）'] : const [],
             // ノート一覧・自分のページへは、狭い画面ではメニューから、広い画面ではサイドバーから移る
             leading: narrow
                 ? Builder(

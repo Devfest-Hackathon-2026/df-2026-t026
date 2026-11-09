@@ -7,7 +7,6 @@ import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
 import '../theme.dart';
-import 'help_screen.dart';
 import 'sidebar.dart';
 
 /// YYYY-MM-DD → 11/3
@@ -105,17 +104,15 @@ class KindTag extends StatelessWidget {
 
 /// 上部バー。戻るボタンと、いまの場所を示すパンくず
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.crumbs, this.trailing, this.leading, this.help = true});
+  const TopBar({super.key, required this.crumbs, this.trailing, this.leading});
 
-  /// 画面の積み重ねと同じ順。最後がいまの画面
+  /// 画面の積み重ねと同じ順。最後がいまの画面。アプリ名はサイドバーの一番上に出すので入れない。
+  /// 空なら何も出さない（広い画面の入力ページ）
   final List<String> crumbs;
   final Widget? trailing;
 
   /// 戻る先の無い画面（入力ページ）の左に置くボタン。狭い画面のメニュー（三本線）に使う
   final Widget? leading;
-
-  /// 右端に使い方への（?）を出すか。使い方のページ自身では出さない
-  final bool help;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +143,9 @@ class TopBar extends StatelessWidget {
               SizedBox(width: k.space.sm),
             Expanded(
               // スマホ（サイドバーの出ない幅）では、パンくずを出さず、いまの画面の名前だけにする。前の画面へは戻る矢印で戻る
-              child: showsSidebar(context)
+              child: crumbs.isEmpty
+                  ? const SizedBox.shrink()
+                  : showsSidebar(context)
                   ? Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                       for (var i = 0; i < crumbs.length; i++) ...[
                         if (i > 0) Text(' / ', style: k.text.small),
@@ -156,14 +155,6 @@ class TopBar extends StatelessWidget {
                   : Text(crumbs.last, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.heading),
             ),
             ?trailing,
-            if (help) ...[
-              SizedBox(width: k.space.xs),
-              MoonButton.icon(
-                semanticLabel: '使い方を見る',
-                icon: Icon(LucideIcons.circleQuestionMark, color: k.colors.ink),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpScreen())),
-              ),
-            ],
           ]),
         ),
       ),

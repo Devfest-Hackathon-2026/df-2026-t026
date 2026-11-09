@@ -44,7 +44,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           extendBody: true,
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '履歴']),
+            TopBar(crumbs: [s.title, '履歴']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, onOpen: _push));
@@ -248,7 +248,7 @@ class _CommitScreen extends StatelessWidget {
         final x = buildHistory(s).rows.map((r) => r.commit).firstWhere((x) => x.id == id);
         return Scaffold(
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '履歴', x.onBranch ? '記録' : '版']),
+            TopBar(crumbs: [s.title, '履歴', x.onBranch ? '記録' : '版']),
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),

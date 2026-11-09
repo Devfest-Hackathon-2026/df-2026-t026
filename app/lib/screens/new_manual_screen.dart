@@ -186,7 +186,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
     final k = context.tokens;
     return Scaffold(
       body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['DiffNote（仮）', 'ノートを作る']),
+        const TopBar(crumbs: ['ノートを作る']),
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [

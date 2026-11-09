@@ -8,6 +8,7 @@ import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'common.dart';
+import 'help_screen.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
@@ -156,12 +157,17 @@ class _SidebarState extends State<_Sidebar> {
         builder: (context, snap) {
           final manuals = snap.data ?? const <ManualSummary>[];
           final open = manuals.fold(0, (n, m) => n + m.openCount);
-          // 上から：言われたことを記録 → あとで確認 → 「ノート」と＋ → 全部のノート → 自分（いちばん下に固定）。
+          // 上から：アプリ名 → 言われたことを記録 → あとで確認 → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: EdgeInsets.fromLTRB(k.space.sm, k.space.lg, k.space.sm, 0),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // アプリ名。サイドバーの中で一番太く大きい文字にする。押せない（最初の画面へは「言われたことを記録」で戻る）
+                Padding(
+                  padding: EdgeInsets.fromLTRB(k.space.sm, 0, k.space.sm, k.space.md),
+                  child: Text('DiffNote（仮）', maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.title),
+                ),
                 // 新しく書き始める所なので、チャットの「新しいチャット」と同じペンと四角のアイコンを付け、いちばん上に置く（違和感 #4）
                 _item(
                   '言われたことを記録',
@@ -223,20 +229,42 @@ class _SidebarState extends State<_Sidebar> {
             Container(height: k.hairline, color: k.colors.rule),
             Padding(
               padding: EdgeInsets.all(k.space.sm),
-              child: MeBuilder(
-                api: widget.api,
-                builder: (context, me) => _item(
-                  me.name,
-                  leading: Avatar(me.name, image: me.icon?.bytes),
-                  selected: widget.place == Place.profile,
-                  onTap: () => _go(ProfileScreen(api: widget.api)),
+              // 自分の右に使い方（?）。上部バーには置かない
+              child: Row(children: [
+                Expanded(
+                  child: MeBuilder(
+                    api: widget.api,
+                    builder: (context, me) => _item(
+                      me.name,
+                      leading: Avatar(me.name, image: me.icon?.bytes),
+                      selected: widget.place == Place.profile,
+                      onTap: () => _go(ProfileScreen(api: widget.api)),
+                    ),
+                  ),
                 ),
-              ),
+                SizedBox(width: k.space.xs),
+                MoonButton.icon(
+                  semanticLabel: '使い方を見る',
+                  icon: Icon(LucideIcons.circleQuestionMark, color: k.colors.ink),
+                  onTap: _help,
+                ),
+              ]),
             ),
           ]);
         },
       ),
     );
+  }
+
+  /// 使い方を開く。今いる画面の上に積み、戻るとその画面に戻る（サイドバーのほかの項目のように積み直さない）。
+  /// メニュー（狭い画面）では、先にメニューを閉じてから開く
+  void _help() {
+    if (widget.open case final open?) {
+      Scaffold.of(context).closeDrawer();
+      open(const HelpScreen());
+      return;
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpScreen()));
   }
 
   /// ノートの並びの小見出し。押すとノート一覧へ。右の＋でノートを作る（メニューに「ノート」の項目は別に作らない）
