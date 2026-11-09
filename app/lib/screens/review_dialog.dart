@@ -93,6 +93,17 @@ class _ReviewDialogState extends State<ReviewDialog> {
 
   bool get _hasSpeaker => _speaker.text.trim().isNotEmpty;
 
+  /// 書き込む行がもう残っていない（食い違いは確認リストに入っている）。記録した結果のカードの「確かめる」で開いたときはふつうこれ
+  bool get _sorted => widget.targets.every((t) {
+        final s = t.c.state!;
+        return s.utterance(t.utteranceId).speaker != null &&
+            s.patchesOf(t.utteranceId)
+                .every((p) => p.status != 'proposed' || s.checkOf(p.id)?.kind == Kind.contradiction);
+      });
+
+  /// 開いたときに振り分けが済んでいたか。発言者が分からず書き込む前に開いたときは、書き込み終えても題名を変えない
+  late final _sortedAtOpen = _sorted;
+
   /// 反映・確定したものは本文や確認の記録に残っているので、書き起こしは直させない
   bool get _fixable => widget.targets.every((t) {
         final s = t.c.state!;
@@ -244,7 +255,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
                   Padding(
                     padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.sm, 0),
                     child: Row(children: [
-                      Expanded(child: Text('ノートに書き込む前の確認', style: k.text.title)),
+                      // 言われたことを直して書き込める行がまたできたら、書き込む前の確認に戻す
+                      Expanded(
+                        child: Text(_sortedAtOpen && _sorted ? '記録した結果' : 'ノートに書き込む前の確認', style: k.text.title),
+                      ),
                       MoonButton.icon(
                         semanticLabel: '閉じる',
                         icon: Icon(LucideIcons.x, color: k.colors.ink),
@@ -383,6 +397,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
         right: p.text,
         settled: chk.resolution != null,
       ),
+      // 相手が確定済みの記録なら、確認のページと同じく、その記録を確認印つきで比較のすぐ下に出す
+      if (c.state!.confirmedRecordFor(chk)?.resolution case final r?) ...[
+        SizedBox(height: k.space.md),
+        ConfirmedRecord(resolution: r),
+      ],
       SizedBox(height: k.space.md),
       if (chk.resolution != null)
         Text('${fmtDay(chk.resolution!.decidedAt)} ${chk.resolution!.decidedBy}${chk.resolution!.verb}して確定済み',

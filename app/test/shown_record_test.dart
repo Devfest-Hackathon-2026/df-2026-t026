@@ -191,6 +191,17 @@ void main() {
     expect(find.text('確認の答え'), findsOneWidget);
   });
 
+  testWidgets('「確認の答え」「記録を見せた」の札は、確認印の朱でなく、確認済みと同じ緑にする（赤いとエラーに見える）', (tester) async {
+    await _pump(tester, ManualScreen(api: _api(_shown()), manualId: 'm1'));
+    final c = appTheme().extension<AppTokens>()!.colors;
+    for (final label in ['確認の答え', '記録を見せた']) {
+      final tag = tester.widget<StatusTag>(find.ancestor(of: find.text(label), matching: find.byType(StatusTag)));
+      expect(tag.fg, isNot(c.stamp), reason: label);
+      expect(tag.bg, isNot(c.stamp), reason: label);
+      expect((tag.bg, tag.fg), (c.addedBg, c.added), reason: label);
+    }
+  });
+
   testWidgets('履歴では、見せた版は見せた人と「…記録（1/2で統一）を見せた」で、店長の確認にしない', (tester) async {
     await _pump(tester, ManualScreen(api: _api(_shown()), manualId: 'm1'), size: const Size(390, 844));
     await tester.tap(find.descendant(of: find.byType(NoteTabBar), matching: find.text('履歴')));

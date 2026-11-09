@@ -220,6 +220,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampTilt = -0.08;
   final double stampDiameter = 84;
 
+  /// 記録した直後の結果のカードで、見出しの横に置く確認印。カードの見せ場なので、ほかより大きく押す
+  final double stampDiameterLarge = 116;
+
   /// 履歴のグラフで、幹と枝を並べる1本分の幅と、版の点の直径
   final double graphLane = 24;
   final double graphDot = 14;

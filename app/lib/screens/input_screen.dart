@@ -1017,8 +1017,16 @@ class _InputScreenState extends State<InputScreen> {
   /// 「あとで確認」への導線。中身はサイドバーから開く「あとで確認」の画面と同じ部品
   List<Widget> _openChecks(List<ManualState> manuals) {
     final k = context.tokens;
+    final open = manuals.fold(0, (n, s) => n + s.openChecks.length);
     return [
-      Text('あとで確認', style: k.text.title),
+      // 件数は節の見出しに添え、サイドバーから開く「あとで確認」の画面と同じ札にする
+      Row(children: [
+        Text('あとで確認', style: k.text.title),
+        if (open > 0) ...[
+          SizedBox(width: k.space.sm),
+          StatusTag('全部で $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+        ],
+      ]),
       SizedBox(height: k.space.sm),
       OpenChecksList(manuals: manuals, onOpen: (s) => _push(CheckListScreen(c: ManualController(widget.api, s.id, s)))),
     ];

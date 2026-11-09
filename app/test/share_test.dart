@@ -301,7 +301,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('塩は小さじ1/2でいい'));
     await tester.pumpAndSettle();
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    // 食い違いだけで、もう確認リストに入っているので、題名は「記録した結果」
+    expect(find.text('記録した結果'), findsOneWidget);
     expect(find.bySemanticsLabel('発言者をはるとにする'), findsOneWidget);
     // 自分（持ち主のかなで）は出さない
     expect(find.bySemanticsLabel('発言者をかなでにする'), findsNothing);

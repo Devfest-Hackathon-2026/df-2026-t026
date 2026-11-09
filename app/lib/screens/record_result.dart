@@ -14,7 +14,7 @@ class RecordResultCard extends StatelessWidget {
   const RecordResultCard({super.key, required this.records, required this.onReview, required this.onClose});
   final List<Recorded> records;
 
-  /// 「確かめる」。書き込む前の確認を開く
+  /// 「確かめる」。記録した結果（書き込む前の確認と同じダイアログ）を開く
   final VoidCallback onReview;
   final VoidCallback onClose;
 
@@ -30,25 +30,31 @@ class RecordResultCard extends StatelessWidget {
         Kind.same => 2,
       };
 
+  /// 食い違った相手のうち、確定済みの記録。いちばん初めのものを見出しと確認印に使う
+  Resolution? _settled() => [
+        for (final r in records)
+          for (final (_, chk) in _items(r))
+            if (chk.kind == Kind.contradiction) ?r.state.confirmedRecordFor(chk)?.resolution,
+      ].firstOrNull;
+
   /// いちばん大事なことを見出しにする。確定済みの記録と食い違ったら、誰の決定と食い違ったかまで言う
-  String _title() {
-    final checks = [
-      for (final r in records)
-        for (final (_, chk) in _items(r)) (s: r.state, chk: chk),
-    ];
-    final conflicts = checks.where((x) => x.chk.kind == Kind.contradiction);
-    final settled = [for (final x in conflicts) ?x.s.confirmedRecordFor(x.chk)?.resolution].firstOrNull;
+  String _title(Resolution? settled) {
     if (settled != null) {
       return settled.answeredBy == null
           ? '${settled.decidedBy}に確認済みの決定と食い違っています'
           : '${settled.decidedBy}が決めたことと食い違っています';
     }
+    final checks = [
+      for (final r in records)
+        for (final (_, chk) in _items(r)) chk,
+    ];
+    final conflicts = checks.where((chk) => chk.kind == Kind.contradiction);
     // 相手がどれも資料の行なら、ノートでなく資料と言う（ADR 0019）
-    if (conflicts.isNotEmpty) return '${conflicts.every((x) => x.chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
-    final written = checks.where((x) => x.chk.kind == Kind.addition || x.chk.kind == Kind.qualification).length;
+    if (conflicts.isNotEmpty) return '${conflicts.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
+    final written = checks.where((chk) => chk.kind == Kind.addition || chk.kind == Kind.qualification).length;
     if (written > 0) return 'ノートに$written行書き込みました';
     if (checks.isNotEmpty) {
-      return '${checks.every((x) => x.chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
+      return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
     }
     return 'ノートは変えずに、言われた記録として残しました';
   }
@@ -57,33 +63,57 @@ class RecordResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final conflicted = records.any((r) => _items(r).any((x) => x.$2.kind == Kind.contradiction));
+    final settled = _settled();
     return LayoutBuilder(
       builder: (context, box) {
         final stacked = box.maxWidth < k.stackBelow;
+        // 食い違いはこのアプリの見せ場なので、見出しを大きくする。食い違いが無ければ落ち着いた見た目のまま
+        final title = Text(_title(settled), style: conflicted ? k.text.display : k.text.title);
+        final close = MoonButton.icon(
+          semanticLabel: '結果を閉じる',
+          icon: Icon(LucideIcons.x, color: k.colors.ink),
+          onTap: onClose,
+        );
+        // 確定済みの記録と食い違ったら、誰の決定かを大きめの確認印で見出しに添える。狭い幅では見出しの上に置く
+        final stamp = settled == null
+            ? null
+            : SizedBox.square(
+                dimension: k.stampDiameterLarge,
+                child: FittedBox(
+                  child: ConfirmStamp(who: settled.decidedBy, day: settled.decidedAt, decided: settled.answeredBy != null),
+                ),
+              );
         return PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.xl),
+          // 黄は面を塗らないのが決まりだが、このカードの食い違いだけは例外（flutter-ui.md）。黄の線で囲み、付箋と見分ける
+          tint: conflicted ? (bg: k.colors.pendingBg, line: k.colors.pending) : null,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(top: k.space.xs),
-                  child: Text(_title(), style: k.text.title),
-                ),
-              ),
-              SizedBox(width: k.space.sm),
-              MoonButton.icon(
-                semanticLabel: '結果を閉じる',
-                icon: Icon(LucideIcons.x, color: k.colors.ink),
-                onTap: onClose,
-              ),
-            ]),
+            if (stamp != null && stacked) ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, const Spacer(), close]),
+              SizedBox(height: k.space.sm),
+              title,
+            ] else
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: Padding(padding: EdgeInsets.only(top: k.space.xs), child: title)),
+                if (stamp != null) ...[SizedBox(width: k.space.lg), stamp],
+                SizedBox(width: k.space.sm),
+                close,
+              ]),
             for (final r in records) ..._note(context, r, stacked: stacked),
-            SizedBox(height: k.space.lg),
-            Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-              // 記録した時点では解決を求めない。確認リストに入ったことだけを伝える
-              if (conflicted) Text('確認リストに入れました', style: k.text.small),
-              MoonTextButton(onTap: onReview, label: const Text('確かめる')),
-            ]),
+            SizedBox(height: k.space.xl),
+            Wrap(
+              spacing: k.space.md,
+              runSpacing: k.space.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                // 記録した時点では解決を求めない。確認リストに入ったことだけを伝え、中身は「確かめる」で見せる
+                if (conflicted) ...[
+                  MoonFilledButton(onTap: onReview, label: const Text('確かめる')),
+                  Text('確認リストに入れました', style: k.text.small),
+                ] else
+                  MoonTextButton(onTap: onReview, label: const Text('確かめる')),
+              ],
+            ),
           ]),
         );
       },
@@ -131,23 +161,19 @@ class RecordResultCard extends StatelessWidget {
     ];
   }
 
-  /// 食い違った相手の確定の記録。証拠として確認印を押した形で見せ、相手に見せる文をコピーできるようにする
+  /// 食い違った相手の確定の記録と、相手に見せる文。確認印は見出しに添えたので、ここでは見せる文を主にしてコピーできるようにする
   List<Widget> _evidence(BuildContext context, Resolution r) {
     final k = context.tokens;
     final show = showRecordText(r);
     return [
+      SizedBox(height: k.space.md),
+      Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.body),
       SizedBox(height: k.space.lg),
-      Row(children: [
-        Expanded(child: Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.heading)),
-        SizedBox(width: k.space.lg),
-        ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null),
-      ]),
-      SizedBox(height: k.space.sm),
-      Text('記録を見せる', style: k.text.small),
+      Text('記録を見せる', style: k.text.label),
+      SizedBox(height: k.space.xs),
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-          child: Padding(padding: EdgeInsets.only(top: k.space.xs), child: Text(show, style: k.text.body)),
-        ),
+        Expanded(child: Text(show, style: k.text.title)),
+        SizedBox(width: k.space.sm),
         MoonButton.icon(
           semanticLabel: '記録を見せる文をコピーする',
           icon: Icon(LucideIcons.copy, color: k.colors.ink),

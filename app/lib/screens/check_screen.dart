@@ -222,7 +222,11 @@ class _CheckDetailState extends State<CheckDetail> {
               ],
             ),
             SizedBox(height: k.space.xl),
-            if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
+            // 後で別の人に聞かれたときに見せる記録。記録を見せて済ませた確定は、見せた人と日を上に添える（#118）
+            if (chk.resolution case final r?) ...[
+              ConfirmedRecord(resolution: r, shown: shownByText(s, r)),
+              SizedBox(height: k.space.xxl),
+            ],
             _step(chk.isOpen ? '1' : null, chk.isOpen ? '食い違っていること' : '食い違っていたこと'),
             ConflictPair(
               leftLabel: counterpartLabel(chk),
@@ -242,8 +246,9 @@ class _CheckDetailState extends State<CheckDetail> {
             // 相手が確定済みの記録なら、その記録を証拠として比較のすぐ下に出す
             if (confirmed != null) ...[
               SizedBox(height: k.space.md),
-              _evidence(
-                confirmed.resolution!,
+              ConfirmedRecord(
+                resolution: confirmed.resolution!,
+                shown: shownByText(s, confirmed.resolution!),
                 onTap: () =>
                     openCheckViaList(Navigator.of(context), widget.c, confirmed.id, settings: aboveNote(context)),
               ),
@@ -506,36 +511,6 @@ class _CheckDetailState extends State<CheckDetail> {
           ]),
         ),
       ),
-    );
-  }
-
-  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる。onTap があれば押すとその確認の記録を開く。
-  /// 記録を見せて済ませた確定は、確認印と中身は元の確定のまま、見せた人と日を上に添える（#118）
-  Widget _evidence(Resolution r, {VoidCallback? onTap}) {
-    final k = context.tokens;
-    final box = Container(
-      padding: EdgeInsets.all(k.space.xl),
-      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (shownByText(widget.c.state!, r) case final shown?) ...[
-              Text(shown, style: k.text.small),
-              SizedBox(height: k.space.xs),
-            ],
-            Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
-            SizedBox(height: k.space.sm),
-            Text('確定した内容：${plain(r.text)}', style: k.text.body),
-          ]),
-        ),
-        SizedBox(width: k.space.lg),
-        ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null),
-      ]),
-    );
-    if (onTap == null) return box;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box),
     );
   }
 
