@@ -1,4 +1,4 @@
-import { GoogleGenAI, type HttpOptions } from '@google/genai';
+import { ApiError, GoogleGenAI, type HttpOptions } from '@google/genai';
 import { z } from 'zod';
 
 export interface JsonRequest<T> {
@@ -19,14 +19,21 @@ export interface InlineFile {
 export type GenerateJson = <T>(req: JsonRequest<T>) => Promise<T>;
 
 /**
- * 混雑（503）やレート制限（429）は一時的なことが多いので、SDK に待ってやり直させる。
- * 1回の上限時間は、混雑時に 30〜60 秒かかった実測と、差分化と分類の2回の呼び出しが
- * Cloud Run のリクエスト上限（既定 300 秒）に収まることの両方から決めた。
+ * 1本の上限時間。遅い依頼も 30〜90 秒で返ることが多いので打ち切らずに待つ。
+ * 最後の1本を送り始めるのが40秒後なので、1回の requestJson は130秒で終わり、
+ * 書き起こしと assess の2回が Cloud Run のリクエスト上限（既定 300 秒）に収まる。
  */
-export const httpOptions: HttpOptions = {
-  timeout: 40_000,
-  retryOptions: { attempts: 3, initialDelay: 1, maxDelay: 8, httpStatusCodes: [408, 429, 500, 502, 503, 504] },
-};
+export const httpOptions: HttpOptions = { timeout: 90_000 };
+
+/** 混雑・レート制限・時間切れは一時的なことが多いので、やり直す */
+const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
+const MAX_ATTEMPTS = 3;
+
+/** 返事がこの時間を過ぎたら、中身を変えた依頼を並べて送る。書き起こしも assess も、ふだんは 3〜15 秒で返る */
+const HEDGE_MS = 20_000;
+
+/** やり直してよい失敗か。ApiError 以外は、応答が来ないまま打ち切った・接続が切れたもの */
+const retryable = (e: unknown) => !(e instanceof ApiError) || RETRY_STATUSES.includes(e.status);
 
 let client: GoogleGenAI | null = null;
 
@@ -47,31 +54,89 @@ export function toGeminiSchema(schema: z.ZodType): Record<string, unknown> {
   return rest;
 }
 
-/** スキーマ付きで Gemini を呼び、検証済みの結果を返す。形が合わなければ1回だけ呼び直す */
-export const generateJson: GenerateJson = async ({ system, prompt, schema, files }) => {
+/** スキーマ付きで Gemini を呼び、検証済みの結果を返す */
+export const generateJson: GenerateJson = (req) => requestJson(gemini(), req);
+
+/**
+ * 合わせて3本まで送り、最初に形の合った応答を返す。2本目・3本目は、前の1本が返事をしないまま
+ * hedgeMs たったとき、またはやり直せる失敗をしたときに送る。形が合わないのは1回だけ呼び直す。
+ *
+ * global の Gemini は、中身がまったく同じ依頼をしばらく同じく遅く返す（ADR 0002）。
+ * 2本目からは意味の変わらない改行を末尾に足し、前と同じ中身にしない。
+ *
+ * Args:
+ *   ai: 呼び出しに使うクライアント（テストでは偽の fetch を持たせる）
+ *   req: 指示・プロンプト・スキーマ・添えるファイル
+ *   timing: 並べて送るまでの時間と、失敗のあとに待つ時間の基準（テストで短くする）
+ */
+export function requestJson<T>(
+  ai: GoogleGenAI,
+  { system, prompt, schema, files }: JsonRequest<T>,
+  { hedgeMs = HEDGE_MS, delayMs = 1000 } = {},
+): Promise<T> {
   const jsonSchema = toGeminiSchema(schema);
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await gemini().models.generateContent({
-      model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
-      contents: files?.length
-        ? [{ role: 'user', parts: [{ text: prompt }, ...files.map((f) => ({ inlineData: f }))] }]
-        : prompt,
-      config: {
-        systemInstruction: system,
-        responseMimeType: 'application/json',
-        responseJsonSchema: jsonSchema,
-        temperature: 0,
-      },
-    });
+  const stop = new AbortController();
+  let badShape = 0;
+
+  type Outcome = { value: T } | { error: unknown; retry: boolean };
+  async function send(n: number): Promise<Outcome> {
+    const text = prompt + '\n'.repeat(n);
+    let res;
     try {
-      return schema.parse(JSON.parse(res.text ?? ''));
+      res = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
+        contents: files?.length ? [{ role: 'user', parts: [{ text }, ...files.map((f) => ({ inlineData: f }))] }] : text,
+        config: {
+          systemInstruction: system,
+          responseMimeType: 'application/json',
+          responseJsonSchema: jsonSchema,
+          temperature: 0,
+          abortSignal: stop.signal,
+        },
+      });
     } catch (e) {
-      lastError = e;
+      return { error: e, retry: retryable(e) };
+    }
+    try {
+      return { value: schema.parse(JSON.parse(res.text ?? '')) };
+    } catch (e) {
+      return { error: new Error(`Gemini の応答が想定の形になりませんでした: ${e}`), retry: ++badShape <= 1 };
     }
   }
-  throw new Error(`Gemini の応答が想定の形になりませんでした: ${lastError}`);
-};
+
+  return new Promise<T>((resolve, reject) => {
+    let sent = 0;
+    let running = 0;
+    let done = false;
+    let next: ReturnType<typeof setTimeout> | undefined;
+    const finish = (f: () => void) => {
+      done = true;
+      clearTimeout(next);
+      stop.abort();
+      f();
+    };
+    const sendNext = () => {
+      if (done || sent === MAX_ATTEMPTS) return;
+      const n = sent++;
+      running++;
+      clearTimeout(next);
+      if (sent < MAX_ATTEMPTS) next = setTimeout(sendNext, hedgeMs);
+      void send(n).then((r) => {
+        running--;
+        if (done) return;
+        if ('value' in r) return finish(() => resolve(r.value));
+        if (!r.retry) return finish(() => reject(r.error));
+        if (sent < MAX_ATTEMPTS) {
+          clearTimeout(next);
+          next = setTimeout(sendNext, delayMs * 2 ** n);
+        } else if (running === 0) {
+          finish(() => reject(r.error));
+        }
+      });
+    };
+    sendNext();
+  });
+}
 
 /** 行番号付きで並べる（L1: ...）。Gemini には行を番号で指してもらう */
 export function numbered(lines: string[], note?: (i: number) => string | null): string {

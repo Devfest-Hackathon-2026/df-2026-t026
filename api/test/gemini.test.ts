@@ -6,8 +6,9 @@ import { checkWithGemini } from '../src/conflict/check.ts';
 import { formatWithGemini, readNoteWithGemini } from '../src/format.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
+import { z } from 'zod';
 
-import { httpOptions, isItem, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
+import { httpOptions, isItem, requestJson, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
 
@@ -190,57 +191,85 @@ test('読み取り：ファイルを渡し、本文と題名の前後の空白�
   assert.deepEqual(calls[0].files, files);
 });
 
-/** 決まった順にステータスを返す fetch。呼ばれた回数を数える */
-function fakeFetch(statuses: number[]) {
-  let calls = 0;
-  const fetch = async () => {
-    const status = statuses[Math.min(calls++, statuses.length - 1)];
-    const body = status === 200 ? { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } : { error: { code: status, message: 'x' } };
-    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+/**
+ * 決まった順に応答する fetch。数字はそのステータスの失敗、'hang' は打ち切られるまで返事をしない、
+ * 文字列はその文面で成功。送られたプロンプトを記録する
+ */
+function fakeFetch(replies: (number | 'hang' | string)[]) {
+  const prompts: string[] = [];
+  let aborted = 0;
+  const fetch = (_url: unknown, init?: RequestInit) => {
+    const reply = replies[Math.min(prompts.length, replies.length - 1)];
+    prompts.push(JSON.parse(String(init?.body)).contents[0].parts[0].text);
+    if (reply === 'hang') {
+      return new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener('abort', () => {
+          aborted++;
+          reject(init.signal!.reason);
+        }),
+      );
+    }
+    const body = typeof reply === 'string' ? { candidates: [{ content: { parts: [{ text: reply }] } }] } : { error: { code: reply, message: 'x' } };
+    return Promise.resolve(new Response(JSON.stringify(body), { status: typeof reply === 'string' ? 200 : reply, headers: { 'Content-Type': 'application/json' } }));
   };
-  return { fetch, calls: () => calls };
+  return { fetch, prompts, aborted: () => aborted };
 }
 
-async function callWith(statuses: number[]) {
-  const f = fakeFetch(statuses);
-  // 待ち時間だけ短くして、やり直す回数と対象のステータスは本番と同じ設定で確かめる
-  const ai = new GoogleGenAI({
-    vertexai: true,
-    apiKey: 'test',
-    httpOptions: { ...httpOptions, retryOptions: { ...httpOptions.retryOptions, initialDelay: 0.01, maxDelay: 0.01 }, fetch: f.fetch },
-  });
-  const res = await ai.models.generateContent({ model: 'm', contents: 'x' }).then((r) => r.text, (e) => e);
-  return { res, calls: f.calls() };
+const ok = JSON.stringify({ text: 'ok' });
+
+async function requestWith(replies: (number | 'hang' | string)[], { timeout = httpOptions.timeout, hedgeMs = 60_000 } = {}) {
+  const f = fakeFetch(replies);
+  const ai = new GoogleGenAI({ vertexai: true, apiKey: 'test', httpOptions: { ...httpOptions, timeout, fetch: f.fetch } });
+  // 待ち時間だけ短くして、送る本数と対象のステータスは本番と同じ設定で確かめる
+  const res = await requestJson(ai, { system: 's', prompt: '書き起こして', schema: z.object({ text: z.string() }) }, { hedgeMs, delayMs: 1 }).then(
+    (r) => r.text,
+    (e) => e,
+  );
+  return { res, calls: f.prompts.length, prompts: f.prompts, aborted: f.aborted() };
 }
 
 test('呼び出し：混雑（503）やレート制限（429）は待ってやり直す', async () => {
-  assert.deepEqual(await callWith([503, 200]), { res: 'ok', calls: 2 });
-  assert.deepEqual(await callWith([429, 429, 200]), { res: 'ok', calls: 3 });
+  assert.deepEqual((await requestWith([503, ok])).res, 'ok');
+  const twice = await requestWith([429, 429, ok]);
+  assert.deepEqual([twice.res, twice.calls], ['ok', 3]);
 });
 
 test('呼び出し：やり直しは決めた回数まで。リクエストの誤り（400）はやり直さない', async () => {
-  const busy = await callWith([503]);
+  const busy = await requestWith([503]);
   assert.equal(busy.calls, 3);
   assert.equal(busy.res.status, 503);
-  const bad = await callWith([400, 200]);
+  const bad = await requestWith([400, ok]);
   assert.equal(bad.calls, 1);
   assert.equal(bad.res.status, 400);
 });
 
 test('呼び出し：応答が上限時間を過ぎたら打ち切り、やり直す', async () => {
-  let calls = 0;
-  const fetch = (_url: unknown, init?: RequestInit) => {
-    calls++;
-    if (calls > 1) return Promise.resolve(new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] })));
-    // 1回目は返事をせず、打ち切られるのを待つ
-    return new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
-  };
-  const ai = new GoogleGenAI({
-    vertexai: true,
-    apiKey: 'test',
-    httpOptions: { ...httpOptions, timeout: 20, retryOptions: { ...httpOptions.retryOptions, initialDelay: 0.01, maxDelay: 0.01 }, fetch },
-  });
-  const r = await ai.models.generateContent({ model: 'm', contents: 'x' });
-  assert.equal(r.text, 'ok');
-  assert.equal(calls, 2);
+  const r = await requestWith(['hang', ok], { timeout: 20 });
+  assert.deepEqual([r.res, r.calls], ['ok', 2]);
+});
+
+test('呼び出し：返事が遅ければ、打ち切らずに中身を変えた依頼を並べて送り、先に返ったほうを使う', async () => {
+  const r = await requestWith(['hang', ok], { hedgeMs: 10 });
+  assert.deepEqual([r.res, r.prompts], ['ok', ['書き起こして', '書き起こして\n']]);
+  // 使わなかった1本目は止める
+  assert.equal(r.aborted, 1);
+});
+
+test('呼び出し：すぐ返れば並べて送らない', async () => {
+  const r = await requestWith([ok], { hedgeMs: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  // prompts は送るたびに増えるので、待ったあとも1本のままかを見る
+  assert.deepEqual([r.res, r.prompts.length], ['ok', 1]);
+});
+
+test('呼び出し：やり直すときは、同じ中身にならないよう末尾に改行を足す（1回目はそのまま）', async () => {
+  const r = await requestWith([504, 504, ok]);
+  assert.deepEqual(r.prompts, ['書き起こして', '書き起こして\n', '書き起こして\n\n']);
+});
+
+test('呼び出し：応答の形が崩れたら1回だけ呼び直す', async () => {
+  assert.deepEqual(await requestWith(['{}', ok]).then((r) => [r.res, r.calls]), ['ok', 2]);
+  const broken = await requestWith(['{}']);
+  assert.equal(broken.calls, 2);
+  assert.match(broken.res.message, /想定の形になりませんでした/);
 });
