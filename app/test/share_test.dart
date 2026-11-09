@@ -6,6 +6,7 @@ import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/review_dialog.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -286,6 +287,65 @@ void main() {
     expect([for (final x in s.utterances) s.recordedByMe(x)], [true, false, true, false]);
     expect(recordedByText(s.utterance('b')), '記録した人：かなで（11/10）');
     expect(recordedByText(s.utterance('d')), isNull);
+  });
+
+  testWidgets('書き込む前の確認の「誰が言った？」に、まだ何も言っていなくても、ノートを共有している人（自分以外）を出す', (tester) async {
+    final server = _Server(shared: false)
+      ..people.addAll([
+        {'id': 'haruto', 'name': 'はると'},
+      ]);
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: server.api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('塩は小さじ1/2でいい'));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsOneWidget);
+    // 自分（持ち主のかなで）は出さない
+    expect(find.bySemanticsLabel('発言者をかなでにする'), findsNothing);
+
+    // ログイン ID で探せる。ID で当たった人には ID を添え、押すと名前が入る
+    await tester.enterText(find.byType(EditableText).first, 'haru');
+    await tester.pump();
+    expect(find.text('はると（haruto）'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
+    await tester.tap(find.text('はると（haruto）'));
+    await tester.pump();
+    expect(tester.widget<EditableText>(find.byType(EditableText).first).controller.text, 'はると');
+    // 名前で探すときは ID を添えない
+    await tester.enterText(find.byType(EditableText).first, '佐藤');
+    await tester.pump();
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsNothing);
+  });
+
+  testWidgets('共有された人の「誰が言った？」には、持ち主とほかの共有された人を出し、自分は出さない', (tester) async {
+    final server = _Server(shared: true)
+      ..people.addAll([
+        {'id': 'sato', 'name': '佐藤店長'},
+        {'id': 'haruto', 'name': 'はると'},
+      ]);
+    final state = server.state;
+    // 佐藤店長（sato）が自分で記録した発言にして、書き込む前の確認を開けるようにする
+    (state['utterances'] as List)[1]['recordedBy'] = {'id': 'sato', 'name': '佐藤店長'};
+    (state['utterances'] as List).removeAt(0);
+    (state['patches'] as List).removeAt(0);
+    (state['lines'] as List).removeAt(1);
+    final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: appTheme(),
+      home: Builder(builder: (context) => MoonOutlinedButton(label: const Text('開く'), onTap: () => showReview(context, [(c: c, utteranceId: 'u2')]))),
+    ));
+    await tester.tap(find.text('開く'));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('発言者をかなでにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者をはるとにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
   });
 
   Future<_Server> pumpCheck(WidgetTester tester, {required bool shared, Map<String, dynamic>? resolution}) async {
