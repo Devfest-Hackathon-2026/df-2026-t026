@@ -577,19 +577,67 @@ class ConflictPair extends StatelessWidget {
   }
 }
 
-/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く
+/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く。
+/// outline を渡すと、白いままその状態の色の線で囲む（記録した結果のカードの食い違いだけ。黄は面を塗らない）
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding});
+  const PaperSheet({super.key, required this.child, required this.padding, this.outline});
   final Widget child;
   final EdgeInsets padding;
+  final Color? outline;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     return Container(
       padding: padding,
-      decoration: BoxDecoration(color: k.colors.canvas, borderRadius: k.radius.paper),
+      decoration: BoxDecoration(
+        color: k.colors.canvas,
+        border: outline == null ? null : Border.all(color: outline!, width: k.hairline * 2),
+        borderRadius: k.radius.paper,
+      ),
       child: child,
+    );
+  }
+}
+
+/// 確定済みの記録。「11/7 店長に確認：…」と確定した内容に確認印を添えて、証拠として見せる。
+/// 確認のページと書き込む前の確認で同じ見せ方にする。shown は記録を見せて済ませた確定の「11/10 自分が記録を見せた」（#118）
+class ConfirmedRecord extends StatelessWidget {
+  const ConfirmedRecord({super.key, required this.resolution, this.shown, this.onTap});
+  final Resolution resolution;
+  final String? shown;
+
+  /// 押すとその確認の記録を開く
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    final r = resolution;
+    final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (shown case final shown?) ...[
+        Text(shown, style: k.text.small),
+        SizedBox(height: k.space.xs),
+      ],
+      Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
+      SizedBox(height: k.space.sm),
+      Text('確定した内容：${plain(r.text)}', style: k.text.body),
+    ]);
+    final stamp = ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null);
+    // スマホの幅で印を文の横に置くと、印に幅を取られて文が細切れに折れるので、印を文の上に置く（#126）
+    final box = LayoutBuilder(
+      builder: (context, size) => Container(
+        padding: EdgeInsets.all(k.space.xl),
+        decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
+        child: size.maxWidth < k.stackBelow
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, SizedBox(height: k.space.lg), text])
+            : Row(children: [Expanded(child: text), SizedBox(width: k.space.lg), stamp]),
+      ),
+    );
+    if (onTap == null) return box;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box),
     );
   }
 }

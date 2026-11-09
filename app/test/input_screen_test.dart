@@ -255,9 +255,10 @@ Future<void> _record(WidgetTester tester, String text) async {
 /// 書き込む前の確認の×。入力欄の下の結果のカードにも×があるので、確認の中のものを指す
 final _closeReview = find.descendant(of: find.byType(MoonModal), matching: find.byIcon(LucideIcons.x));
 
-/// 照らし合わせた後の結果のカードの「確かめる」から、書き込む前の確認を開く
+/// 照らし合わせた後の結果のカードの「確かめる」から、記録した結果（書き込む前の確認と同じダイアログ）を開く。
+/// 食い違いがあれば主のボタン、無ければ文字のボタン
 Future<void> _review(WidgetTester tester) async {
-  await tester.tap(find.widgetWithText(MoonTextButton, '確かめる'));
+  await tester.tap(find.text('確かめる'));
   await tester.pumpAndSettle();
 }
 
@@ -372,7 +373,8 @@ void main() {
     expect(find.text('ノートと食い違っています'), findsOneWidget);
     expect(find.text('確認リストに入れました'), findsOneWidget);
     await _review(tester);
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    // 食い違いはもう確認リストに入っているので、書き込む前でなく記録した結果
+    expect(find.text('記録した結果'), findsOneWidget);
     // どのノートの話かを題名で分け、上下に並べる
     final modal = find.byType(MoonModal);
     expect(find.descendant(of: modal, matching: find.text('キッチン')), findsOneWidget);
@@ -909,7 +911,7 @@ void main() {
     expect(sent, containsPair('today', '2026-11-03'));
     expect(sent, containsPair('memoIds', ['a']));
     await _review(tester);
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.text('記録した結果'), findsOneWidget);
     // 確認を出している間も待ち受けは止めない
     expect(mic.hasListener, isTrue);
     await tester.tap(find.byIcon(LucideIcons.x).last);

@@ -609,8 +609,8 @@ class _ManualScreenState extends State<ManualScreen> {
     final c = context.tokens.colors;
     final (bg, fg) = switch (status) {
       'あとで確認' => (c.pendingBg, c.pending),
-      '確認済み' || '反映済み' => (c.addedBg, c.added),
-      '確認の答え' => (c.canvas, c.stamp),
+      // 確認の答え・記録を見せたも確認で決まった記録。朱は確認印だけに使い、札を赤くしてエラーに見せない
+      '確認済み' || '反映済み' || '確認の答え' || '記録を見せた' => (c.addedBg, c.added),
       _ => (c.rule, c.ink),
     };
     return StatusTag(status, bg: bg, fg: fg);
