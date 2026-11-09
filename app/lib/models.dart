@@ -281,6 +281,15 @@ class ManualState {
 
   Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
 
+  /// 確認待ちの食い違いの相手が確定済みの記録なら、その確認。相手の行がノートにあればその行の確認の印、
+  /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認
+  Check? confirmedRecordFor(Check c) {
+    final conflict = c.conflictLine;
+    if (!c.isOpen || conflict == null) return null;
+    final line = lines.where((l) => l.text == conflict).firstOrNull;
+    return line == null ? _confirmedAs(conflict) : confirmationFor(line);
+  }
+
   /// 補足の差分をさかのぼって、書き換える前の行の確認を探す。食い違いの確定・追記・直接の編集で書き換えた行では止める
   Check? _beforeQualification(String? patchId) {
     final p = patchId == null ? null : patch(patchId);
