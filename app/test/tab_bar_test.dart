@@ -245,6 +245,62 @@ void main() {
     expect(find.text('入力ページ', skipOffstage: false), findsOneWidget);
   });
 
+  // #110：記録したあとの確認から開いた確認リストで、パンくずはノートの題名を出すのに ← は入力ページへ戻っていた
+  group('確認リストのパンくずは、← の戻る先と合わせる', () {
+    Finder inTopBar(String text) => find.descendant(of: find.byType(TopBar), matching: find.text(text));
+
+    testWidgets('ノートの外（入力ページなど）から開いたときは、ノートの題名を出さず、← で開いた元へ戻る', (tester) async {
+      _size(tester, const Size(1440, 900));
+      final c = ManualController(_api(), 'm1', ManualState.fromJson(_note()));
+      await tester.pumpWidget(MaterialApp(
+        theme: appTheme(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c))),
+                child: const Text('入力ページ'),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('入力ページ'));
+      await tester.pumpAndSettle();
+      expect(inTopBar('確認リスト'), findsOneWidget);
+      expect(inTopBar('キッチン'), findsNothing);
+
+      await tester.tap(find.bySemanticsLabel('戻る'));
+      await tester.pumpAndSettle();
+      expect(find.text('入力ページ'), findsOneWidget);
+      expect(find.byType(CheckListScreen), findsNothing);
+    });
+
+    testWidgets('ノートから開いたときは、ノートの題名を出し、← でもパンくずでもノートへ戻る', (tester) async {
+      _size(tester, const Size(1440, 900));
+      Future<void> openList() async {
+        await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+        await tester.pumpAndSettle();
+        expect(inTopBar('キッチン'), findsOneWidget);
+        expect(inTopBar('確認リスト'), findsOneWidget);
+      }
+
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+      await tester.pumpAndSettle();
+      await openList();
+      await tester.tap(find.bySemanticsLabel('戻る'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ManualScreen), findsOneWidget);
+      expect(find.byType(CheckListScreen), findsNothing);
+
+      await openList();
+      await tester.tap(inTopBar('キッチン'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ManualScreen), findsOneWidget);
+      expect(find.byType(CheckListScreen), findsNothing);
+    });
+  });
+
   testWidgets('キーボードが出ている間も、狭い画面では上部バーに履歴・確認リストを出さず、札から開いてもノートが2枚積まれない', (tester) async {
     _size(tester, const Size(390, 844));
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));

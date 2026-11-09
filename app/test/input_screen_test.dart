@@ -309,6 +309,36 @@ void main() {
     expect(texts.indexOf('お冷やはすぐ出す'), lessThan(texts.indexOf('塩は小さじ1/2')));
   });
 
+  testWidgets('スマホの幅では、最近の記録と未整理メモの付箋を、上のあとで確認と同じ幅いっぱいにする', (tester) async {
+    await _pumpInput(
+      tester,
+      _client((_) async => _json({}), memos: [_memo('a', DateTime(2026, 11, 5, 9), 'レジ締めは店長')]),
+      size: const Size(390, 844),
+    );
+    // 縦に並ぶので、下へ送りながら見る（左端と幅は送っても変わらない）
+    final scroll = find.byType(Scrollable).first;
+    final checks = find.ancestor(of: find.text('あとで確認 1 件'), matching: find.byType(PaperSheet));
+    await tester.scrollUntilVisible(checks, 200, scrollable: scroll);
+    final sheet = tester.getRect(checks);
+    // 未整理メモ1枚と、最近の記録2枚
+    for (final text in ['レジ締めは店長', 'お冷やはすぐ出す', '塩は小さじ1/2']) {
+      final note = find.ancestor(of: find.text(text), matching: find.byType(StickyNote));
+      await tester.scrollUntilVisible(note, 200, scrollable: scroll);
+      expect(tester.getRect(note).left, sheet.left);
+      expect(tester.getRect(note).width, sheet.width);
+    }
+  });
+
+  testWidgets('広い画面では、最近の記録の付箋は右の列の幅のまま', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})));
+    final k = tester.element(find.byType(InputScreen)).tokens;
+    final notes = find.byType(StickyNote);
+    expect(notes, findsNWidgets(2));
+    for (var i = 0; i < 2; i++) {
+      expect(tester.getSize(notes.at(i)).width, k.panelWidth);
+    }
+  });
+
   testWidgets('マニュアルを選ばずに記録し、関係するマニュアルの変わる行を1つの確認に並べる', (tester) async {
     Map<String, dynamic>? sent;
     final edited = <String, Map<String, dynamic>>{};
