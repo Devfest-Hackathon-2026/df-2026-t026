@@ -36,6 +36,10 @@ final _maxExtend = _ms(15000);
 final _gap = _ms(1500);
 final _pad = _ms(300);
 
+/// 切り出すとき、これ未満の無音をはさんだ前のかたまりは同じ会話とみなしてまとめる。
+/// 言われた後に返事や聞き返しをしてから押しても、言われたことまで残すため
+final _conversationGap = _ms(5000);
+
 /// これ未満の声は物音とみなす
 final _minVoice = _ms(200);
 
@@ -77,7 +81,7 @@ class _Frames {
   }
 }
 
-/// 常時待ち受け（遡り録音、ADR 0005）。直前60秒を端末のメモリだけに持ち、押したら近くの発話だけを WAV にする
+/// 常時待ち受け（遡り録音、ADR 0005）。直前60秒を端末のメモリだけに持ち、押したらその前の会話を WAV にする
 class CaptureRecorder {
   CaptureRecorder._(this._rec, this._onStopped);
 
@@ -144,7 +148,7 @@ class CaptureRecorder {
     }
   }
 
-  /// 話し終わりを待ってから、押した時刻に最も近い発話を WAV にする。声が無ければ null
+  /// 話し終わりを待ってから、押した時刻に最も近い発話と、そこから続く前の会話を WAV にする。声が無ければ null
   Future<Uint8List?> capture() async {
     final at = _written;
     if (_judged - _lastVoice < _endSilence) {
@@ -156,9 +160,15 @@ class CaptureRecorder {
     final pressed = at - (_written - samples.length);
     final chunks = EnergyVad(threshold: _noise.threshold).chunks(samples, gap: _gap, pad: _pad, minVoice: _minVoice);
     if (chunks.isEmpty) return null;
-    int distance(Chunk c) => pressed < c.start ? c.start - pressed : max(0, pressed - c.end);
-    final nearest = chunks.reduce((a, b) => distance(b) < distance(a) ? b : a);
-    return wav(Int16List.sublistView(samples, nearest.start, nearest.end), sampleRate: sampleRate);
+    // かたまりの間の無音は詰める。Speech-to-Text が無音を「はい。」などと書き起こすことがあるため
+    final talk = conversation(chunks, pressed, gap: _conversationGap);
+    final out = Int16List(talk.fold(0, (n, c) => n + c.end - c.start));
+    var i = 0;
+    for (final c in talk) {
+      out.setRange(i, i + c.end - c.start, samples, c.start);
+      i += c.end - c.start;
+    }
+    return wav(out, sampleRate: sampleRate);
   }
 
   Future<void> stop() async {

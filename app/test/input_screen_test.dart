@@ -187,7 +187,7 @@ Future<void> _startRewind(WidgetTester tester) async {
 Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) async {
   mic
     ..add(_pcm(500, voice: true))
-    ..add(_pcm(2000, voice: false))
+    ..add(_pcm(6000, voice: false))
     ..add(_pcm(1000, voice: true));
   await tester.pump();
   await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
@@ -406,7 +406,7 @@ void main() {
     expect(find.text('最近の記録'), findsOneWidget);
   });
 
-  testWidgets('切り出すと、押した時刻の発話だけを書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
+  testWidgets('切り出すと、押す前の会話を書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
     final mic = StreamController<Uint8List>();
     final heard = <Completer<http.Response>>[];
     final sent = <Map<String, dynamic>>[];
@@ -421,10 +421,13 @@ void main() {
     );
     await _startRewind(tester);
 
+    // 前の話・長い無音・言われたこと・返事の順に話してから押す
     mic
       ..add(_pcm(500, voice: true))
+      ..add(_pcm(6000, voice: false))
+      ..add(_pcm(1000, voice: true))
       ..add(_pcm(2000, voice: false))
-      ..add(_pcm(1000, voice: true));
+      ..add(_pcm(400, voice: true));
     await tester.pump();
     await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
     await tester.pump();
@@ -433,8 +436,8 @@ void main() {
 
     mic.add(_pcm(1200, voice: false));
     await tester.pump();
-    // 1秒の発話に前後300msの余白を足した長さ（16kHz・16bit）だけを切り出す
-    expect(base64Decode(sent.single['data']).length, 44 + 1600 * 16 * 2);
+    // 言われたこと（1秒）と返事（0.4秒）に、それぞれ前後300msの余白を足し、間の無音を詰めてつなぐ（16kHz・16bit）
+    expect(base64Decode(sent.single['data']).length, 44 + (1600 + 1000) * 16 * 2);
     expect(find.text('書き起こし中 1 件'), findsOneWidget);
 
     // 書き起こしを待たずに、もう一度切り出せる

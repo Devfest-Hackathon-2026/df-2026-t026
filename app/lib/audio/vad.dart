@@ -50,6 +50,20 @@ class EnergyVad {
   }
 }
 
+/// at に最も近いかたまりから前へ、間が gap 未満で続くかたまりをまとめて返す。chunks は古い順
+List<Chunk> conversation(List<Chunk> chunks, int at, {required int gap}) {
+  int distance(Chunk c) => at < c.start ? c.start - at : max(0, at - c.end);
+  var last = 0;
+  for (var i = 1; i < chunks.length; i++) {
+    if (distance(chunks[i]) < distance(chunks[last])) last = i;
+  }
+  var first = last;
+  while (first > 0 && chunks[first].start - chunks[first - 1].end < gap) {
+    first--;
+  }
+  return chunks.sublist(first, last + 1);
+}
+
 /// 周りの騒音の大きさを追い、声とみなす音量をその上に置く。
 /// 換気扇や食洗機の音が続く厨房で、ずっと「話している」と判定しないため
 class NoiseFloor {
