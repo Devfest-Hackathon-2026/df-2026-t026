@@ -77,17 +77,17 @@ function questionProblems(q: string): string[] {
 }
 
 /** 利用者に見せる文（理由・確認先の候補の理由・聞き方）に出てはいけない中の事情 */
-const wordingRules: [string, (t: string) => boolean][] = [
-  ['行番号', (t) => /L\d+|\d+行目|第\d+行/.test(t)],
-  // 「」の中は行の文や題名（ケースのノートの題名は「マニュアル」、資料は「店舗マニュアル」など）なので見ない
-  ['マニュアル', (t) => t.replace(/「[^」]*」/g, '').includes('マニュアル')],
-  ['ISO の日付', (t) => /\d{4}-\d{1,2}-\d{1,2}/.test(t)],
+const wordingRules: [string, RegExp][] = [
+  ['行番号', /L\d+|\d+行目|第\d+行|資料\s*M\d/],
+  ['マニュアル', /マニュアル/],
+  ['ISO の日付', /\d{4}-\d{1,2}-\d{1,2}/],
 ];
 
 /** 利用者に見せる文の決まりを破ったものの名前を返す */
 function wordingProblems(j: Judged): string[] {
-  const texts = [j.reason, ...(j.why ?? []), j.question ?? ''];
-  return wordingRules.filter(([, bad]) => texts.some(bad)).map(([name]) => name);
+  // 「」の中は行の文や題名（ケースのノートの題名は「マニュアル」、資料の行には「1行目に書く」など）なので見ない
+  const texts = [j.reason, ...(j.why ?? []), j.question ?? ''].map((t) => t.replace(/「[^」]*」/g, ''));
+  return wordingRules.filter(([, bad]) => texts.some((t) => bad.test(t))).map(([name]) => name);
 }
 
 const arg = (name: string) => {
