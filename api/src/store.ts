@@ -23,7 +23,7 @@ export interface Shared {
   createdAt: string;
 }
 
-/** リワインドで切り出して書き起こした未整理メモ（ADR 0014）。at は切り出しボタンを押した時刻 */
+/** リワインドで切り出して書き起こした未整理メモ（ADR 0015）。at は切り出しボタンを押した時刻 */
 export interface Memo {
   id: string;
   at: string;
