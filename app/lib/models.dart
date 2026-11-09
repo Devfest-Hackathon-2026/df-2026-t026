@@ -210,9 +210,13 @@ class Resolution {
         answeredBy = j['answeredBy'],
         decidedAt = j['decidedAt'],
         text = j['text'],
-        note = j['note'];
+        note = j['note'],
+        shown = switch (j['shown']) {
+          {'by': final Map<String, dynamic> by, 'at': final String at} => (by: _person(by), at: at),
+          _ => null,
+        };
 
-  /// 確認の答えとして記録した発言
+  /// 確認の答えとして記録した発言。記録を見せて済ませた確定では、見せた人が記録を見せたという発言
   final String utteranceId;
   final String? patchId;
   final String decidedBy;
@@ -225,6 +229,9 @@ class Resolution {
   final String decidedAt;
   final String text;
   final String note;
+
+  /// 聞き直さず、前の確定の記録を見せて済ませたときの、見せた人と日（#118）。ほかの中身は前の確定の写し
+  final ({Person by, String at})? shown;
 }
 
 class Check {
@@ -260,6 +267,9 @@ class Check {
   final MaterialRef? materialRef;
 
   bool get isOpen => kind == Kind.contradiction && resolution == null;
+
+  /// 確定して、その決定の元になった記録か。記録を見せて済ませた確定は元の確定を指すので、行の印や証拠にはしない（#118）
+  bool get isDecision => resolution != null && resolution!.shown == null;
 }
 
 /// 選んだ・撮った・貼り付けた・ドロップしたファイル。type はブラウザが付けた形式（分からなければ空）
@@ -365,8 +375,9 @@ class ManualState {
   Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
 
   /// 「資料のまま」に決まった確定は資料の行のもの。同じ資料から作ったノートに同じ文の行があっても、そこには付けない
-  Check? _confirmedAs(String text) => resolvedChecks
-      .where((c) => c.resolution!.text == text && !(c.materialRef != null && c.resolution!.text == c.conflictLine))
+  Check? _confirmedAs(String text) => checks
+      .where((c) =>
+          c.isDecision && c.resolution!.text == text && !(c.materialRef != null && c.resolution!.text == c.conflictLine))
       .lastOrNull;
 
   /// 確認待ちの食い違いの相手が確定済みの記録なら、その確認。相手の行がノートにあればその行の確認の印、
@@ -376,7 +387,7 @@ class ManualState {
     final conflict = c.conflictLine;
     if (!c.isOpen || conflict == null) return null;
     if (c.materialRef case final m?) {
-      return checksAt(m.materialId, m.lineNo).where((x) => x.resolution != null).lastOrNull;
+      return checksAt(m.materialId, m.lineNo).where((x) => x.isDecision).lastOrNull;
     }
     final line = lines.where((l) => l.text == conflict).firstOrNull;
     return line == null ? _confirmedAs(conflict) : confirmationFor(line);

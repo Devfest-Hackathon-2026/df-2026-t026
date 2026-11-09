@@ -172,10 +172,15 @@ class _CheckListScreenState extends State<CheckListScreen> {
       body: [
         Text(_pair(s, chk), style: k.text.small),
         SizedBox(height: k.space.sm),
-        // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
-        Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb),
-        SizedBox(height: k.space.xs),
-        Text(r.note, style: k.text.body),
+        // 記録を見せて済ませた確定は、前に決めた人の確認でなく、見せた人の行いとして出す（#118）
+        if (shownByText(s, r) case final shown?)
+          Text('$shown（${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}）', style: k.text.body)
+        else ...[
+          // 小さい斜めの印でなく、ノートの行と同じ「(丸) 店長 11/7 に確認」の形にし、決まったことをその下に出す
+          Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb),
+          SizedBox(height: k.space.xs),
+          Text(r.note, style: k.text.body),
+        ],
         if (r.note != plain(r.text)) ...[
           SizedBox(height: k.space.xs),
           Text('確定した内容：${plain(r.text)}', style: k.text.small),

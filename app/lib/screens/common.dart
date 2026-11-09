@@ -496,6 +496,12 @@ String showRecordText(Resolution r) {
   return '${fmtDay(r.decidedAt)} に${r.decidedBy}$how、「$decided」に決まっています$note。';
 }
 
+/// 記録を見せて済ませた確定の「11/10 自分が記録を見せた」。見せた確定でなければ null（#118）
+String? shownByText(ManualState s, Resolution r) => switch (r.shown) {
+      (:final by, :final at) => '${fmtDay(at)} ${by.id == s.me ? '自分' : by.name}が記録を見せた',
+      null => null,
+    };
+
 /// 食い違い・同じ内容の相手の見出し。資料なら「資料「店舗マニュアル」p.3」、ノートなら「ノート」（ADR 0019）
 String counterpartLabel(Check c) => c.materialRef?.label ?? 'ノート';
 

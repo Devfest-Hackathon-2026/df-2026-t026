@@ -173,20 +173,13 @@ class _CheckDetailState extends State<CheckDetail> {
     }
   }
 
-  /// 聞き直さず、確定済みの記録を見せて済ませる。前の確定と同じ相手・日付で「ノートのまま」に確定する。
-  /// 相手が資料の行なら、前に確定した内容で確定する（資料と違う内容に決まっていたのを「資料のまま」で覆さない）。
-  /// ノートの行が相手なら今の行のまま（補足で書き換わった行の確定を、前の内容に戻さない）。
-  /// 共有された人は、今までどおりサーバーがその人と今日を決めた人と日付にする（ADR 0017）
-  Future<void> _keepByRecord(Check chk, Resolution r) async {
-    final answering = widget.c.state!.sharedBy != null;
+  /// 聞き直さず、確定済みの記録を見せて済ませる。決めた人・日付・内容はサーバーが前の確定から引き継ぎ、
+  /// 見せたことは押した人の行いとして残す（#118）。共有された人が押しても、その人の決定にはしない
+  Future<void> _keepByRecord(Check chk, Check confirmed) async {
     setState(() => _keeping = true);
     try {
-      await widget.c.resolve(chk.id,
-          decidedBy: answering ? null : r.decidedBy,
-          decidedAt: answering ? today() : r.decidedAt,
-          text: chk.materialRef != null ? r.text : chk.conflictLine!,
-          note: '${fmtDay(today())} に、${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}した記録を見せた');
-      if (mounted) showToast(context, answering ? '確定しました。あなたが決めた記録に残しています' : '確定しました。確認の記録に残しています');
+      await widget.c.resolveByRecord(chk.id, shownFrom: confirmed.id);
+      if (mounted) showToast(context, '確定しました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -265,7 +258,7 @@ class _CheckDetailState extends State<CheckDetail> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: MoonFilledButton(
-                  onTap: _busy || _keeping ? null : () => _keepByRecord(chk, confirmed.resolution!),
+                  onTap: _busy || _keeping ? null : () => _keepByRecord(chk, confirmed),
                   leading: _keeping ? const ButtonLoader() : null,
                   // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
                   label: Flexible(
@@ -516,7 +509,8 @@ class _CheckDetailState extends State<CheckDetail> {
     );
   }
 
-  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる。onTap があれば押すとその確認の記録を開く
+  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる。onTap があれば押すとその確認の記録を開く。
+  /// 記録を見せて済ませた確定は、確認印と中身は元の確定のまま、見せた人と日を上に添える（#118）
   Widget _evidence(Resolution r, {VoidCallback? onTap}) {
     final k = context.tokens;
     final box = Container(
@@ -525,6 +519,10 @@ class _CheckDetailState extends State<CheckDetail> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (shownByText(widget.c.state!, r) case final shown?) ...[
+              Text(shown, style: k.text.small),
+              SizedBox(height: k.space.xs),
+            ],
             Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
             SizedBox(height: k.space.sm),
             Text('確定した内容：${plain(r.text)}', style: k.text.body),

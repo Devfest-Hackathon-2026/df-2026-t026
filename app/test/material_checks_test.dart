@@ -150,16 +150,18 @@ Map<String, dynamic> _saidAgain(Map<String, dynamic> base, String said) => base
   ..['patches'].add(_patch('p3', 'u3', '2026-11-10', said))
   ..['checks'].add(_check('c2', 'p3', 'u3'));
 
-/// 送られた内容で c2 を確定した状態
-Map<String, dynamic> _resolvedWith(Map<String, dynamic> j, Map<String, dynamic> body) {
-  (j['utterances'] as List).add(_said('a2', body['decidedBy'], body['decidedAt'], body['note']));
+/// 記録を見せて c2 を確定した状態。サーバーと同じく、前の確定（shownFrom）の中身を写し、見せた人と日を付ける（#118）
+Map<String, dynamic> _shownWith(Map<String, dynamic> j, Map<String, dynamic> body) {
+  final prev = (j['checks'] as List).firstWhere((c) => c['id'] == body['shownFrom'])['resolution'] as Map<String, dynamic>;
+  (j['utterances'] as List).add(_said('a2', 'かなで', '2026-11-10', '11/7 店長に確認した記録（${prev['note']}）を見せた'));
   (j['checks'] as List).last['resolution'] = {
+    ...prev,
     'utteranceId': 'a2',
     'patchId': null,
-    'decidedBy': body['decidedBy'],
-    'decidedAt': body['decidedAt'],
-    'text': body['text'],
-    'note': body['note'],
+    'shown': {
+      'by': {'id': 'kanade', 'name': 'かなで'},
+      'at': '2026-11-10',
+    },
   };
   return j;
 }
@@ -370,6 +372,19 @@ void main() {
       (other['checks'] as List).last['materialRef'] = {..._ref, 'lineNo': 61};
       expect(s(other).confirmedRecordFor(s(other).checks.last), isNull);
     });
+
+    test('記録を見せて済ませた確定があっても、資料の行とノートの行の確定は元の確定（#118）', () {
+      Map<String, dynamic> later(Map<String, dynamic> j) => j
+        ..['utterances'].add(_said('u4', '鈴木さん', '2026-11-11', '味噌汁の塩は小さじ2'))
+        ..['patches'].add(_patch('p4', 'u4', '2026-11-11', _two))
+        ..['checks'].add(_check('c4', 'p4', 'u4'));
+      final kept = s(later(_shownWith(_saidAgain(_kept(), _half), {'shownFrom': 'c1'})));
+      expect(kept.checks[1].resolution?.shown?.by.name, 'かなで');
+      expect(kept.confirmedRecordFor(kept.checks.last)?.id, 'c1');
+      final changed = s(later(_shownWith(_saidAgain(_changed(), _two), {'shownFrom': 'c1'})));
+      expect(changed.confirmedRecordFor(changed.checks.last)?.id, 'c1');
+      expect(changed.confirmationFor(line(changed, _half))?.id, 'c1');
+    });
   });
 
   for (final size in const [_narrow, _wide]) {
@@ -429,16 +444,17 @@ void main() {
 
       testWidgets('「資料のまま」に確定した記録と食い違ったら、主のボタンは「記録を見せて、資料のままにする」', (tester) async {
         final server = await _pump(tester, _saidAgain(_kept(), _half), (c) => _checkPage(c, size, 'c2'),
-            afterResolve: (body) => _resolvedWith(_saidAgain(_kept(), _half), body));
+            afterResolve: (body) => _shownWith(_saidAgain(_kept(), _half), body));
         expect(find.text('11/7 店長に確認：資料の通り'), findsOneWidget);
         expect(find.text('記録を見せて、ノートのままにする'), findsNothing);
         final keep = find.widgetWithText(MoonFilledButton, '記録を見せて、資料のままにする');
         await tester.ensureVisible(keep);
         await tester.tap(keep);
         await tester.pumpAndSettle();
-        expect(server.resolved, containsPair('text', _mat));
-        expect(server.resolved, containsPair('decidedBy', '店長'));
-        expect(server.resolved, containsPair('decidedAt', '2026-11-07'));
+        // 決めた人・日付・内容はサーバーが前の確定から引き継ぐので、どの確定を見せたかだけを送る（#118）
+        expect(server.resolved, {'shownFrom': 'c1'});
+        expect(find.text('11/10 自分が記録を見せた'), findsOneWidget);
+        expect(find.text('11/7 店長に確認：資料の通り'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pump(const Duration(seconds: 10));
       });
@@ -460,7 +476,8 @@ void main() {
       await tester.ensureVisible(keep);
       await tester.tap(keep);
       await tester.pumpAndSettle();
-      expect(server.resolved, containsPair('text', _half));
+      // 行がもうノートにあれば足さないのはサーバーが決める（#118）
+      expect(server.resolved, {'shownFrom': 'c1'});
       await tester.pump(const Duration(seconds: 10));
     });
 
@@ -548,6 +565,17 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byWidgetPredicate((w) => w is CheckDetail && w.checkId == 'c1'), findsOneWidget);
       expect(find.text('確認の記録'), findsWidgets);
+    });
+
+    testWidgets('記録を見せて済ませたあとも、印は元の「店長 11/7 に確認」の1つで、押すと元の確定の記録を開く（#118）', (tester) async {
+      final j = _shownWith(_saidAgain(_kept(), _half), {'shownFrom': 'c1'});
+      await _pump(tester, j, (c) => MaterialScreen(c: c, materialId: 'mat1', lineNo: 60));
+      expect(find.byWidgetPredicate((w) => w is Speaker && w.after != null), findsOneWidget);
+      final speaker = find.byWidgetPredicate((w) => w is Speaker && w.name == '店長' && w.after == 'に確認');
+      expect(speaker, findsOneWidget);
+      await tester.tap(speaker);
+      await tester.pumpAndSettle();
+      expect(find.byWidgetPredicate((w) => w is CheckDetail && w.checkId == 'c1'), findsOneWidget);
     });
 
     testWidgets('資料と違う内容に決まった確定は、決まった内容を添える', (tester) async {
