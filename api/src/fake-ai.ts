@@ -3,6 +3,7 @@ import type { CheckPatch, CheckResult } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
+import type { ReadMaterial } from './material.ts';
 import { isHeading, unmark } from './gemini.ts';
 import type { Dictate, Listen } from './stt.ts';
 
@@ -108,6 +109,13 @@ export const fakeFormat: Format = async (text) =>
 export const fakeTranscribe: Transcribe = async () => '田中さんから塩は小さじ1/2でいいと言われた';
 export const fakeReadNote: ReadNote = async () => ({ title: 'キッチンマニュアル', text: '仕込み\n野菜を切る 塩は小さじ1' });
 export const fakeListen: Listen = async () => '佐藤さんから、ご飯はおかわり1回まで無料と教わった';
+/** 資料の読み取り（ADR 0019）。渡されたページの数だけ、決まった本文を返す */
+export const fakeReadMaterial: ReadMaterial = async (_, pages) => ({
+  title: '店舗マニュアル',
+  pages: Array.from({ length: pages }, () => '## 味噌汁\n- 味噌汁の塩は小さじ1\n- だしは昆布でとる'),
+});
+/** 偽のトークン数は文字数にする */
+export const fakeCountTokens = async (text: string) => text.length;
 
 /** 音声入力は、届いた音声の長さに合わせて決まり文句を頭から少しずつ返す（16kHz・16bit で 0.25 秒ごとに1文字） */
 export const fakeDictate: Dictate = async (_, on) => {

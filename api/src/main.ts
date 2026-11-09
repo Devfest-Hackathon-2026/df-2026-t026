@@ -5,10 +5,12 @@ import { createApp } from './app.ts';
 import { assessWithGemini } from './assess.ts';
 import { hashPassword } from './auth.ts';
 import { checkWithGemini } from './conflict/check.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from './fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, fakeListen, fakeReadMaterial, fakeReadNote, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
 import { formatWithGemini, readNoteWithGemini } from './format.ts';
+import { countTokensWithGemini } from './gemini.ts';
 import { transcribeWithGemini } from './intake.ts';
+import { readMaterialWithGemini } from './material.ts';
 import { seedWithHistory } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
@@ -33,6 +35,8 @@ const app = createApp({
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   format: useGemini ? (t) => formatWithGemini(t) : fakeFormat,
   readNote: useGemini ? (f) => readNoteWithGemini(f) : fakeReadNote,
+  readMaterial: useGemini ? (f, n) => readMaterialWithGemini(f, n) : fakeReadMaterial,
+  countTokens: useGemini ? countTokensWithGemini : fakeCountTokens,
   listen: useGemini ? listenWithSpeech : fakeListen,
   dictate: useGemini ? dictateWithSpeech : fakeDictate,
   allowOrigin: process.env.ALLOW_ORIGIN,
