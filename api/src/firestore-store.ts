@@ -2,10 +2,11 @@ import { Firestore } from '@google-cloud/firestore';
 
 import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
-import type { Profile, Store } from './store.ts';
+import type { Profile, Shared, Store } from './store.ts';
 
 /**
  * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
+ * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。
  * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
  */
 export class FirestoreStore implements Store {
@@ -67,5 +68,27 @@ export class FirestoreStore implements Store {
 
   async putProfile(userId: string, profile: Profile) {
     await this.db.collection('users').doc(userId).set(profile);
+  }
+
+  private shared(userId: string) {
+    return this.db.collection('users').doc(userId).collection('shared');
+  }
+
+  async listShared(userId: string) {
+    const snap = await this.shared(userId).get();
+    return snap.docs.map((d) => d.data() as Shared);
+  }
+
+  async getShared(userId: string, manualId: string) {
+    const doc = await this.shared(userId).doc(manualId).get();
+    return doc.exists ? (doc.data() as Shared) : null;
+  }
+
+  async putShared(userId: string, shared: Shared) {
+    await this.shared(userId).doc(shared.id).set(shared);
+  }
+
+  async removeShared(userId: string, manualId: string) {
+    await this.shared(userId).doc(manualId).delete();
   }
 }

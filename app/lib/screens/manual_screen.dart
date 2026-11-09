@@ -9,6 +9,7 @@ import 'check_list_screen.dart';
 import 'common.dart';
 import 'history_screen.dart';
 import 'review_dialog.dart';
+import 'share_dialog.dart';
 import 'sidebar.dart';
 import 'tab_bar.dart';
 
@@ -110,26 +111,38 @@ class _ManualScreenState extends State<ManualScreen> {
         final open = s?.openChecks.length ?? 0;
         // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
         final narrow = s != null && !showsSidebar(context);
+        // 共有の相手を変えられるのは持ち主だけ。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0013）
+        final mine = s != null && s.sharedBy == null;
         return Scaffold(
           extendBody: true,
           bottomNavigationBar: narrow && showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
-              trailing: s == null || narrow
+              trailing: s == null || (narrow && !mine)
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openHistory,
-                        label: const Text('履歴'),
-                      ),
-                      SizedBox(width: context.tokens.space.sm),
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openList,
-                        label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
-                      ),
+                      if (!narrow) ...[
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: _openHistory,
+                          label: const Text('履歴'),
+                        ),
+                        SizedBox(width: context.tokens.space.sm),
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: _openList,
+                          label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
+                        ),
+                      ],
+                      if (mine) ...[
+                        if (!narrow) SizedBox(width: context.tokens.space.sm),
+                        MoonOutlinedButton(
+                          buttonSize: MoonButtonSize.sm,
+                          onTap: () => showShare(context, widget.api, widget.manualId),
+                          label: const Text('共有'),
+                        ),
+                      ],
                     ]),
             ),
             Expanded(
@@ -188,6 +201,7 @@ class _ManualScreenState extends State<ManualScreen> {
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
               child: PageTitle(s.title, meta: [
+                if (s.sharedBy case final owner?) Text('${owner.name} から共有', style: k.text.small),
                 Text('記録 ${s.said.length} 件', style: k.text.small),
                 Text('口頭で変わった行 $changed 行', style: k.text.small),
                 if (s.openChecks.isNotEmpty)
@@ -296,9 +310,9 @@ class _ManualScreenState extends State<ManualScreen> {
     final patch = line.patchId == null ? null : s.patch(line.patchId!);
     final said = patch == null ? null : s.utterance(patch.utteranceId);
     // 左余白の色線は変更の種類を表す：あとで確認は黄、口頭で変わった行は緑。食い違いでも行の地は塗らない。
-    // 直接書いた行は本人の文なので、色線も発言者も付けない
-    final oral = said != null && !said.fromEdit;
-    final bar = open.isNotEmpty ? k.colors.pending : (oral || confirmed != null ? k.colors.added : null);
+    // 持ち主が直接書いた行は本人の文なので、色線も発言者も付けない。共有された人が直した行は、口頭と同じく誰が直したかを出す
+    final byOther = said != null && (!said.fromEdit || said.editedBy != null);
+    final bar = open.isNotEmpty ? k.colors.pending : (byOther || confirmed != null ? k.colors.added : null);
     final marks = <Widget>[
       // 確認して決めた行は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる。押すと確認の記録を開く
       // 「に確認」も Speaker の中に入れて、どこを押しても確認の記録を開く（下の行の書き換えの欄は開かない）
@@ -309,7 +323,7 @@ class _ManualScreenState extends State<ManualScreen> {
           after: 'に確認',
           onTap: () => _openCheck(confirmed),
         )
-      else if (oral)
+      else if (byOther)
         Speaker(name: said.speaker, day: said.saidAt, onTap: () => _showUtterance(said)),
       if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),
       for (final c in s.sameChecksFor(line))
@@ -416,7 +430,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utteranceEntry(ManualState s, Utterance u) {
     final k = context.tokens;
     return StickyNote(
-      onTap: () => showReview(context, [(c: c, utteranceId: u.id)]),
+      // 書き込む前の確認は持ち主だけ。共有された人には、言われたことを見せるだけにする（ADR 0013）
+      onTap: () => s.sharedBy == null ? showReview(context, [(c: c, utteranceId: u.id)]) : _showUtterance(u),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),

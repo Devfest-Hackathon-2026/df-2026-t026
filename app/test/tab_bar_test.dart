@@ -155,7 +155,9 @@ void main() {
     expect(find.text('ノート'), findsOneWidget);
     expect(_tab('ノート'), findsOneWidget);
     expect(find.descendant(of: find.byType(MoonTabBar), matching: find.text('本文')), findsOneWidget);
-    expect(find.byType(MoonOutlinedButton), findsNothing);
+    // 上部バーには、タブバーに無い「共有」だけを出す（ADR 0013）
+    expect(find.byType(MoonOutlinedButton), findsOneWidget);
+    expect(find.widgetWithText(MoonOutlinedButton, '共有'), findsOneWidget);
   });
 
   testWidgets('ノートの食い違っている行から開いた確認リストから、ノートのタブで1枚のノートに戻る', (tester) async {

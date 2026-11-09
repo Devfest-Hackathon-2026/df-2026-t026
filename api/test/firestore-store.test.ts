@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
-import { hashPassword } from '../src/auth.ts';
+import { hashPassword, sessionIdOf } from '../src/auth.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { FirestoreStore } from '../src/firestore-store.ts';
 import { seed } from '../src/seed.ts';
@@ -39,4 +39,21 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   await call('PUT', '/me', { name: 'かなで', icon: null });
   assert.equal((await (await send('GET', '/me', undefined, { Authorization: `Bearer ${token}` })).json() as any).name, 'かなで');
   assert.equal((await store.listManuals('demo')).length, 2);
+
+  // 共有：相手の側の索引で持ち主を引き、持ち主のノートに書く。外すと両方の側から消える（ADR 0013）
+  await store.putAccount({ id: 'sato', ...(await hashPassword('pass-sato')), createdAt: '' });
+  await store.putSession({ id: sessionIdOf('sato-token'), userId: 'sato', createdAt: '' });
+  const asSato = async (method: string, path: string, body?: unknown) => {
+    const res = await send(method, path, body, { Authorization: 'Bearer sato-token' });
+    return { status: res.status, json: (await res.json()) as any };
+  };
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  assert.deepEqual((await asSato('GET', '/shared')).json.map((m: any) => m.id), ['demo-kitchen']);
+  const edited = await asSato('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- だしは煮干し' });
+  assert.equal(edited.status, 201);
+  assert.ok((await store.list<any>('demo', 'demo-kitchen', 'utterances')).some((u) => u.editedBy === 'sato'));
+  await call('DELETE', '/manuals/demo-kitchen/shares/sato', undefined);
+  assert.equal((await asSato('GET', '/manuals/demo-kitchen')).status, 404);
+  assert.deepEqual(await store.listShared('sato'), []);
+  assert.deepEqual(await store.list('demo', 'demo-kitchen', 'shares'), []);
 });

@@ -30,6 +30,25 @@ class Me {
   final IconImage? icon;
 }
 
+/// ほかのアカウントの人。名前を決めていなければ ID が入る
+typedef Person = ({String id, String name});
+
+Person _person(Map<String, dynamic> j) => (id: j['id'] as String, name: j['name'] as String);
+
+/// ほかの人から共有されたノート（ADR 0013）
+class SharedManual {
+  SharedManual.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        title = j['title'],
+        sharedBy = _person(j['sharedBy']);
+
+  final String id;
+  final String title;
+
+  /// ノートの持ち主
+  final Person sharedBy;
+}
+
 class ManualSummary {
   ManualSummary.fromJson(Map<String, dynamic> j)
       : id = j['id'],
@@ -61,6 +80,7 @@ class Utterance {
         speaker = j['speaker'],
         saidAt = j['saidAt'],
         fromEdit = j['fromEdit'] ?? false,
+        editedBy = j['editedBy'],
         createdAt = j['createdAt'];
 
   final String id;
@@ -72,6 +92,9 @@ class Utterance {
 
   /// 利用者がノートを直接編集した記録。口頭で言われたことではない
   final bool fromEdit;
+
+  /// 共有された人が直接編集したときの、その人の ID。持ち主の編集なら null（ADR 0013）
+  final String? editedBy;
 
   /// 記録した日時（ISO 8601）
   final String createdAt;
@@ -214,10 +237,14 @@ class ManualState {
         lines = [for (final l in j['lines']) ManualLine.fromJson(l)],
         utterances = [for (final u in j['utterances']) Utterance.fromJson(u)],
         patches = [for (final p in j['patches']) Patch.fromJson(p)],
-        checks = [for (final c in j['checks']) Check.fromJson(c)];
+        checks = [for (final c in j['checks']) Check.fromJson(c)],
+        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
 
   final String id;
   final String title;
+
+  /// ほかの人から共有されたノートなら、その持ち主。自分のノートなら null（ADR 0013）
+  final Person? sharedBy;
 
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;

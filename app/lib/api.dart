@@ -64,6 +64,23 @@ class Api {
 
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
+  /// ほかの人から自分に共有されたノート
+  Future<List<SharedManual>> listShared() async =>
+      [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
+
+  /// このノートを共有している相手
+  Future<List<Person>> shares(String manualId) async => _people(await _send('GET', '/manuals/$manualId/shares'));
+
+  /// ログイン ID の人にノートを共有し、共有している相手を返す
+  Future<List<Person>> share(String manualId, String userId) async =>
+      _people(await _send('POST', '/manuals/$manualId/shares', {'userId': userId}));
+
+  /// その人への共有をやめ、共有している相手を返す
+  Future<List<Person>> unshare(String manualId, String userId) async =>
+      _people(await _send('DELETE', '/manuals/$manualId/shares/$userId'));
+
+  List<Person> _people(dynamic json) => [for (final p in json) (id: p['id'] as String, name: p['name'] as String)];
+
   /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ
   Future<IntakeResult> intake({
     required String text,

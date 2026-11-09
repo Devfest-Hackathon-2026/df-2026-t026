@@ -12,7 +12,7 @@ import { manualContext, type Check, type CheckPatch } from './conflict/check.ts'
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
-import type { Store } from './store.ts';
+import type { Share, Store } from './store.ts';
 import { phraseHints, type Dictate, type DictationStream, type Listen } from './stt.ts';
 
 export interface Deps {
@@ -102,6 +102,7 @@ const Edit = z
   })
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
+const NewShare = z.object({ userId: z.string().trim().min(1, '共有する相手のログイン ID を入れてください') });
 const Resolve = z.object({
   decidedBy: z.string().trim().min(1),
   decidedAt: date,
@@ -109,10 +110,11 @@ const Resolve = z.object({
   note: z.string().trim().default(''),
 });
 
-/** 直接編集した人。ノートは利用者ごとに分かれているので、本人 */
+/** 持ち主が直接編集したときの発言者。共有された人の編集は、その人の名前にする（ADR 0013） */
 const SELF = '自分';
 
 const now = () => new Date().toISOString();
+const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
 export function createApp({ store, assess, check, transcribe, format, readNote, listen, dictate, allowOrigin }: Deps) {
@@ -136,19 +138,49 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json({ error: 'サーバーでエラーが起きました' }, 500);
   });
 
-  async function load(userId: string, manualId: string) {
-    const manual = await store.getManual(userId, manualId);
-    if (!manual) throw new HTTPException(404, { message: 'ノートが見つかりません' });
-    const [utterances, patches, checks] = await Promise.all([
-      store.list<Utterance>(userId, manualId, 'utterances'),
-      store.list<Patch>(userId, manualId, 'patches'),
-      store.list<Check>(userId, manualId, 'checks'),
+  /** 名前を決めていなければ ID を名前にする（ADR 0010） */
+  const nameOf = async (userId: string) => (await store.getProfile(userId))?.name ?? userId;
+
+  const notFound = () => new HTTPException(404, { message: 'ノートが見つかりません' });
+
+  /**
+   * ノートを読む。既定では持ち主だけに許す。shared なら、共有された人にも持ち主のノートを読ませる（ADR 0013）。
+   * 書き込むときは userId ではなく、返した owner の下に書く
+   */
+  async function load(userId: string, manualId: string, { shared = false } = {}) {
+    let owner = userId;
+    let manual = await store.getManual(userId, manualId);
+    if (!manual && shared) {
+      const pointer = await store.getShared(userId, manualId);
+      if (pointer) {
+        owner = pointer.ownerId;
+        manual = await store.getManual(owner, manualId);
+      }
+    }
+    if (!manual) throw notFound();
+    const mine = owner === userId;
+    const [utterances, patches, checks, shares, ownerName] = await Promise.all([
+      store.list<Utterance>(owner, manualId, 'utterances'),
+      store.list<Patch>(owner, manualId, 'patches'),
+      store.list<Check>(owner, manualId, 'checks'),
+      mine ? ([] as Share[]) : store.list<Share>(owner, manualId, 'shares'),
+      mine ? null : nameOf(owner),
     ]);
-    const byCreated = (a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt);
+    // 相手の側の索引だけでは信じず、持ち主の側にも共有の記録があるかを確かめる
+    if (!mine && !shares.some((x) => x.id === userId)) throw notFound();
     utterances.sort(byCreated);
     patches.sort(byCreated);
     checks.sort(byCreated);
-    return { manual, lines: render(manual.base, patches), utterances, patches, checks };
+    return {
+      manual,
+      lines: render(manual.base, patches),
+      utterances,
+      patches,
+      checks,
+      owner,
+      /** 共有されたノートなら持ち主。自分のノートなら null */
+      sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
+    };
   }
 
   async function loadAll(userId: string) {
@@ -233,7 +265,71 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(read);
   });
 
-  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));
+  app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'), { shared: true })));
+
+  // 自分に共有されたノート。サイドバーに並べる（ADR 0013）
+  app.get('/shared', async (c) => {
+    const { userId } = c.var;
+    const pointers = await store.listShared(userId);
+    const items = await Promise.all(
+      pointers.map(async (x) => {
+        const [manual, shares, name] = await Promise.all([
+          store.getManual(x.ownerId, x.id),
+          store.list<Share>(x.ownerId, x.id, 'shares'),
+          nameOf(x.ownerId),
+        ]);
+        if (!manual || !shares.some((s) => s.id === userId)) return null;
+        return { id: manual.id, title: manual.title, sharedBy: { id: x.ownerId, name }, sharedAt: x.createdAt };
+      }),
+    );
+    return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
+  });
+
+  /** 共有の相手を変えられるのは持ち主だけ */
+  async function mustOwn(userId: string, manualId: string) {
+    if (!(await store.getManual(userId, manualId))) throw notFound();
+  }
+
+  async function sharesOf(userId: string, manualId: string) {
+    const shares = (await store.list<Share>(userId, manualId, 'shares')).sort(byCreated);
+    return Promise.all(shares.map(async (x) => ({ id: x.id, name: await nameOf(x.id) })));
+  }
+
+  app.get('/manuals/:id/shares', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    await mustOwn(userId, manualId);
+    return c.json(await sharesOf(userId, manualId));
+  });
+
+  // 招待や承認は無く、足すとすぐ相手のサイドバーに出る（ADR 0013）
+  app.post('/manuals/:id/shares', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const body = NewShare.parse(await c.req.json());
+    await mustOwn(userId, manualId);
+    if (body.userId === userId) throw new HTTPException(400, { message: '自分には共有できません。相手のログイン ID を入れてください' });
+    const account = loginIdPattern.test(body.userId) ? await store.getAccount(body.userId) : null;
+    if (!account) throw new HTTPException(404, { message: `ID「${body.userId}」のアカウントはありません。ID を確かめてください` });
+    const createdAt = now();
+    // 持ち主の側を先に書く。途中で失敗しても、持ち主の知らない相手が読める形を残さない
+    await store.put<Share>(userId, manualId, 'shares', { id: account.id, createdAt });
+    await store.putShared(account.id, { id: manualId, ownerId: userId, createdAt });
+    return c.json(await sharesOf(userId, manualId), 201);
+  });
+
+  app.delete('/manuals/:id/shares/:uid', async (c) => {
+    const { userId } = c.var;
+    const manualId = c.req.param('id');
+    const target = c.req.param('uid');
+    await mustOwn(userId, manualId);
+    const shares = await store.list<Share>(userId, manualId, 'shares');
+    if (!shares.some((x) => x.id === target)) throw new HTTPException(404, { message: 'この人には共有していません' });
+    // 相手の側を先に消す。途中で失敗しても、外したはずの相手が読める形を残さない
+    await store.removeShared(target, manualId);
+    await store.remove(userId, manualId, 'shares', target);
+    return c.json(await sharesOf(userId, manualId));
+  });
 
   // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
   // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
@@ -422,18 +518,20 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(await load(userId, manualId));
   });
 
-  // ノートの直接編集。「自分がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）
+  // ノートの直接編集。「誰がいつ書いたか」付きの記録として土台に残し、すぐ反映する（ADR 0007）。
+  // 共有された人も編集でき、その人が書いたとして残す（ADR 0013）
   app.post('/manuals/:id/edits', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
     const body = Edit.parse(await c.req.json());
-    const s = await load(userId, manualId);
+    const s = await load(userId, manualId, { shared: true });
     const utterance: Utterance = {
       id: randomUUID(),
       text: body.op === 'delete' ? `「${body.line}」を消した` : body.text,
-      speaker: SELF,
+      speaker: s.sharedBy ? await nameOf(userId) : SELF,
       saidAt: body.today ?? todayInJapan(),
       fromEdit: true,
+      ...(s.sharedBy && { editedBy: userId }),
       createdAt: now(),
     };
     const patch: Patch = {
@@ -448,9 +546,9 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       appliedAt: now(),
     };
     applyPatch(s.lines, patch);
-    await store.put(userId, manualId, 'utterances', utterance);
-    await store.put(userId, manualId, 'patches', patch);
-    return c.json(await load(userId, manualId), 201);
+    await store.put(s.owner, manualId, 'utterances', utterance);
+    await store.put(s.owner, manualId, 'patches', patch);
+    return c.json(await load(userId, manualId, { shared: true }), 201);
   });
 
   // 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを見る。
@@ -458,7 +556,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   app.post('/manuals/:id/patches/:pid/check', async (c) => {
     const { userId } = c.var;
     const manualId = c.req.param('id');
-    const s = await load(userId, manualId);
+    const s = await load(userId, manualId, { shared: true });
     const p = find(s.patches, c.req.param('pid'), '差分');
     const u = find(s.utterances, p.utteranceId, '発言');
     if (!u.fromEdit || p.op === 'delete' || s.checks.some((x) => x.patchId === p.id)) {
@@ -473,8 +571,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       patch: draft,
     });
     const chk: Check = { ...result, id: randomUUID(), patchId: p.id, utteranceId: u.id, resolution: null, createdAt: now() };
-    await store.put(userId, manualId, 'checks', chk);
-    return c.json(await load(userId, manualId));
+    await store.put(s.owner, manualId, 'checks', chk);
+    return c.json(await load(userId, manualId, { shared: true }));
   });
 
   app.post('/manuals/:id/patches/:pid/discard', async (c) => {
