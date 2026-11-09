@@ -114,10 +114,12 @@ class _InputScreenState extends State<InputScreen> {
     });
     _lifecycle = AppLifecycleListener(onResume: _loadMemos);
     _loadMemos();
+    widget.api.changes.addListener(_follow);
   }
 
   @override
   void dispose() {
+    widget.api.changes.removeListener(_follow);
     _text.dispose();
     _memoText.dispose();
     _stopWatchingDrops();
@@ -137,6 +139,15 @@ class _InputScreenState extends State<InputScreen> {
       _manuals = _load();
     });
     _loadMemos();
+  }
+
+  /// サイドバーと同じ時機に読み直す。サイドバーから戻ったときは _push を通らないので、
+  /// ほかの画面での確定が「あとで確認」に出ない（#92）。読めなければ今の表示のまま残し、待ち受けや書きかけを消さない
+  void _follow() {
+    final shown = _manuals;
+    setState(() {
+      _manuals = _load().catchError((Object _) => shown);
+    });
   }
 
   /// 未整理メモをサーバーから読み直す。ほかの端末でためた・直した・消したメモもここでそろう
