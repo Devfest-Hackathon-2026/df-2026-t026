@@ -1,6 +1,12 @@
 import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
 
+/** 本人が決めた名前とアイコン（ADR 0010）。アイコンは base64 */
+export interface Profile {
+  name: string;
+  icon: { mimeType: string; data: string } | null;
+}
+
 /**
  * 保存先。マニュアルの下に、土台（utterances / patches）と
  * 衝突検知（checks）がそれぞれ自分のコレクションを持つ。
@@ -16,6 +22,8 @@ export interface Store {
   putAccount(account: Account): Promise<void>;
   getSession(id: string): Promise<Session | null>;
   putSession(session: Session): Promise<void>;
+  getProfile(userId: string): Promise<Profile | null>;
+  putProfile(userId: string, profile: Profile): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
@@ -24,6 +32,7 @@ export class MemoryStore implements Store {
   private docs = new Map<string, Map<string, unknown>>();
   private accounts = new Map<string, Account>();
   private sessions = new Map<string, Session>();
+  private profiles = new Map<string, Profile>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -67,5 +76,13 @@ export class MemoryStore implements Store {
 
   async putSession(session: Session) {
     this.sessions.set(session.id, structuredClone(session));
+  }
+
+  async getProfile(userId: string) {
+    return structuredClone(this.profiles.get(userId) ?? null);
+  }
+
+  async putProfile(userId: string, profile: Profile) {
+    this.profiles.set(userId, structuredClone(profile));
   }
 }

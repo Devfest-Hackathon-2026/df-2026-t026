@@ -23,6 +23,7 @@ import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'profile_screen.dart';
 import 'review_dialog.dart';
 import 'rewind_screen.dart';
 import 'sidebar.dart';
@@ -382,6 +383,7 @@ class _InputScreenState extends State<InputScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final k = context.tokens;
     return Scaffold(
       body: WithSidebar(
         api: widget.api,
@@ -389,14 +391,27 @@ class _InputScreenState extends State<InputScreen> {
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
             crumbs: const ['DiffNote（仮）'],
-            // サイドバーが出ている幅では、そこからマニュアルへ移れるので出さない
+            // サイドバーが出ている幅では、そこからマニュアルや名前とアイコンへ移れるので出さない
             trailing: showsSidebar(context)
                 ? null
-                : MoonOutlinedButton(
-                    buttonSize: MoonButtonSize.sm,
-                    onTap: () => _push(HomeScreen(api: widget.api)),
-                    label: const Text('ノートを見る'),
-                  ),
+                : Row(mainAxisSize: MainAxisSize.min, children: [
+                    MoonOutlinedButton(
+                      buttonSize: MoonButtonSize.sm,
+                      onTap: () => _push(HomeScreen(api: widget.api)),
+                      label: const Text('ノートを見る'),
+                    ),
+                    MeBuilder(
+                      api: widget.api,
+                      builder: (context, me) => Padding(
+                        padding: EdgeInsets.only(left: k.space.sm),
+                        child: MoonButton.icon(
+                          semanticLabel: '名前とアイコンを変える',
+                          icon: Avatar(me.name, image: me.icon?.bytes),
+                          onTap: () => _push(ProfileScreen(api: widget.api)),
+                        ),
+                      ),
+                    ),
+                  ]),
           ),
           Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
         ])),

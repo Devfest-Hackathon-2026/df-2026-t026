@@ -227,6 +227,33 @@ test('反映した差分のある記録は、書き起こしを直せない', as
   assert.equal(status, 409);
 });
 
+test('名前とアイコン：決めるまでは ID を名前にし、決めたら残す', async () => {
+  assert.deepEqual((await call('GET', '/me')).json, { id: 'demo', name: 'demo', icon: null });
+
+  const icon = { mimeType: 'image/jpeg', data: Buffer.from('jpeg').toString('base64') };
+  const saved = await call('PUT', '/me', { name: ' かなで ', icon });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json, { id: 'demo', name: 'かなで', icon });
+  assert.deepEqual((await call('GET', '/me')).json, { id: 'demo', name: 'かなで', icon });
+  assert.deepEqual((await call('PUT', '/me', { name: 'かなで', icon: null })).json, { id: 'demo', name: 'かなで', icon: null });
+
+  assert.equal((await call('PUT', '/me', { name: ' ', icon: null })).status, 400);
+  assert.equal((await call('PUT', '/me', { name: 'かなで', icon: { mimeType: 'image/gif', data: icon.data } })).status, 400);
+  const huge = { mimeType: 'image/jpeg', data: Buffer.alloc(400_000).toString('base64') };
+  assert.equal((await call('PUT', '/me', { name: 'かなで', icon: huge })).status, 400);
+
+});
+
+test('名前とアイコン：ほかの人が決めた名前は、自分には出ない', async () => {
+  const store = new MemoryStore();
+  await signIn(store);
+  await store.putSession({ id: sessionIdOf('sato-token'), userId: 'sato', createdAt: '' });
+  app = createApp({ store, ...ai });
+  await call('PUT', '/me', { name: 'かなで', icon: null });
+  const res = await app.request('/me', { headers: { Authorization: 'Bearer sato-token' } });
+  assert.deepEqual(await res.json(), { id: 'sato', name: 'sato', icon: null });
+});
+
 test('CORS は指定したオリジンだけを許可する', async () => {
   const store = new MemoryStore();
   const restricted = createApp({ store, ...ai, allowOrigin: 'https://a.web.app,https://a.firebaseapp.com' });

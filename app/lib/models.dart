@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 /// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
@@ -9,6 +10,24 @@ enum Kind {
 
   const Kind(this.label);
   final String label;
+}
+
+/// アイコンの画像
+typedef IconImage = ({String mimeType, Uint8List bytes});
+
+/// ログインしている自分。名前を決めていなければ ID が入る（ADR 0010）
+class Me {
+  Me.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        name = j['name'],
+        icon = switch (j['icon']) {
+          {'mimeType': final String mimeType, 'data': final String data} => (mimeType: mimeType, bytes: base64Decode(data)),
+          _ => null,
+        };
+
+  final String id;
+  final String name;
+  final IconImage? icon;
 }
 
 class ManualSummary {
