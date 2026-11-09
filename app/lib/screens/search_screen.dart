@@ -61,7 +61,7 @@ class _SearchScreenState extends State<SearchScreen> {
         api: widget.api,
         place: Place.search,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const TopBar(crumbs: ['DiffNote（仮）', 'ノートを探す']),
+          const TopBar(crumbs: ['ノートを探す']),
           Expanded(
             child: Narrow(
               maxWidth: k.pageWidth,

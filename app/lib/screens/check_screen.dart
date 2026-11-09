@@ -29,7 +29,7 @@ class CheckScreen extends StatelessWidget {
         final chk = s.checks.firstWhere((x) => x.id == checkId);
         return Scaffold(
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: ['DiffNote（仮）', s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
+            TopBar(crumbs: [s.title, '確認リスト', chk.isOpen ? 'あとで確認' : '確認の記録']),
             Expanded(
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl),

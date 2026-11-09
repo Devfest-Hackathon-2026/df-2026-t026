@@ -93,7 +93,7 @@ class _OpenChecksScreenState extends State<OpenChecksScreen> {
         api: widget.api,
         place: Place.checks,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const TopBar(crumbs: ['DiffNote（仮）', 'あとで確認']),
+          const TopBar(crumbs: ['あとで確認']),
           Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
         ])),
       ),

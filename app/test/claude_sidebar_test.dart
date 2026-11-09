@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
+import 'package:diff_note/screens/help_screen.dart';
 import 'package:diff_note/screens/home_screen.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/screens/manual_screen.dart';
@@ -95,11 +96,12 @@ Finder _menu(String label) => find.widgetWithText(MoonMenuItem, label);
 Finder _plus() => find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'ノートを作る');
 
 void main() {
-  testWidgets('PC のサイドバーは上から「言われたことを記録」→「あとで確認」→「ノートを探す」→「ノート」と＋→全部のノート→自分。自分はいちばん下', (tester) async {
+  testWidgets('PC のサイドバーは上からアプリ名→「言われたことを記録」→「あとで確認」→「ノートを探す」→「ノート」と＋→全部のノート→自分（右に ?）。自分はいちばん下', (tester) async {
     await _pump(tester);
 
     final tops = [
       for (final f in [
+        find.text('DiffNote'),
         _menu('言われたことを記録'),
         _menu('あとで確認'),
         _menu('ノートを探す'),
@@ -203,7 +205,7 @@ void main() {
     testWidgets('三本線は入力ページの上部バーの左にだけ出る。押すと左からメニューが出て、中身は PC のサイドバーと同じ', (tester) async {
       await pumpInput(tester);
       expect(menuButton(), findsOneWidget);
-      expect(tester.getRect(menuButton()).left, lessThan(tester.getRect(find.text('DiffNote（仮）')).left));
+      expect(tester.getRect(menuButton()).left, lessThan(tester.getRect(find.text('DiffNote')).left));
       expect(find.byType(MoonDrawer), findsNothing);
 
       await tester.tap(menuButton());
@@ -322,6 +324,108 @@ void main() {
       expect(find.byType(MoonDrawer), findsNothing);
       expect(menuButton(), findsNothing);
       expect(_menu('言われたことを記録'), findsOneWidget);
+    });
+  });
+
+  // 実装25: アプリ名をサイドバーの一番上に、使い方（?）を自分の右に。パンくずから「DiffNote」を外す
+  group('アプリ名と使い方の置き場', () {
+    Finder help() => find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '使い方を見る');
+    Finder inTopBar(Finder f) => find.descendant(of: find.byType(TopBar), matching: f);
+    final k = appTheme().extension<AppTokens>()!;
+
+    testWidgets('PC：サイドバーの一番上がアプリ名で、サイドバーの中で一番大きく太い文字', (tester) async {
+      await _pump(tester);
+      final brand = find.text('DiffNote');
+      expect(brand, findsOneWidget);
+      expect(tester.getRect(brand).bottom, lessThanOrEqualTo(tester.getRect(_menu('言われたことを記録')).top));
+      final style = tester.widget<Text>(brand).style!;
+      expect(style, k.text.title);
+      // サイドバーの中のほかの文字より大きい
+      final sidebarTexts = tester.widgetList<Text>(find.descendant(of: find.byType(MoonMenuItem), matching: find.byType(Text)));
+      for (final t in sidebarTexts) {
+        expect(t.style?.fontSize ?? 0, lessThan(style.fontSize!), reason: t.data);
+      }
+      expect(inTopBar(find.text('DiffNote')), findsNothing);
+    });
+
+    testWidgets('PC：（?）は一番下の自分の右にあり、押すと使い方。今の画面の上に開き、戻ると元の画面', (tester) async {
+      await _pump(tester);
+      expect(help(), findsOneWidget);
+      expect(inTopBar(help()), findsNothing);
+      final me = tester.getRect(_menu('かなで'));
+      final h = tester.getRect(help());
+      expect(h.left, greaterThanOrEqualTo(me.right));
+      expect((h.center.dy - me.center.dy).abs(), lessThan(2));
+      await tester.tap(help());
+      await tester.pumpAndSettle();
+      expect(find.byType(HelpScreen), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('戻る'));
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+    });
+
+    testWidgets('PC：どの画面のパンくずにも「DiffNote」が無い', (tester) async {
+      _size(tester, const Size(1440, 900));
+      for (final screen in <Widget Function(Api)>[
+        (a) => HomeScreen(api: a),
+        (a) => OpenChecksScreen(api: a),
+        (a) => ManualScreen(api: a, manualId: 'm1'),
+        (a) => NewManualScreen(api: a),
+        (a) => ProfileScreen(api: a),
+        (_) => const HelpScreen(),
+      ]) {
+        await tester.pumpWidget(MaterialApp(theme: appTheme(), home: screen(_api())));
+        await tester.pumpAndSettle();
+        expect(find.byType(TopBar), findsOneWidget);
+        expect(inTopBar(find.text('DiffNote')), findsNothing);
+        expect(inTopBar(find.textContaining('DiffNote')), findsNothing);
+      }
+    });
+
+    testWidgets('PC の入力ページ：上部バーには何も出さない（高さは今のまま）', (tester) async {
+      _size(tester, const Size(1440, 900));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: _api())));
+      await tester.pumpAndSettle();
+      expect(find.descendant(of: find.byType(TopBar), matching: find.byType(Text)), findsNothing);
+      expect(tester.getSize(find.byType(TopBar)).height, greaterThanOrEqualTo(k.barHeight));
+      // アプリ名はサイドバーにだけ
+      expect(find.text('DiffNote'), findsOneWidget);
+    });
+
+    testWidgets('スマホの入力ページ：題名は「DiffNote」。メニューの一番上もアプリ名で、自分の右の（?）から使い方を開く', (tester) async {
+      _size(tester, const Size(390, 844));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: _api())));
+      await tester.pumpAndSettle();
+      expect(inTopBar(find.text('DiffNote')), findsOneWidget);
+      expect(help(), findsNothing);
+
+      await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
+      await tester.pumpAndSettle();
+      final drawer = find.byType(MoonDrawer);
+      final brand = find.descendant(of: drawer, matching: find.text('DiffNote'));
+      expect(brand, findsOneWidget);
+      expect(tester.getRect(brand).bottom, lessThanOrEqualTo(tester.getRect(find.descendant(of: drawer, matching: _menu('言われたことを記録'))).top));
+      final me = tester.getRect(find.descendant(of: drawer, matching: _menu('かなで')));
+      final h = tester.getRect(find.descendant(of: drawer, matching: help()));
+      expect(h.left, greaterThanOrEqualTo(me.right));
+
+      await tester.tap(find.descendant(of: drawer, matching: help()));
+      await tester.pumpAndSettle();
+      expect(find.byType(HelpScreen), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('戻る'));
+      await tester.pumpAndSettle();
+      // 戻ったときにメニューは開いたまま残らない
+      expect(find.byType(MoonDrawer), findsNothing);
+      expect(find.byType(InputScreen), findsOneWidget);
+    });
+
+    testWidgets('スマホの奥の画面（ノート）は、パンくずでなく今の画面の名前だけ。（?）は無い', (tester) async {
+      _size(tester, const Size(390, 844));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+      await tester.pumpAndSettle();
+      expect(inTopBar(find.text('キッチン')), findsOneWidget);
+      expect(inTopBar(find.text('DiffNote')), findsNothing);
+      expect(help(), findsNothing);
     });
   });
 }

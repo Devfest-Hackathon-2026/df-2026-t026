@@ -136,7 +136,7 @@ class _ManualScreenState extends State<ManualScreen> {
           bottomNavigationBar: narrow && showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
-              crumbs: ['DiffNote（仮）', s?.title ?? ''],
+              crumbs: [s?.title ?? ''],
               trailing: s == null || (narrow && !mine)
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
