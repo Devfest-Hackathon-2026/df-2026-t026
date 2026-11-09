@@ -56,4 +56,12 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   assert.equal((await asSato('GET', '/manuals/demo-kitchen')).status, 404);
   assert.deepEqual(await store.listShared('sato'), []);
   assert.deepEqual(await store.list('demo', 'demo-kitchen', 'shares'), []);
+
+  // ノートを消すと、下のコレクションと相手の側の索引もまとめて消える（ADR 0014）
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  assert.equal((await send('DELETE', '/manuals/demo-kitchen', undefined, { Authorization: `Bearer ${token}` })).status, 204);
+  assert.equal(await store.getManual('demo', 'demo-kitchen'), null);
+  for (const name of ['utterances', 'patches', 'checks', 'shares']) assert.deepEqual(await store.list('demo', 'demo-kitchen', name), [], name);
+  assert.deepEqual(await store.listShared('sato'), []);
+  assert.equal((await store.listManuals('demo')).length, 1);
 });

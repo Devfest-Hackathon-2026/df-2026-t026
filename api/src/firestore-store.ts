@@ -43,6 +43,14 @@ export class FirestoreStore implements Store {
     await this.manuals(userId).doc(manualId).collection(collection).doc(id).delete();
   }
 
+  // サブコレクションは親と一緒に消えないので一つずつ消し、本文は最後に消す。
+  // 途中で失敗しても本文が残り、持ち主がもう一度消せる（ADR 0014）
+  async removeManual(userId: string, manualId: string) {
+    const doc = this.manuals(userId).doc(manualId);
+    for (const name of ['shares', 'utterances', 'patches', 'checks']) await this.db.recursiveDelete(doc.collection(name));
+    await doc.delete();
+  }
+
   async getAccount(id: string) {
     const doc = await this.db.collection('accounts').doc(id).get();
     return doc.exists ? (doc.data() as Account) : null;
