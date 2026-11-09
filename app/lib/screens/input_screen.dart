@@ -20,11 +20,9 @@ import '../theme.dart';
 import '../web/files.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
-import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'open_checks_screen.dart';
-import 'profile_screen.dart';
 import 'review_dialog.dart';
 import 'rewind_panel.dart';
 import 'sidebar.dart';
@@ -429,34 +427,27 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
+    final narrow = !showsSidebar(context);
     return Scaffold(
+      // 狭い画面では、サイドバーの代わりに上部バーの三本線から左にメニューを出す（Claude・ChatGPT のスマホ版と同じ）。
+      // 広い幅に変わったらメニューは外す（開いていたら閉じる）
+      drawer: narrow ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
       body: WithSidebar(
         api: widget.api,
         place: Place.input,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
             crumbs: const ['DiffNote（仮）'],
-            // サイドバーが出ている幅では、そこからマニュアルや名前とアイコンへ移れるので出さない
-            trailing: showsSidebar(context)
-                ? null
-                : Row(mainAxisSize: MainAxisSize.min, children: [
-                    MoonOutlinedButton(
-                      buttonSize: MoonButtonSize.sm,
-                      onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('ノートを見る'),
+            // ノート一覧・自分のページへは、狭い画面ではメニューから、広い画面ではサイドバーから移る
+            leading: narrow
+                ? Builder(
+                    builder: (context) => MoonButton.icon(
+                      semanticLabel: 'メニュー',
+                      icon: Icon(LucideIcons.menu, color: k.colors.ink),
+                      onTap: () => Scaffold.of(context).openDrawer(),
                     ),
-                    MeBuilder(
-                      api: widget.api,
-                      builder: (context, me) => Padding(
-                        padding: EdgeInsets.only(left: k.space.sm),
-                        child: MoonButton.icon(
-                          semanticLabel: '名前とアイコンを変える',
-                          icon: Avatar(me.name, image: me.icon?.bytes),
-                          onTap: () => _push(ProfileScreen(api: widget.api)),
-                        ),
-                      ),
-                    ),
-                  ]),
+                  )
+                : null,
           ),
           Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
         ])),

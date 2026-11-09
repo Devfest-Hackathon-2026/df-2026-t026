@@ -43,11 +43,39 @@ class WithSidebar extends StatelessWidget {
   }
 }
 
+/// 狭い画面の入力ページで、上部バーの三本線から左に出すメニュー。中身は広い画面のサイドバーと同じ。
+/// 影は付けず、右の罫線で本文と区切る。項目を押すと、先にメニューを閉じてから open で移る
+class SidebarDrawer extends StatelessWidget {
+  const SidebarDrawer({super.key, required this.api, required this.place, required this.open});
+  final Api api;
+  final Place place;
+
+  /// 画面を開く（入力ページの push。戻ってきたら入力ページを読み直す）
+  final Future<void> Function(Widget screen) open;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return MoonDrawer(
+      width: k.sidebarWidth,
+      semanticLabel: 'メニュー',
+      decoration: BoxDecoration(
+        color: k.colors.canvas,
+        border: Border(right: BorderSide(color: k.colors.rule, width: k.hairline)),
+      ),
+      child: SafeArea(right: false, child: _Sidebar(api: api, place: place, open: open)),
+    );
+  }
+}
+
 class _Sidebar extends StatefulWidget {
-  const _Sidebar({required this.api, this.place, this.manualId});
+  const _Sidebar({required this.api, this.place, this.manualId, this.open});
   final Api api;
   final Place? place;
   final String? manualId;
+
+  /// メニュー（狭い画面）のときだけ。画面の開き方を入力ページに任せ、ふつうの横から出る動きで開く
+  final Future<void> Function(Widget screen)? open;
 
   @override
   State<_Sidebar> createState() => _SidebarState();
@@ -76,9 +104,15 @@ class _SidebarState extends State<_Sidebar> {
       });
 
   /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く。
-  /// サイドバーが出ている（広い画面）ときだけ使うので、戻る動き・横から出る動きは付けない（違和感 #1）。
+  /// 広い画面のサイドバーでは、戻る動き・横から出る動きは付けない（違和感 #1）。
   /// pop だと上の画面の戻る動きが出るので、外すのは remove（動きなしで外れる）で行う
   void _go(Widget? screen) {
+    // メニュー（狭い画面）：先にメニューを閉じてから移る。閉じずに移ると、戻ったときにメニューが開いたまま残る
+    if (widget.open case final open?) {
+      Scaffold.of(context).closeDrawer();
+      if (screen != null) open(screen);
+      return;
+    }
     final nav = Navigator.of(context);
     if (screen != null) {
       // 動きなしで開き、その下の、最初の画面より上の画面は動きなしで外す

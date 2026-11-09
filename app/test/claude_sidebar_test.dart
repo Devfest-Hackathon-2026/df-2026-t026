@@ -4,6 +4,8 @@ import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/home_screen.dart';
+import 'package:diff_note/screens/input_screen.dart';
+import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/screens/new_manual_screen.dart';
 import 'package:diff_note/screens/open_checks_screen.dart';
 import 'package:diff_note/screens/profile_screen.dart';
@@ -181,5 +183,105 @@ void main() {
     expect(tester.getRect(_menu('かなで')), me);
     // ドラッグの遊び（数 px）があるので、200 以上動いたことを見る
     expect(tester.getRect(_menu('ほかのノート8')).top, lessThan(eighth.top - 200));
+  });
+
+  // 実装18b・スマホ
+  group('スマホ：入力ページの三本線からメニュー', () {
+    // 入力ページの本文の「あとで確認」にもノートの項目があるので、メニューの中だけを見る
+    Finder item(String l) => find.descendant(of: find.byType(MoonDrawer), matching: _menu(l));
+    Finder menuButton() => find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー');
+    bool drawerOpen(WidgetTester tester) =>
+        tester.state<ScaffoldState>(find.ancestor(of: find.byType(TopBar), matching: find.byType(Scaffold)).first).isDrawerOpen;
+
+    Future<void> pumpInput(WidgetTester tester) async {
+      _size(tester, const Size(390, 844));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: _api())));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('三本線は入力ページの上部バーの左にだけ出る。押すと左からメニューが出て、中身は PC のサイドバーと同じ', (tester) async {
+      await pumpInput(tester);
+      expect(menuButton(), findsOneWidget);
+      expect(tester.getRect(menuButton()).left, lessThan(tester.getRect(find.text('DiffNote（仮）')).left));
+      expect(find.byType(MoonDrawer), findsNothing);
+
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(drawerOpen(tester), isTrue);
+      for (final l in ['言われたことを記録', 'あとで確認', 'ノート', 'キッチン', 'ホール', '洗い場', 'かなで']) {
+        expect(item(l), findsOneWidget, reason: l);
+      }
+      expect(find.descendant(of: find.byType(MoonDrawer), matching: _plus()), findsOneWidget);
+      // メニューは左端から出る。影は付けない
+      final drawer = find.byType(MoonDrawer);
+      expect(tester.getRect(drawer).left, 0);
+      expect(tester.widget<MoonDrawer>(drawer).decoration, isA<BoxDecoration>());
+      expect((tester.widget<MoonDrawer>(drawer).decoration! as BoxDecoration).boxShadow, isNull);
+    });
+
+    testWidgets('奥の画面（ノート）には三本線を出さず、戻る矢印のまま', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      await tester.tap(item('キッチン'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ManualScreen), findsOneWidget);
+      expect(menuButton(), findsNothing);
+      expect(find.bySemanticsLabel('戻る'), findsOneWidget);
+    });
+
+    testWidgets('項目を押すと、メニューを閉じてから移る。戻ったときにメニューは開いたまま残らない', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      await tester.tap(item('あとで確認'));
+      await tester.pumpAndSettle();
+      expect(find.byType(OpenChecksScreen), findsOneWidget);
+      // 狭い画面は、ふつうの横から出る動きで移る（動きなしにしない）
+      expect(tester.getRect(find.byType(OpenChecksScreen)).left, 0);
+
+      await tester.tap(find.bySemanticsLabel('戻る'));
+      await tester.pumpAndSettle();
+      expect(find.byType(InputScreen), findsOneWidget);
+      expect(drawerOpen(tester), isFalse);
+      expect(find.byType(MoonDrawer), findsNothing);
+    });
+
+    testWidgets('移るときは横から出る動きがある（PC のような動きなしではない）', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      await tester.tap(_plus());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      // 動きの途中なので、新しい画面はまだ右にずれている
+      expect(tester.getRect(find.byType(NewManualScreen)).left, greaterThan(0));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(NewManualScreen)).left, 0);
+    });
+
+    testWidgets('「言われたことを記録」を押すと、メニューを閉じるだけ（入力ページのまま）', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      await tester.tap(item('言われたことを記録'));
+      await tester.pumpAndSettle();
+      expect(drawerOpen(tester), isFalse);
+      expect(find.byType(InputScreen), findsOneWidget);
+      expect(find.byType(NewManualScreen), findsNothing);
+    });
+
+    testWidgets('メニューを開いたまま広い幅に変わったら、メニューは閉じ、左にサイドバーが出る', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(find.byType(MoonDrawer), findsOneWidget);
+
+      tester.view.physicalSize = const Size(1440, 900);
+      await tester.pumpAndSettle();
+      expect(find.byType(MoonDrawer), findsNothing);
+      expect(menuButton(), findsNothing);
+      expect(_menu('言われたことを記録'), findsOneWidget);
+    });
   });
 }

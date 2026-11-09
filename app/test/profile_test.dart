@@ -89,14 +89,18 @@ void main() {
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('名前とアイコン')), findsOneWidget);
   });
 
-  testWidgets('狭い画面では上部バーの自分のアイコンから開く', (tester) async {
+  testWidgets('狭い画面では、上部バーの三本線から出るメニューのいちばん下の自分の名前から開く', (tester) async {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: _client([]), baseUrl: 'http://api'))));
     await tester.pumpAndSettle();
+    // 上部バーの右の自分のアイコンはやめた（メニューから行ける）
+    expect(find.bySemanticsLabel('名前とアイコンを変える'), findsNothing);
 
-    await tester.tap(find.bySemanticsLabel('名前とアイコンを変える'));
+    await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MoonMenuItem, 'kanade'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('名前とアイコン')), findsOneWidget);
   });

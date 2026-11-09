@@ -865,11 +865,16 @@ void main() {
     expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
   });
 
-  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「ノートを見る」から一覧へ進む', (tester) async {
+  testWidgets('狭い画面ではサイドバーを出さず、上部バーの三本線から出るメニューの「ノート」から一覧へ進む', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})), size: const Size(400, 900));
 
     expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsNothing);
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'));
+    // 上部バーの「ノートを見る」はやめた（メニューから行ける）
+    expect(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'), findsNothing);
+    await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonMenuItem, 'ノート'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('ノート')), findsOneWidget);
   });
