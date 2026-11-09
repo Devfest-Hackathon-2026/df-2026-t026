@@ -295,8 +295,11 @@ ${u.speaker ?? '発言者不明'}（${u.saidAt}）: ${u.text}
 
 # そこから作ったパッチ
 ${p.op === 'replace' ? `「${p.line}」を「${p.text}」に置き換える` : `「${p.text}」を${p.line ? `「${p.line}」の後ろに` : '末尾に'}追記する`}`;
-  // 差分化をしない分だけ速く、ふだん3〜6秒で返る。書き起こしと同じく8秒で並べる（ADR 0002）
-  const out = await generate({ system: system(materials.length > 0), prompt, schema: schema(lines, materials), hedgeMs: 8_000, label: 'check' });
+  // 差分化をしない分だけ速く、ふだん3〜6秒で返る。書き起こしと同じく8秒で並べる（ADR 0002）。
+  // 資料（3万〜8.4万トークン）を載せると1本目が8〜14秒で返ることが多く、8秒で並べた2本目はほとんど使われずに
+  // 資料ぶんの入力を二重に払うので、資料があるときは assess と同じ12秒にする（ADR 0019 設計書 §12.3）
+  const hedgeMs = materials.length ? 12_000 : 8_000;
+  const out = await generate({ system: system(materials.length > 0), prompt, schema: schema(lines, materials), hedgeMs, label: 'check' });
   const n = out.kind === 'contradiction' ? out.conflictLineNo : out.kind === 'same' ? out.sameLineNo : null;
   const m = materialLineOf(out);
   return counterpart(out, n === null ? undefined : lines[n - 1], m ? { ctx: materials[m.materialNo - 1], lineNo: m.lineNo } : undefined);
