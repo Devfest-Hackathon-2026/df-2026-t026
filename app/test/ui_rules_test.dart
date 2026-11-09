@@ -19,8 +19,8 @@ final _rules = {
 final _shadow = RegExp(r'\bBoxShadow\b');
 const _shadowAllowed = 'lib/screens/common.dart';
 
-/// 例外：下のタブバー（狭い画面）だけ、後ろのぼかしを許す（2026-11-09 決定。.claude/rules/flutter-ui.md の構成の節）。
-/// グラデーションは許さない
+/// 例外：下のタブバー（狭い画面）だけ、後ろが透けるガラス（ぼかしと色の鮮やかさの BackdropFilter・ImageFilter）を許す
+/// （2026-11-09 決定。.claude/rules/flutter-ui.md の構成の節）。グラデーションは許さない
 const _blurTrial = 'lib/screens/tab_bar.dart';
 final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b');
 

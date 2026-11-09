@@ -308,4 +308,39 @@ void main() {
     expect(find.byType(ManualScreen, skipOffstage: false), findsOneWidget);
     expect(find.byType(CheckListScreen, skipOffstage: false), findsNothing);
   });
+
+  testWidgets('選んでいるタブの後ろにカプセルがあり、タブを替えると前のタブの位置から横に動く（ぼかしの有無によらない）', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+
+    final pill = find.byKey(const ValueKey('tab-pill'));
+    double centerOf(Finder f) => tester.getCenter(f).dx;
+    expect(pill, findsOneWidget);
+    expect((centerOf(pill) - centerOf(_tab('ノート'))).abs(), lessThan(1));
+
+    await tester.tap(_tab('確認リスト'));
+    await tester.pump(); // 新しい画面の1枚目：カプセルは前のタブ（ノート）の位置
+    expect((centerOf(pill) - centerOf(_tab('ノート'))).abs(), lessThan(1));
+    await tester.pump(); // 次の枠で動き始める
+    await tester.pump(const Duration(milliseconds: 100)); // 動いている途中
+    final mid = centerOf(pill);
+    expect(mid, greaterThan(centerOf(_tab('ノート'))));
+    expect(mid, lessThan(centerOf(_tab('確認リスト'))));
+    await tester.pumpAndSettle();
+    expect((centerOf(pill) - centerOf(_tab('確認リスト'))).abs(), lessThan(1));
+  });
+
+  testWidgets('ぼかしありでは、後ろをぼかして色を鮮やかにするガラスにする', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+    final glass = find.descendant(of: find.byType(NoteTabBar), matching: find.byType(BackdropFilter));
+    if (!tabBarBlur) {
+      expect(glass, findsNothing);
+      return;
+    }
+    // ぼかしだけでなく、色の行列（鮮やかさ）も重ねている
+    expect(tester.widget<BackdropFilter>(glass).filter.toString(), contains('matrix'));
+  });
 }

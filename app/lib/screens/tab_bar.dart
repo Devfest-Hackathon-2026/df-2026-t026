@@ -75,31 +75,91 @@ PageRouteBuilder<void> _instant(Widget screen, RouteSettings? settings) => PageR
       reverseTransitionDuration: Duration.zero,
     );
 
-/// 狭い画面の下に浮かせるタブバー（ノート / 確認リスト / 履歴）
-class NoteTabBar extends StatelessWidget {
+/// 狭い画面の下に浮かせるタブバー（ノート / 確認リスト / 履歴）。後ろが透けるガラスにし、選んでいるタブの後ろにカプセルを敷く
+class NoteTabBar extends StatefulWidget {
   const NoteTabBar({super.key, required this.c, required this.current});
   final ManualController c;
   final NoteTab current;
 
   @override
+  State<NoteTabBar> createState() => _NoteTabBarState();
+}
+
+/// 前の画面で選んでいたタブ。タブを替えると画面ごと入れ替わるので、新しい画面のカプセルを前の位置から動かすために覚えておく
+NoteTab? _lastShown;
+
+class _NoteTabBarState extends State<NoteTabBar> {
+  late NoteTab _pill;
+
+  @override
+  void initState() {
+    super.initState();
+    // 前の画面のタブの位置から始める（_lastShown を書き換える前に読む）
+    _pill = _lastShown ?? widget.current;
+    _lastShown = widget.current;
+    if (_pill != widget.current) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _pill = widget.current);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(NoteTabBar old) {
+    super.didUpdateWidget(old);
+    if (old.current != widget.current) {
+      _lastShown = widget.current;
+      _pill = widget.current;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final open = c.state?.openChecks.length ?? 0;
-    final row = SizedBox(
+    final open = widget.c.state?.openChecks.length ?? 0;
+    final tabs = NoteTab.values;
+    final bar = SizedBox(
       height: k.tabBarHeight,
-      child: Row(children: [
-        _tab(context, NoteTab.note, LucideIcons.fileText, 'ノート'),
-        _tab(context, NoteTab.checks, LucideIcons.listChecks, '確認リスト', count: open),
-        _tab(context, NoteTab.history, LucideIcons.history, '履歴'),
+      child: Stack(children: [
+        // 選んでいるタブの後ろのカプセル。タブを替えると横に動く
+        AnimatedAlign(
+          duration: k.tabBarPillMove,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment(-1 + 2 * tabs.indexOf(_pill) / (tabs.length - 1), 0),
+          child: FractionallySizedBox(
+            widthFactor: 1 / tabs.length,
+            child: Padding(
+              padding: EdgeInsets.all(k.space.xs),
+              child: DecoratedBox(
+                key: const ValueKey('tab-pill'),
+                decoration: BoxDecoration(color: k.tabBarPill, borderRadius: k.radius.round),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+        ),
+        Row(children: [
+          _tab(context, NoteTab.note, LucideIcons.fileText, 'ノート'),
+          _tab(context, NoteTab.checks, LucideIcons.listChecks, '確認リスト', count: open),
+          _tab(context, NoteTab.history, LucideIcons.history, '履歴'),
+        ]),
+        // 縁の上側に、少し明るい線を足す（光が当たって見える。グラデーションは使わない）
+        Positioned(
+          top: k.hairline,
+          left: k.space.xl,
+          right: k.space.xl,
+          child: Container(height: k.hairline, color: k.tabBarEdgeLight),
+        ),
       ]),
     );
     final glass = DecoratedBox(
       decoration: BoxDecoration(
-        color: tabBarBlur ? k.tabBarGlass : k.tabBarGlassSolid,
+        // ぼかさないときは不透明の白い帯にする（少しでも透けると、後ろの文字がくっきり重なって読みにくい）
+        color: tabBarBlur ? k.tabBarGlass : k.colors.canvas,
         borderRadius: k.radius.floating,
-        border: Border.all(color: k.colors.rule, width: k.hairline),
+        border: Border.all(color: tabBarBlur ? k.tabBarEdge : k.colors.rule, width: k.hairline),
       ),
-      child: row,
+      child: bar,
     );
     return SafeArea(
       top: false,
@@ -110,19 +170,36 @@ class NoteTabBar extends StatelessWidget {
           decoration: BoxDecoration(borderRadius: k.radius.floating, boxShadow: k.tabBarShadow),
           child: ClipRRect(
             borderRadius: k.radius.floating,
-            child: tabBarBlur
-                ? BackdropFilter(filter: ImageFilter.blur(sigmaX: k.tabBarBlur, sigmaY: k.tabBarBlur), child: glass)
-                : glass,
+            child: tabBarBlur ? BackdropFilter(filter: _glassFilter(k), child: glass) : glass,
           ),
         ),
       ),
     );
   }
 
+  /// 後ろをぼかし、色を少し鮮やかにする
+  ImageFilter _glassFilter(AppTokens k) => ImageFilter.compose(
+        outer: ColorFilter.matrix(_saturation(k.tabBarSaturation)),
+        inner: ImageFilter.blur(sigmaX: k.tabBarBlur, sigmaY: k.tabBarBlur),
+      );
+
+  /// 鮮やかさを s 倍にする色の行列（明るさの重みは sRGB の輝度の係数）
+  static List<double> _saturation(double s) {
+    const r = 0.2126, g = 0.7152, b = 0.0722;
+    final i = 1 - s;
+    return [
+      r * i + s, g * i, b * i, 0, 0, //
+      r * i, g * i + s, b * i, 0, 0, //
+      r * i, g * i, b * i + s, 0, 0, //
+      0, 0, 0, 1, 0,
+    ];
+  }
+
   Widget _tab(BuildContext context, NoteTab tab, IconData icon, String label, {int count = 0}) {
     final k = context.tokens;
-    final selected = tab == current;
-    final color = selected ? k.colors.action : k.colors.inkMuted;
+    final selected = tab == widget.current;
+    // 選んでいる印は青のカプセルとアイコン。文字は紺のまま（青い文字を青いカプセルに載せると、小さな文字のコントラストが足りない）
+    final iconColor = selected ? k.colors.action : k.colors.ink;
     return Expanded(
       // MoonButton がボタンとして読み上げるので、ここでは選ばれているかだけを足す
       child: Semantics(
@@ -130,18 +207,19 @@ class NoteTabBar extends StatelessWidget {
         child: MoonButton(
           height: k.tabBarHeight,
           isFullWidth: true,
-          borderRadius: k.radius.floating,
-          onTap: () => openNoteTab(context, c, from: current, to: tab),
+          borderRadius: k.radius.round,
+          // 押すと少し縮む（Moon の既定）。地の色は付けず、選んでいる所はカプセルで見せる
+          onTap: () => openNoteTab(context, widget.c, from: widget.current, to: tab),
           label: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, color: color),
+              Icon(icon, color: iconColor),
               if (count > 0) ...[
                 SizedBox(width: k.space.xs),
                 StatusTag('$count', bg: k.colors.pendingBg, fg: k.colors.pending),
               ],
             ]),
             SizedBox(height: k.space.xs),
-            Text(label, style: k.text.label.copyWith(color: color)),
+            Text(label, style: k.text.label.copyWith(color: k.colors.ink)),
           ]),
         ),
       ),
