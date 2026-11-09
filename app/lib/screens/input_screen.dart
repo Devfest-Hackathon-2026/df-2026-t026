@@ -83,6 +83,9 @@ class InputScreen extends StatefulWidget {
 
 class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
+
+  /// 狭い画面のメニュー（Drawer）を閉じるため
+  final _scaffold = GlobalKey<ScaffoldState>();
   final _text = TextEditingController();
   final _files = <Attachment>[];
   var _attachMenu = false;
@@ -428,10 +431,20 @@ class _InputScreenState extends State<InputScreen> {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final narrow = !showsSidebar(context);
+    // 広い幅に変わったとき、メニューが開いていたら、外す前に閉じる。drawer を外しただけでは Scaffold が「開いている」を
+    // 覚えたままで、狭い幅に戻るとまた開いて出る（レビュー31）。閉じ終わったら onDrawerChanged で作り直し、drawer を外す
+    final open = _scaffold.currentState?.isDrawerOpen ?? false;
+    if (!narrow && open) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scaffold.currentState?.closeDrawer());
+    }
     return Scaffold(
+      key: _scaffold,
+      onDrawerChanged: (_) => setState(() {}),
+      // 左の端からのなぞりでは開かない。iPhone の Safari の「戻る」のなぞりとぶつかるので、三本線だけで開く
+      drawerEnableOpenDragGesture: false,
       // 狭い画面では、サイドバーの代わりに上部バーの三本線から左にメニューを出す（Claude・ChatGPT のスマホ版と同じ）。
       // 広い幅に変わったらメニューは外す（開いていたら閉じる）
-      drawer: narrow ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
+      drawer: narrow || open ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
       body: WithSidebar(
         api: widget.api,
         place: Place.input,

@@ -271,6 +271,34 @@ void main() {
       expect(find.byType(NewManualScreen), findsNothing);
     });
 
+    // レビュー31 の中・実装21
+    testWidgets('メニューを開いたまま 狭い → 広い → 狭い と変えても、メニューは閉じている', (tester) async {
+      await pumpInput(tester);
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(drawerOpen(tester), isTrue);
+
+      tester.view.physicalSize = const Size(1440, 900);
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+
+      expect(drawerOpen(tester), isFalse);
+      expect(find.byType(MoonDrawer), findsNothing);
+      // 三本線を押せば、また開ける
+      await tester.tap(menuButton());
+      await tester.pumpAndSettle();
+      expect(drawerOpen(tester), isTrue);
+    });
+
+    testWidgets('左の端からなぞってもメニューは出ない（三本線だけで開く）', (tester) async {
+      await pumpInput(tester);
+      await tester.dragFrom(const Offset(2, 400), const Offset(300, 0));
+      await tester.pumpAndSettle();
+      expect(drawerOpen(tester), isFalse);
+      expect(find.byType(MoonDrawer), findsNothing);
+    });
+
     testWidgets('メニューを開いたまま広い幅に変わったら、メニューは閉じ、左にサイドバーが出る', (tester) async {
       await pumpInput(tester);
       await tester.tap(menuButton());
