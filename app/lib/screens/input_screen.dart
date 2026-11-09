@@ -25,7 +25,7 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'profile_screen.dart';
 import 'review_dialog.dart';
-import 'rewind_screen.dart';
+import 'rewind_panel.dart';
 import 'sidebar.dart';
 
 /// ログインで受け取ったトークンをブラウザ（shared_preferences）に覚えておくときのキー
@@ -60,7 +60,8 @@ Future<List<PickedFile>> _pickWithFilePicker() async => [
         (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
     ];
 
-/// アプリを開いて最初の画面。リワインド（別のページ）でためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
+/// アプリを開いて最初の画面。題名の右のトグルを ON にすると、書く欄の代わりにリワインドの待ち受けを出す。
+/// ためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
 /// どのマニュアルかは選ばない（ADR 0005）
 class InputScreen extends StatefulWidget {
   const InputScreen({
@@ -88,7 +89,20 @@ class _InputScreenState extends State<InputScreen> {
   var _attachMenu = false;
   var _busy = false;
 
+  /// リワインドのトグル。ON の間だけ書く欄の代わりに待ち受けの面を出し、待ち受ける
+  var _rewind = false;
+
+  /// リワインドで話し終わりを待っている間。トグルで待ち受けを止めさせない
+  var _capturing = false;
+
+  /// 広い画面と狭い画面で並べ方が変わっても（スマホを横にしたときなど）、待ち受けを途切れさせない
+  final _rewindKey = GlobalKey();
+
   final _memos = <Memo>[];
+
+  /// 書き直している未整理メモ
+  Memo? _editingMemo;
+  final _memoText = TextEditingController();
 
   /// 入力欄に流し込んだメモ。差分を作れたら未整理メモから消す
   final _poured = <Memo>[];
@@ -115,6 +129,7 @@ class _InputScreenState extends State<InputScreen> {
   @override
   void dispose() {
     _text.dispose();
+    _memoText.dispose();
     _stopWatchingDrops();
     _dictation?.stop();
     _dictationSocket?.sink.close();
@@ -171,16 +186,12 @@ class _InputScreenState extends State<InputScreen> {
     setState(() => _files.addAll(added));
   }
 
-  /// リワインドを開く。開いている間だけ待ち受ける。トグルを押した操作で開くので、ブラウザはそのままマイクを開ける
-  Future<void> _openRewind() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RewindScreen(api: widget.api, newRecorder: widget.newRecorder, memos: _memos, onMemo: _addMemo),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
+  /// トグルを押した操作で待ち受けの面を出すので、ブラウザはそのままマイクを開ける
+  void _toggleRewind(bool on) => setState(() {
+        _rewind = on;
+        _capturing = false;
+        _editingMemo = null;
+      });
 
   /// リワインドで書き起こせたメモ。書き起こしは前後して返るので、切り出した順に並べ直す
   void _addMemo(Memo m) {
@@ -201,6 +212,39 @@ class _InputScreenState extends State<InputScreen> {
         _text.text = [_text.text.trimRight(), m.text].where((t) => t.isNotEmpty).join('\n');
         _poured.add(m);
       });
+
+  void _editMemo(Memo m) => setState(() {
+        _editingMemo = m;
+        _memoText.text = m.text;
+      });
+
+  /// リワインドの合間に、書き直しているメモ1件だけを記録する。言われた日は切り出した日にする
+  Future<void> _sendMemo(List<ManualState> manuals) async {
+    final m = _editingMemo;
+    final text = _memoText.text.trim();
+    if (m == null || text.isEmpty || _busy) return;
+    await _send(manuals, text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), onSaved: () {
+      _memos.remove(m);
+      _poured.remove(m);
+      if (_editingMemo == m) _editingMemo = null;
+      _saveMemos();
+    });
+  }
+
+  /// 書き直したメモに差し替える。入力欄に入れた後なら入れた印も引き継ぐ（入力欄の文面は変えない）
+  void _saveMemo() {
+    final m = _editingMemo;
+    final text = _memoText.text.trim();
+    if (m == null || text.isEmpty) return;
+    final edited = Memo(at: m.at, text: text);
+    setState(() {
+      _memos[_memos.indexOf(m)] = edited;
+      final i = _poured.indexOf(m);
+      if (i >= 0) _poured[i] = edited;
+      _editingMemo = null;
+    });
+    _saveMemos();
+  }
 
   void _deleteMemo(Memo m) {
     setState(() {
@@ -429,31 +473,44 @@ class _InputScreenState extends State<InputScreen> {
 
     final k = context.tokens;
     return LayoutBuilder(builder: (context, box) {
-      // 広い画面では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする
+      // 広い画面では、入力とあとで確認を左に、最近の付箋を右に並べ、書きながら前の記録を見られるようにする。
+      // リワインドでは、左に待ち受けの面、右に最近の記録の代わりに未整理メモを置き、1件ずつ書き直して記録できるようにする
       final wide = box.maxWidth >= k.wideLayout;
-      final input = [
-        ..._unsorted(),
-        _composer(manuals, wide: wide),
-        SizedBox(height: k.space.xxl),
-        ..._openChecks(manuals),
-      ];
+      final main = _rewind
+          ? [
+              RewindPanel(
+                key: _rewindKey,
+                api: widget.api,
+                newRecorder: widget.newRecorder,
+                onMemo: _addMemo,
+                onCapturing: (v) => setState(() => _capturing = v),
+              ),
+            ]
+          : [
+              ..._unsorted(manuals),
+              _composer(manuals, wide: wide),
+              SizedBox(height: k.space.xxl),
+              ..._openChecks(manuals),
+            ];
+      List<Widget> side({double? noteWidth}) =>
+          _rewind ? _unsorted(manuals, noteWidth: noteWidth) : _recent(manuals, noteWidth: noteWidth);
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
         child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
           PageTitle(
             '言われたことを記録',
             meta: [Text('どのノートのことかは選ばなくてかまいません', style: k.text.small)],
-            // リワインドのページの同じ位置にも ON のトグルがあり、OFF にすると戻ってくる
+            // ON にしても題名とトグルの位置は変えず、ページを移った感じを出さない
             trailing: manuals.isEmpty
                 ? null
                 : Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('リワインド', style: k.text.heading),
                     SizedBox(width: k.space.sm),
                     MoonSwitch(
-                      value: false,
+                      value: _rewind,
                       semanticLabel: 'リワインド',
-                      // 音声入力とマイクを取り合わない
-                      onChanged: _dictating ? null : (_) => _openRewind(),
+                      // 音声入力とマイクを取り合わない。切り出しの途中で待ち受けを止めない
+                      onChanged: _dictating || _capturing ? null : _toggleRewind,
                     ),
                   ]),
           ),
@@ -463,17 +520,18 @@ class _InputScreenState extends State<InputScreen> {
           else ...[
             if (wide)
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: input)),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: main)),
                 SizedBox(width: k.space.xxl),
                 SizedBox(
                   width: k.panelWidth,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _recent(manuals, noteWidth: k.panelWidth)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: side(noteWidth: k.panelWidth)),
                 ),
               ])
             else ...[
-              ...input,
+              // 狭い画面でも待ち受けの面を先に置き、メモが増えてもボタンの位置が動かないようにする
+              ...main,
               SizedBox(height: k.space.xxl),
-              ..._recent(manuals),
+              ...side(),
             ],
           ],
         ]),
@@ -481,48 +539,100 @@ class _InputScreenState extends State<InputScreen> {
     });
   }
 
-  /// リワインドでためた未整理メモ。押すと入力欄に入れる。無ければ何も出さない
-  List<Widget> _unsorted() {
-    if (_memos.isEmpty) return [];
+  /// リワインドでためた未整理メモ。リワインドが OFF なら押すと入力欄に入り、無ければ何も出さない。
+  /// ON なら押すとその場で書き直して1件ずつ記録でき、無くても見出しを出して右の列を空けない
+  List<Widget> _unsorted(List<ManualState> manuals, {double? noteWidth}) {
     final k = context.tokens;
+    if (_memos.isEmpty && !_rewind) return [];
     return [
       Text('未整理メモ', style: k.text.title),
       SizedBox(height: k.space.xs),
-      Text('押すと入力欄に入ります。続けて押すと1つにまとめられます', style: k.text.small),
-      _memoNotes(_memos),
-      SizedBox(height: k.space.xxl),
+      Text(
+        _rewind
+            ? (_memos.isEmpty ? 'いま言われたことをメモすると、ここにたまります' : '押すと書き直して、ノートと照らし合わせられます')
+            : '押すと入力欄に入ります。続けて押すと1つにまとめられます',
+        style: k.text.small,
+      ),
+      Padding(
+        padding: EdgeInsets.only(top: k.space.sm),
+        child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
+          for (final m in _memos)
+            SizedBox(
+              width: noteWidth ?? k.stickyWidth,
+              child: m == _editingMemo ? _memoEditor(m, manuals) : _memoNote(m),
+            ),
+        ]),
+      ),
+      if (!_rewind) SizedBox(height: k.space.xxl),
     ];
   }
 
-  Widget _memoNotes(Iterable<Memo> memos) {
+  Widget _memoNote(Memo m) {
     final k = context.tokens;
-    return Padding(
-      padding: EdgeInsets.only(top: k.space.sm),
-      child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
-        for (final m in memos)
-          SizedBox(
-            width: k.stickyWidth,
-            child: StickyNote(
-              onTap: !_poured.contains(m) && !_busy && !_dictating ? () => _pour(m) : null,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small)),
-                  MoonButton.icon(
-                    buttonSize: MoonButtonSize.xs,
-                    semanticLabel: 'メモを消す',
-                    icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
-                    onTap: _busy ? null : () => _deleteMemo(m),
-                  ),
-                ]),
-                SizedBox(height: k.space.sm),
-                Text(m.text, style: k.text.body),
-                if (_poured.contains(m)) ...[
-                  SizedBox(height: k.space.sm),
-                  StatusTag('入力欄に入れました', bg: k.colors.shell, fg: k.colors.inkMuted),
-                ],
-              ]),
-            ),
+    final poured = _poured.contains(m);
+    return StickyNote(
+      onTap: _busy
+          ? null
+          : _rewind
+              ? () => _editMemo(m)
+              : (!poured && !_dictating ? () => _pour(m) : null),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small)),
+          MoonButton.icon(
+            buttonSize: MoonButtonSize.xs,
+            semanticLabel: 'メモを消す',
+            icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+            onTap: _busy ? null : () => _deleteMemo(m),
           ),
+        ]),
+        SizedBox(height: k.space.sm),
+        Text(m.text, style: k.text.body),
+        if (poured) ...[
+          SizedBox(height: k.space.sm),
+          StatusTag('入力欄に入れました', bg: k.colors.shell, fg: k.colors.inkMuted),
+        ],
+      ]),
+    );
+  }
+
+  /// リワインドの間に付箋のまま書き直す欄。そのまま記録するか、直した文だけ残す
+  Widget _memoEditor(Memo m, List<ManualState> manuals) {
+    final k = context.tokens;
+    final filled = _memoText.text.trim().isNotEmpty;
+    return StickyNote(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
+        SizedBox(height: k.space.sm),
+        MoonTextArea(
+          controller: _memoText,
+          autofocus: true,
+          // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない
+          height: k.memoEditorHeight,
+          expands: true,
+          readOnly: _busy,
+          textStyle: k.text.body,
+          onChanged: (_) => setState(() {}),
+        ),
+        SizedBox(height: k.space.sm),
+        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+          MoonFilledButton(
+            buttonSize: MoonButtonSize.sm,
+            onTap: filled && !_busy ? () => _sendMemo(manuals) : null,
+            leading: _busy ? const ButtonLoader() : null,
+            label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+          ),
+          MoonOutlinedButton(
+            buttonSize: MoonButtonSize.sm,
+            onTap: filled && !_busy ? _saveMemo : null,
+            label: const Text('保存する'),
+          ),
+          MoonTextButton(
+            buttonSize: MoonButtonSize.sm,
+            onTap: _busy ? null : () => setState(() => _editingMemo = null),
+            label: const Text('やめる'),
+          ),
+        ]),
       ]),
     );
   }

@@ -168,8 +168,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 入力ページの最近の記録に並べる付箋の幅
   final double stickyWidth = 220;
 
+  /// 未整理メモを付箋のまま書き直す欄の高さ
+  final double memoEditorHeight = 120;
+
   /// 入力ページで添えた画像のサムネイルの大きさ
   final double thumbnail = 64;
+
+  /// リワインドの丸いボタンの直径。指導中に画面を見ずに親指で押せる大きさ
+  final double rewindButton = 200;
 
   /// 確認印の傾き（ラジアン）。手で押した印に見せる
   final double stampTilt = -0.08;
