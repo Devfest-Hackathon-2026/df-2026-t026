@@ -91,12 +91,15 @@ class _ManualScreenState extends State<ManualScreen> {
   void _openCheck(Check check) =>
       openCheckViaList(Navigator.of(context), c, check.id, settings: aboveNote(context, fromNote: true));
 
-  // 狭い画面では下のタブバーと同じ移り方にする
-  void _openList() => showsNoteTabBar(context)
-      ? openNoteTab(context, c, from: NoteTab.note, to: NoteTab.checks)
-      : Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c)));
+  // 狭い画面（サイドバーが出ない幅）では、キーボードでタブバーが隠れている間も、下のタブバーと同じ移り方にする。
+  // 広い画面でも「ノートの上」の印を付けておき、狭い幅に変わっても「ノート」タブで1枚のノートに戻れるようにする
+  void _openList() => _open(NoteTab.checks, CheckListScreen(c: c));
 
-  void _openHistory() => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(c: c)));
+  void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
+
+  void _open(NoteTab tab, Widget screen) => showsSidebar(context)
+      ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
+      : openNoteTab(context, c, from: NoteTab.note, to: tab);
 
   @override
   Widget build(BuildContext context) {
@@ -105,15 +108,15 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
-        final tabBar = s != null && showsNoteTabBar(context);
-        // 狭い画面では下のタブバーから移るので、上部バーには出さない
+        // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
+        final narrow = s != null && !showsSidebar(context);
         return Scaffold(
           extendBody: true,
-          bottomNavigationBar: tabBar ? NoteTabBar(c: c, current: NoteTab.note) : null,
+          bottomNavigationBar: narrow && showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
-              trailing: s == null || tabBar
+              trailing: s == null || narrow
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
                       MoonOutlinedButton(

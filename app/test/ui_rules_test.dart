@@ -24,6 +24,9 @@ const _shadowAllowed = 'lib/screens/common.dart';
 const _blurTrial = 'lib/screens/tab_bar.dart';
 final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b');
 
+/// 下のタブバーの影はトークン（theme.dart の tabBarShadow）で持つ。theme.dart は検査の外なので、使ってよいのは tab_bar.dart だけと確かめる
+final _tabBarShadow = RegExp(r'\btabBarShadow\b');
+
 void main() {
   test('画面のコードが UI ルールに沿っている', () {
     final violations = <String>[];
@@ -38,6 +41,7 @@ void main() {
         ..._rules,
         if (f.path != _shadowAllowed) '影': _shadow,
         if (f.path == _blurTrial) 'グラデーション・ぼかし': _gradientOnly,
+        if (f.path != _blurTrial) 'タブバーの影（tab_bar.dart だけ）': _tabBarShadow,
       };
       for (final MapEntry(key: name, value: re) in rules.entries) {
         for (final m in re.allMatches(src)) {

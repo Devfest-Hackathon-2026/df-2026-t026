@@ -9,6 +9,8 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
+import 'manual_screen.dart';
+import 'tab_bar.dart';
 
 /// 発言者の候補に並べる数
 const _maxSpeakers = 6;
@@ -17,14 +19,19 @@ const _maxSpeakers = 6;
 Future<void> showReview(BuildContext context, ManualController c, String utteranceId) => showMoonModal<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => ReviewDialog(c: c, utteranceId: utteranceId),
+      // ノートの画面から開いたときは、確認リストを「ノートの上」として開く（下のタブバーの「ノート」で1枚のノートに戻る）
+      builder: (_) => ReviewDialog(
+          c: c, utteranceId: utteranceId, listSettings: aboveNote(context, fromNote: context.widget is ManualScreen)),
     );
 
 /// 差分化と分類の結果を見て、発言者と日付を確かめてから反映する
 class ReviewDialog extends StatefulWidget {
-  const ReviewDialog({super.key, required this.c, required this.utteranceId});
+  const ReviewDialog({super.key, required this.c, required this.utteranceId, this.listSettings});
   final ManualController c;
   final String utteranceId;
+
+  /// 「確認リストを見る」で開く確認リストに付ける印（tab_bar.dart の aboveNote）
+  final RouteSettings? listSettings;
 
   @override
   State<ReviewDialog> createState() => _ReviewDialogState();
@@ -293,7 +300,8 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       if (!mounted) return;
                       final nav = Navigator.of(context);
                       nav.pop();
-                      await nav.push(MaterialPageRoute(builder: (_) => CheckListScreen(c: widget.c)));
+                      await nav.push(MaterialPageRoute(
+                          settings: widget.listSettings, builder: (_) => CheckListScreen(c: widget.c)));
                     }),
             label: const Text('確認リストを見る'),
           ),
