@@ -215,6 +215,8 @@ void main() {
       // メニューは左端から出る。影は付けない
       final drawer = find.byType(MoonDrawer);
       expect(tester.getRect(drawer).left, 0);
+      // メニューは画面の幅の8割
+      expect(tester.getRect(drawer).width, closeTo(tester.view.physicalSize.width / tester.view.devicePixelRatio * 0.8, 0.5));
       expect(tester.widget<MoonDrawer>(drawer).decoration, isA<BoxDecoration>());
       expect((tester.widget<MoonDrawer>(drawer).decoration! as BoxDecoration).boxShadow, isNull);
     });

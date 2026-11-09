@@ -162,6 +162,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 広い画面で左に常に出すサイドバーの幅
   final double sidebarWidth = 240;
 
+  /// スマホで三本線から出すメニューの幅(画面の幅に対する割合)
+  final double drawerWidthFactor = 0.8;
+
   /// サイドバーの項目の左に置く物（自分のアイコン・ペンのアイコン）の幅。アイコンの付いた項目どうしで文字の頭をそろえる（自分のアイコンの大きさ xs と同じ）
   final double sidebarLeading = 24;
   final double sidebarIcon = 20;

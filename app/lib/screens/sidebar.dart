@@ -57,7 +57,7 @@ class SidebarDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     return MoonDrawer(
-      width: k.sidebarWidth,
+      width: MediaQuery.sizeOf(context).width * k.drawerWidthFactor,
       semanticLabel: 'メニュー',
       decoration: BoxDecoration(
         color: k.colors.canvas,
