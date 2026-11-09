@@ -20,6 +20,10 @@ const _half = '- 塩 小さじ1/2';
 const _one = '- 塩 小さじ1';
 const _record = '11/7 店長に確認：1/2で統一';
 const _showText = '11/7 に店長に確認して、「塩 小さじ1/2」に決まっています（1/2で統一）。';
+const _keepLabel = '記録を見せて、ノートのままにする';
+
+/// 記録を見せて済ませたときに自動で入るメモ。日付は押した日
+String get _shownNote => '${fmtDay(today())} に、11/7 店長に確認した記録を見せた';
 
 Map<String, dynamic> _said(String id, String speaker, String day, String text, {bool fromEdit = false}) =>
     {'id': id, 'text': text, 'speaker': speaker, 'saidAt': day, 'fromEdit': fromEdit, 'createdAt': '${day}T10:00:00Z'};
@@ -113,15 +117,41 @@ Map<String, dynamic> _unconfirmed() => {
       ],
     };
 
+/// 共有された佐藤店長（sato）として、かなでのノートを見ている
+Map<String, dynamic> _shared(Map<String, dynamic> j) => j
+  ..['me'] = 'sato'
+  ..['sharedBy'] = {'id': 'demo', 'name': 'かなで'};
+
+/// 送られた内容で最後の確認（c2）を確定した状態。answeredBy があれば、決めた人をその人、日付を今日にする（ADR 0017 のサーバー）
+Map<String, dynamic> _resolvedWith(Map<String, dynamic> j, Map<String, dynamic> body, {String? answeredBy, String? name}) {
+  final by = name ?? body['decidedBy'] as String;
+  final at = answeredBy != null ? today() : body['decidedAt'] as String;
+  (j['utterances'] as List).add(_said('a2', by, at, body['note']));
+  (j['checks'] as List).last['resolution'] = {
+    'utteranceId': 'a2',
+    'patchId': null,
+    'decidedBy': by,
+    'answeredBy': ?answeredBy,
+    'decidedAt': at,
+    'text': body['text'],
+    'note': body['note'],
+  };
+  return j;
+}
+
 class _Server {
-  _Server(this.state);
+  _Server(this.state, {this.afterResolve});
   final Map<String, dynamic> state;
+
+  /// 確定したあとに返す状態。無ければ同じ状態を返す
+  final Map<String, dynamic> Function(Map<String, dynamic> body)? afterResolve;
   Map<String, dynamic>? resolved;
 
   late final api = Api(
     client: MockClient((req) async {
       if (req.url.path.endsWith('/resolve')) resolved = jsonDecode(req.body);
-      return http.Response.bytes(utf8.encode(jsonEncode(state)), 200);
+      final body = resolved != null && afterResolve != null ? afterResolve!(resolved!) : state;
+      return http.Response.bytes(utf8.encode(jsonEncode(body)), 200);
     }),
     baseUrl: 'http://api',
   );
@@ -134,9 +164,9 @@ void _size(WidgetTester tester, Size size) {
 }
 
 Future<_Server> _pumpCheck(WidgetTester tester, Map<String, dynamic> state, String checkId,
-    {Size size = const Size(390, 844)}) async {
+    {Size size = const Size(390, 844), Map<String, dynamic> Function(Map<String, dynamic> body)? afterResolve}) async {
   _size(tester, size);
-  final server = _Server(state);
+  final server = _Server(state, afterResolve: afterResolve);
   final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
   await tester.pumpWidget(MaterialApp(
     theme: appTheme(),
@@ -251,9 +281,145 @@ void main() {
     expect(find.byType(ConfirmStamp), findsNothing);
     expect(find.text('記録を見せる'), findsNothing);
     expect(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '記録を見せる文をコピーする'), findsNothing);
+    // 記録を見せて済ませるボタンと区切りも出さず、今までどおり「誰に確認する？」から始まる
+    expect(find.textContaining('記録を見せて、'), findsNothing);
+    expect(find.text('もう一度聞くなら'), findsNothing);
+    expect(find.byType(MoonFilledButton), findsNothing);
+    expect(find.text('誰に確認する？'), findsOneWidget);
 
     await _confirmAsIs(tester);
     expect(find.text('田中さんの言う通り'), findsOneWidget);
     expect(server.resolved, containsPair('text', _half));
+  });
+
+  // 審査員の指摘（11/10）：確定済みの決定と食い違ったのに、また誰に確認するかへ誘導され、記録を見せて済ませる終わらせ方が無かった
+  group('記録を見せて、ノートのままにする', () {
+    for (final size in const [Size(390, 844), Size(1440, 900)]) {
+      testWidgets('見せる文のすぐ下の主のボタンで、前の確定の相手・日付と自動のメモで「ノートのまま」に確定する（$size）', (tester) async {
+        final server =
+            await _pumpCheck(tester, _confirmed(), 'c2', size: size, afterResolve: (body) => _resolvedWith(_confirmed(), body));
+        final detail = find.byType(CheckDetail);
+        final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
+        expect(keep, findsOneWidget);
+        // 主のボタンはこれだけ（聞いた結果の欄は、押すまで開かない）
+        expect(find.descendant(of: detail, matching: find.byType(MoonFilledButton)), findsOneWidget);
+        // 見せる文 → 主のボタン → 「もう一度聞くなら」 → 今までの「誰に確認する？」の順
+        final show = tester.getTopLeft(find.text(_showText)).dy;
+        final button = tester.getTopLeft(keep).dy;
+        final again = tester.getTopLeft(find.text('もう一度聞くなら')).dy;
+        final ask = tester.getTopLeft(find.text('誰に確認する？')).dy;
+        expect(show < button && button < again && again < ask, isTrue);
+
+        await tester.ensureVisible(keep);
+        await tester.tap(keep);
+        await tester.pumpAndSettle();
+        expect(server.resolved, {'decidedBy': '店長', 'decidedAt': '2026-11-07', 'text': _half, 'note': _shownNote});
+        // 確認済みになり、前と同じ「11/7 店長」の確認の記録として出る
+        expect(find.text('11/7 店長に確認：$_shownNote'), findsOneWidget);
+        expect(find.text(_keepLabel), findsNothing);
+        expect(find.text('もう一度聞くなら'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+      });
+    }
+
+    testWidgets('「もう一度聞くなら」の下には、候補・聞き方の例・聞いた結果を記録する、が今のまま残る', (tester) async {
+      final server = await _pumpCheck(tester, _confirmed(), 'c2');
+      final again = tester.getTopLeft(find.text('もう一度聞くなら')).dy;
+      for (final f in [
+        find.text('お店のやり方を決める立場なので'),
+        find.text('どちらに合わせればよいですか？'),
+        find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する'),
+      ]) {
+        expect(f, findsOneWidget);
+        expect(tester.getTopLeft(f).dy, greaterThan(again));
+      }
+      // 聞き直して記録するときは、今までどおり確認した相手・日付・メモを入れて確定する
+      final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
+      await tester.ensureVisible(start);
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      final adopt = find.text('佐藤さんの言う通り');
+      await tester.ensureVisible(adopt);
+      await tester.tap(adopt);
+      await tester.pump();
+      final note = find.widgetWithText(MoonTextInput, '例: 店長に聞いて、こちらに統一');
+      await tester.ensureVisible(note);
+      await tester.enterText(note, '小さじ1に変えた');
+      final confirm = find.widgetWithText(MoonFilledButton, '確認済みにする');
+      await tester.ensureVisible(confirm);
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+      expect(server.resolved, {'decidedBy': '店長', 'decidedAt': today(), 'text': _one, 'note': '小さじ1に変えた'});
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('相手の行が書き換えられて無いときは「記録を見せて、書き換える前に戻す」で、前の確定の内容に戻す', (tester) async {
+      final server = await _pumpCheck(tester, _rewritten(), 'c2');
+      expect(find.text(_keepLabel), findsNothing);
+      final back = find.widgetWithText(MoonFilledButton, '記録を見せて、書き換える前に戻す');
+      await tester.ensureVisible(back);
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(server.resolved, {'decidedBy': '店長', 'decidedAt': '2026-11-07', 'text': _half, 'note': _shownNote});
+      expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('前の確定が本人の決定なら、メモは「店長が決定した記録を見せた」', (tester) async {
+      final j = _confirmed();
+      ((j['checks'] as List).first['resolution'] as Map<String, dynamic>)['answeredBy'] = 'tencho';
+      final server = await _pumpCheck(tester, j, 'c2');
+      final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
+      await tester.ensureVisible(keep);
+      await tester.tap(keep);
+      await tester.pumpAndSettle();
+      expect(server.resolved, containsPair('note', '${fmtDay(today())} に、11/7 店長が決定した記録を見せた'));
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('共有された人が押すと、決めた人と日付はサーバーに任せ、画面はその人が決めた記録になる', (tester) async {
+      final server = await _pumpCheck(tester, _shared(_confirmed()), 'c2',
+          afterResolve: (body) => _resolvedWith(_shared(_confirmed()), body, answeredBy: 'sato', name: '佐藤店長'));
+      // 共有された人には「誰に確認する？」を出さず、区切りの下は答える欄
+      expect(find.text('誰に確認する？'), findsNothing);
+      expect(find.text('もう一度聞くなら'), findsNothing);
+      final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
+      final button = tester.getTopLeft(keep).dy;
+      final own = tester.getTopLeft(find.text('自分で答えるなら')).dy;
+      final answer = tester.getTopLeft(find.text('答える')).dy;
+      expect(button < own && own < answer, isTrue);
+
+      await tester.ensureVisible(keep);
+      await tester.tap(keep);
+      await tester.pumpAndSettle();
+      expect(server.resolved!.containsKey('decidedBy'), isFalse);
+      expect(server.resolved, containsPair('text', _half));
+      expect(server.resolved, containsPair('note', _shownNote));
+      expect(tester.takeException(), isNull);
+      expect(find.text('確認の記録'), findsWidgets);
+      expect(find.text('${fmtDay(today())} 佐藤店長が決定：$_shownNote'), findsOneWidget);
+      expect(_bigStamps(tester).single.decided, isTrue);
+      expect(find.text('答えて確定する'), findsNothing);
+      await tester.pump(const Duration(seconds: 10));
+    });
+  });
+
+  group('聞いた結果のメモ欄の例は、どの項目でも読める（#111）', () {
+    testWidgets('聞いた結果を記録するとき', (tester) async {
+      await _pumpCheck(tester, _unconfirmed(), 'c1');
+      final start = find.widgetWithText(MoonOutlinedButton, '聞いた結果を記録する');
+      await tester.ensureVisible(start);
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(MoonTextInput, '例: 店長に聞いて、こちらに統一'), findsOneWidget);
+      expect(find.text('例: 1/2で統一'), findsNothing);
+    });
+
+    testWidgets('共有された人が答えるとき', (tester) async {
+      await _pumpCheck(tester, _shared(_unconfirmed()), 'c1');
+      expect(find.widgetWithText(MoonTextInput, '例: こちらに統一する'), findsOneWidget);
+      expect(find.text('例: 1/2で統一'), findsNothing);
+    });
   });
 }
