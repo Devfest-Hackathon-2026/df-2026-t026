@@ -19,10 +19,9 @@ import '../web/files.dart';
 import 'attach.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
-import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
-import 'profile_screen.dart';
+import 'open_checks_screen.dart';
 import 'review_dialog.dart';
 import 'rewind_panel.dart';
 import 'sidebar.dart';
@@ -65,6 +64,9 @@ class InputScreen extends StatefulWidget {
 
 class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
+
+  /// 狭い画面のメニュー（Drawer）を閉じるため
+  final _scaffold = GlobalKey<ScaffoldState>();
   final _text = TextEditingController();
   final _files = <Attachment>[];
   var _attachMenu = false;
@@ -405,34 +407,37 @@ class _InputScreenState extends State<InputScreen> {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
+    final narrow = !showsSidebar(context);
+    // 広い幅に変わったとき、メニューが開いていたら、外す前に閉じる。drawer を外しただけでは Scaffold が「開いている」を
+    // 覚えたままで、狭い幅に戻るとまた開いて出る（レビュー31）。閉じ終わったら onDrawerChanged で作り直し、drawer を外す
+    final open = _scaffold.currentState?.isDrawerOpen ?? false;
+    if (!narrow && open) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scaffold.currentState?.closeDrawer());
+    }
     return Scaffold(
+      key: _scaffold,
+      onDrawerChanged: (_) => setState(() {}),
+      // 左の端からのなぞりでは開かない。iPhone の Safari の「戻る」のなぞりとぶつかるので、三本線だけで開く
+      drawerEnableOpenDragGesture: false,
+      // 狭い画面では、サイドバーの代わりに上部バーの三本線から左にメニューを出す（Claude・ChatGPT のスマホ版と同じ）。
+      // 広い幅に変わったらメニューは外す（開いていたら閉じる）
+      drawer: narrow || open ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
       body: WithSidebar(
         api: widget.api,
         place: Place.input,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
             crumbs: const ['DiffNote（仮）'],
-            // サイドバーが出ている幅では、そこからマニュアルや名前とアイコンへ移れるので出さない
-            trailing: showsSidebar(context)
-                ? null
-                : Row(mainAxisSize: MainAxisSize.min, children: [
-                    MoonOutlinedButton(
-                      buttonSize: MoonButtonSize.sm,
-                      onTap: () => _push(HomeScreen(api: widget.api)),
-                      label: const Text('ノートを見る'),
+            // ノート一覧・自分のページへは、狭い画面ではメニューから、広い画面ではサイドバーから移る
+            leading: narrow
+                ? Builder(
+                    builder: (context) => MoonButton.icon(
+                      semanticLabel: 'メニュー',
+                      icon: Icon(LucideIcons.menu, color: k.colors.ink),
+                      onTap: () => Scaffold.of(context).openDrawer(),
                     ),
-                    MeBuilder(
-                      api: widget.api,
-                      builder: (context, me) => Padding(
-                        padding: EdgeInsets.only(left: k.space.sm),
-                        child: MoonButton.icon(
-                          semanticLabel: '名前とアイコンを変える',
-                          icon: Avatar(me.name, image: me.icon?.bytes),
-                          onTap: () => _push(ProfileScreen(api: widget.api)),
-                        ),
-                      ),
-                    ),
-                  ]),
+                  )
+                : null,
           ),
           Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
         ])),
@@ -788,35 +793,13 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 「あとで確認」への導線。確認リストはマニュアルごとなので、件数とともに1冊ずつ並べる
+  /// 「あとで確認」への導線。中身はサイドバーから開く「あとで確認」の画面と同じ部品
   List<Widget> _openChecks(List<ManualState> manuals) {
     final k = context.tokens;
-    final open = manuals.where((s) => s.openChecks.isNotEmpty).toList();
     return [
       Text('あとで確認', style: k.text.title),
       SizedBox(height: k.space.sm),
-      if (open.isEmpty)
-        Text('食い違いは、いまはありません', style: k.text.small)
-      else
-        // 罫線が方眼とぶつからないよう、白い面に載せる
-        PaperSheet(
-          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            for (final (i, s) in open.indexed) ...[
-              if (i > 0) const Rule(),
-              MoonMenuItem(
-                onTap: () => _push(CheckListScreen(c: ManualController(widget.api, s.id, s))),
-                menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-                label: Text(s.title, style: k.text.heading),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-                  SizedBox(width: k.space.sm),
-                  Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
-                ]),
-              ),
-            ],
-          ]),
-        ),
+      OpenChecksList(manuals: manuals, onOpen: (s) => _push(CheckListScreen(c: ManualController(widget.api, s.id, s)))),
     ];
   }
 

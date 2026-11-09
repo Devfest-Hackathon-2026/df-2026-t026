@@ -398,8 +398,8 @@ void main() {
     expect(find.byType(MoonTextArea), findsNothing);
     expect(tester.getTopLeft(find.byType(MoonSwitch)), toggleAt);
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
-    // サイドバーにだけある項目
-    expect(find.text('ノートを作る'), findsOneWidget);
+    // サイドバーにだけある項目（ノートを作る＋）。リワインドにしてもサイドバーはそのまま
+    expect(find.bySemanticsLabel('ノートを作る'), findsOneWidget);
     expect(find.text('最近の記録'), findsNothing);
     expect(find.text('いま言われたことをメモすると、ここにたまります'), findsOneWidget);
 
@@ -831,8 +831,8 @@ void main() {
     // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
     final hall = find.widgetWithText(MoonMenuItem, 'ホール');
     expect(hall, findsOneWidget);
-    // ノートがあっても、サイドバーから新しいノートを作れる
-    expect(find.widgetWithText(MoonMenuItem, 'ノートを作る'), findsOneWidget);
+    // ノートがあっても、サイドバーの「ノート」の右の＋から新しいノートを作れる
+    expect(find.bySemanticsLabel('ノートを作る'), findsOneWidget);
     expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン').first, matching: find.text('1')), findsOneWidget);
 
     await tester.tap(hall);
@@ -865,11 +865,16 @@ void main() {
     expect(sent, containsPair('text', 'UUID は使わないでと言われた'));
   });
 
-  testWidgets('狭い画面ではサイドバーを出さず、上部バーの「ノートを見る」から一覧へ進む', (tester) async {
+  testWidgets('狭い画面ではサイドバーを出さず、上部バーの三本線から出るメニューの「ノート」から一覧へ進む', (tester) async {
     await _pumpInput(tester, _client((_) async => _json({})), size: const Size(400, 900));
 
     expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsNothing);
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'));
+    // 上部バーの「ノートを見る」はやめた（メニューから行ける）
+    expect(find.widgetWithText(MoonOutlinedButton, 'ノートを見る'), findsNothing);
+    await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MoonMenuItem, 'ホール'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonMenuItem, 'ノート'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('ノート')), findsOneWidget);
   });
