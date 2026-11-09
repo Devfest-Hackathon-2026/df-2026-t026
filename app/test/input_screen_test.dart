@@ -177,7 +177,7 @@ Future<void> _pumpInput(WidgetTester tester, http.Client client,
   await tester.pumpAndSettle();
 }
 
-/// 題名の右のトグルでリワインドのページを開く。開くと常時待ち受けが始まる
+/// 題名の右のトグルでリワインドを ON にする。ON にすると常時待ち受けが始まる
 Future<void> _startRewind(WidgetTester tester) async {
   await tester.tap(find.byType(MoonSwitch));
   await tester.pumpAndSettle();
@@ -195,6 +195,12 @@ Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) 
   mic.add(_pcm(1200, voice: false));
   await tester.pump();
 }
+
+/// その未整理メモの「入力欄に入れる」
+Finder _pourButton(String text) => find.descendant(
+      of: find.ancestor(of: find.text(text), matching: find.byType(StickyNote)).first,
+      matching: find.widgetWithText(MoonTextButton, '入力欄に入れる'),
+    );
 
 /// トーストが消えるまで進める（タイマーを残したまま終えない）
 Future<void> _waitToast(WidgetTester tester) => tester.pumpAndSettle(const Duration(seconds: 10));
@@ -379,11 +385,12 @@ void main() {
     expect(find.byType(MoonTextArea), findsNothing);
   });
 
-  testWidgets('リワインドを ON にすると別のページで待ち受けを始め、OFF にすると入力ページに戻って止める', (tester) async {
+  testWidgets('リワインドを ON にすると、サイドバーとトグルの位置はそのままで書く欄の所に待ち受けを出し、OFF にすると止める', (tester) async {
     final mic = StreamController<Uint8List>();
     await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
     expect(find.byType(MoonTextArea), findsOneWidget);
     expect(mic.hasListener, isFalse);
+    final toggleAt = tester.getTopLeft(find.byType(MoonSwitch));
 
     await _startRewind(tester);
 
@@ -391,6 +398,10 @@ void main() {
     expect(find.text('端末内で直前60秒を保持中（送信していません）'), findsOneWidget);
     expect(find.byType(MoonLinearProgress), findsOneWidget);
     expect(find.byType(MoonTextArea), findsNothing);
+    expect(tester.getTopLeft(find.byType(MoonSwitch)), toggleAt);
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
+    // サイドバーにだけある項目
+    expect(find.text('ノートを作る'), findsOneWidget);
 
     await tester.tap(find.byType(MoonSwitch));
     await tester.pumpAndSettle();
@@ -439,14 +450,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
     expect(find.textContaining('書き起こし中'), findsNothing);
-    expect(find.text('塩は小さじ1/2'), findsOneWidget);
-    expect(find.text('お冷やはすぐ出す'), findsOneWidget);
+    // 最近の記録にも同じ文面があるので、未整理メモの数で見る
+    expect(find.bySemanticsLabel('メモを消す'), findsNWidgets(2));
     // 端末内には、切り出した順にためる
     final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
     expect([for (final m in saved) jsonDecode(m)['text']], ['塩は小さじ1/2', 'お冷やはすぐ出す']);
   });
 
-  testWidgets('書き起こしを待つ間にリワインドを閉じても、届いたメモを入力ページにためる', (tester) async {
+  testWidgets('書き起こしを待つ間にリワインドを OFF にしても、届いたメモを未整理メモにためる', (tester) async {
     final mic = StreamController<Uint8List>();
     final heard = Completer<http.Response>();
     await _pumpInput(tester, _client((_) async => _json({}), onListen: (_) => heard.future), mic: mic);
@@ -517,9 +528,9 @@ void main() {
       }),
     );
 
-    await tester.tap(find.text('お冷やはすぐ出す').first);
+    await tester.tap(_pourButton('お冷やはすぐ出す'));
     await tester.pump();
-    await tester.tap(find.text('塩は小さじ1/2').first);
+    await tester.tap(_pourButton('塩は小さじ1/2'));
     await tester.pump();
     expect(_typed(tester), 'お冷やはすぐ出す\n塩は小さじ1/2');
     expect(find.text('入力欄に入れました'), findsNWidgets(2));
@@ -535,6 +546,26 @@ void main() {
     final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
     expect([for (final m in saved) jsonDecode(m)['text']], ['えーと']);
     expect(find.text('入力欄に入れました'), findsNothing);
+  });
+
+  testWidgets('未整理メモを押すと、その場で書き直して保存できる', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      memosKey: [jsonEncode(Memo(at: DateTime(2026, 11, 3, 14, 5), text: '塩は小さじいち').toJson())],
+    });
+    await _pumpInput(tester, _client((_) async => _json({})));
+
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(MoonTextArea, '塩は小さじいち'), '塩は小さじ1');
+    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.pump();
+
+    expect(find.text('保存する'), findsNothing);
+    expect(find.text('塩は小さじ1'), findsOneWidget);
+    final saved = (await SharedPreferences.getInstance()).getStringList(memosKey)!;
+    expect(jsonDecode(saved.single), {'at': DateTime(2026, 11, 3, 14, 5).toIso8601String(), 'text': '塩は小さじ1'});
+    // 書き直しても入力欄には入れていない
+    expect(_typed(tester), isEmpty);
   });
 
   testWidgets('いらない未整理メモは消せる', (tester) async {
