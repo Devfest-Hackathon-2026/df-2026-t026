@@ -34,4 +34,9 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   });
   assert.ok(resolved.lines.some((l: any) => l.text === '- 塩 小さじ1/2' && l.patchId === resolved.checks[0].resolution.patchId));
   assert.equal(resolved.utterances.length, 2);
+
+  // 名前とアイコンはノートの親のドキュメントに置くが、ノートは消えない
+  await call('PUT', '/me', { name: 'かなで', icon: null });
+  assert.equal((await (await send('GET', '/me', undefined, { Authorization: `Bearer ${token}` })).json() as any).name, 'かなで');
+  assert.equal((await store.listManuals('demo')).length, 2);
 });
