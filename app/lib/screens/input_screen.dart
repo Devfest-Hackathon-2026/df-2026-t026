@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -18,6 +16,7 @@ import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
+import 'attach.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
 import 'home_screen.dart';
@@ -36,29 +35,11 @@ const memosKey = 'memos';
 
 const _noMic = 'マイクを使えません。ブラウザの設定でマイクを許可してください';
 
-/// 添えられるファイルの拡張子と形式。バックエンドが受け付ける形式と揃える
-const _fileTypes = {
-  'pdf': 'application/pdf',
-  'png': 'image/png',
-  'jpg': 'image/jpeg',
-  'jpeg': 'image/jpeg',
-  'webp': 'image/webp',
-  'heic': 'image/heic',
-};
-
-/// バックエンドの上限（base64 で 15MB）に収まる元の大きさ
-const _maxAttachmentBytes = 10 * 1024 * 1024;
-
 /// 最近の記録に並べる数
 const _recentCount = 5;
 
 /// サムネイルで見せる形式（HEIC は Safari 以外で描けないので名前だけにする）
 const _previewable = {'image/png', 'image/jpeg', 'image/webp'};
-
-Future<List<PickedFile>> _pickWithFilePicker() async => [
-      for (final f in await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: _fileTypes.keys.toList()))
-        (name: f.name, type: '', bytes: await f.xFile.readAsBytes()),
-    ];
 
 /// アプリを開いて最初の画面。題名の右のトグルを ON にすると、書く欄の代わりにリワインドの待ち受けを出す。
 /// ためた未整理メモを手直しし、書く（音声入力つき）・ファイルを添えるで記録する。
@@ -68,7 +49,7 @@ class InputScreen extends StatefulWidget {
     super.key,
     required this.api,
     this.newRecorder = AudioRecorder.new,
-    this.pickFiles = _pickWithFilePicker,
+    this.pickFiles = pickWithFilePicker,
   });
   final Api api;
 
@@ -86,7 +67,6 @@ class _InputScreenState extends State<InputScreen> {
   late Future<List<ManualState>> _manuals = _load();
   final _text = TextEditingController();
   final _files = <Attachment>[];
-  var _attachMenu = false;
   var _busy = false;
 
   /// リワインドのトグル。ON の間だけ書く欄の代わりに待ち受けの面を出し、待ち受ける
@@ -119,7 +99,10 @@ class _InputScreenState extends State<InputScreen> {
   @override
   void initState() {
     super.initState();
-    _stopWatchingDrops = onFilesDropped(_addPicked);
+    // ドロップはページ全体で受けるので、上にノートを作る画面を開いている間は受けない
+    _stopWatchingDrops = onFilesDropped((f) {
+      if (ModalRoute.of(context)?.isCurrent ?? true) _addPicked(f);
+    });
     SharedPreferences.getInstance().then((p) {
       if (!mounted) return;
       setState(() => _memos.addAll([for (final m in p.getStringList(memosKey) ?? []) Memo.fromJson(jsonDecode(m))]));
@@ -163,23 +146,16 @@ class _InputScreenState extends State<InputScreen> {
   /// 選んだ・撮った・貼り付けた・ドロップしたファイルを添える。受け付けない形式は除き、大きな画像は縮める
   Future<void> _addPicked(List<PickedFile> picked) async {
     if (_busy || picked.isEmpty) return;
-    final added = <Attachment>[];
-    for (final f in picked) {
-      final mimeType = _fileTypes[f.name.split('.').last.toLowerCase()] ??
-          (_fileTypes.containsValue(f.type) ? f.type : null);
-      if (mimeType == null) continue;
-      final small = await shrinkImage(f.bytes, mimeType);
-      added.add(Attachment(name: f.name, mimeType: small.mimeType, bytes: small.bytes));
-    }
+    final (files: added, :rejected) = await toAttachments(picked);
     if (!mounted) return;
-    if (added.length < picked.length) showError(context, '添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
+    if (rejected) showError(context, '添えられるのは PDF と画像（PNG・JPEG・WebP・HEIC）です');
     _addFiles(added);
   }
 
   void _addFiles(List<Attachment> added) {
     if (!mounted || added.isEmpty) return;
     final total = [..._files, ...added].fold(0, (n, f) => n + f.bytes.length);
-    if (total > _maxAttachmentBytes) {
+    if (total > maxAttachmentBytes) {
       showError(context, 'ファイルは合わせて10MBまでです。減らしてから添えてください');
       return;
     }
@@ -728,9 +704,6 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// Web でも端末の種類を返す。スマホではカメラを直接開くボタンを出す
-  bool get _onPhone => const {TargetPlatform.android, TargetPlatform.iOS}.contains(defaultTargetPlatform);
-
   /// 添えたもの。画像はサムネイルで、ほかは名前で見せる
   Widget _attachment(Attachment f) {
     final k = context.tokens;
@@ -761,39 +734,15 @@ class _InputScreenState extends State<InputScreen> {
   /// 入力欄の中の＋。押すと添え方を選ぶメニューを開く
   Widget _attach() {
     final k = context.tokens;
-    Future<void> choose(Future<List<PickedFile>> Function() pick) async {
-      setState(() => _attachMenu = false);
-      _addPicked(await pick());
-    }
-
-    return MoonDropdown(
-      show: _attachMenu,
-      // 上に開くと書いている文字に重なるので、下に開く
-      dropdownAnchorPosition: MoonDropdownAnchorPosition.bottomLeft,
-      backgroundColor: k.colors.canvas,
-      borderColor: k.colors.rule,
-      onTapOutside: () => setState(() => _attachMenu = false),
-      // 既定では画面いっぱいまで広がるので、項目の幅に合わせる
-      content: IntrinsicWidth(
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        MoonMenuItem(
-          borderRadius: k.radius.control,
-          onTap: () => choose(widget.pickFiles),
-          label: Text('ファイルを選ぶ', style: k.text.body),
-          content: Text(_onPhone ? 'PDF・画像' : 'PDF・画像。貼り付けやドロップでも添えられます', style: k.text.small),
-        ),
-        if (_onPhone)
-          MoonMenuItem(
-            borderRadius: k.radius.control,
-            onTap: () => choose(takePhoto),
-            label: Text('写真を撮る', style: k.text.body),
-          ),
-      ])),
-      child: MoonButton.icon(
+    return AttachMenu(
+      pickFiles: widget.pickFiles,
+      onPicked: _addPicked,
+      dropHint: '貼り付けやドロップでも添えられます',
+      trigger: (open, toggle) => MoonButton.icon(
         buttonSize: MoonButtonSize.sm,
         semanticLabel: 'ファイルを添える',
-        backgroundColor: _attachMenu ? k.colors.shell : null,
-        onTap: _busy ? null : () => setState(() => _attachMenu = !_attachMenu),
+        backgroundColor: open ? k.colors.shell : null,
+        onTap: _busy ? null : toggle,
         icon: Icon(LucideIcons.plus, color: k.colors.inkMuted),
       ),
     );

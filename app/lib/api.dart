@@ -52,6 +52,16 @@ class Api {
   /// 本文を AI にマークダウンへ整えさせた案を返す。保存はしない
   Future<String> format(String text) async => (await _send('POST', '/format', {'text': text}))['text'] as String;
 
+  /// PDF・画像から、書いてある通りの本文と題名の案を読み取らせる。保存はしない
+  Future<({String title, String text})> readNote(List<Attachment> files) async {
+    final r = await _send('POST', '/read', {
+      'files': [
+        for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
+      ],
+    });
+    return (title: r['title'] as String, text: r['text'] as String);
+  }
+
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
   /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ

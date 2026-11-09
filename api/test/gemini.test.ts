@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
 import { checkWithGemini } from '../src/conflict/check.ts';
-import { formatWithGemini } from '../src/format.ts';
+import { formatWithGemini, readNoteWithGemini } from '../src/format.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
 import { GoogleGenAI } from '@google/genai';
 
@@ -180,6 +180,14 @@ test('整形：本文を渡し、行末の空白だけを落として行頭の�
   assert.equal(await formatWithGemini('仕込み 野菜を切る 玉ねぎは薄切り', generate), '## 仕込み\n- 野菜を切る\n  - 玉ねぎは薄切り');
   assert.equal(calls.length, 1);
   assert.match(calls[0].prompt, /仕込み 野菜を切る 玉ねぎは薄切り/);
+});
+
+test('読み取り：ファイルを渡し、本文と題名の前後の空白を落とす', async () => {
+  const files = [{ mimeType: 'application/pdf', data: 'JVBERg==' }];
+  const { generate, calls } = stub({ title: ' キッチンマニュアル ', text: '仕込み  \n  野菜を切る\n' });
+  assert.deepEqual(await readNoteWithGemini(files, generate), { title: 'キッチンマニュアル', text: '仕込み\n  野菜を切る' });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].files, files);
 });
 
 /** 決まった順にステータスを返す fetch。呼ばれた回数を数える */

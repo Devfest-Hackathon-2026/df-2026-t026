@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, type Check, type CheckPatch } from './conflict/check.ts';
-import type { Format } from './format.ts';
+import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type Patch, type Utterance } from './foundation/manual.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import type { Store } from './store.ts';
@@ -24,6 +24,8 @@ export interface Deps {
   transcribe: Transcribe;
   /** ノートを作るときの本文の整形（ADR 0011） */
   format: Format;
+  /** ノートを作るときの PDF・画像の読み取り（ADR 0012） */
+  readNote: ReadNote;
   listen: Listen;
   dictate: Dictate;
   /** CORS で許可するオリジン（カンマ区切り）。未指定ならすべて許可（ローカル開発用） */
@@ -51,13 +53,20 @@ const Me = z.object({
 const NewManual = z.object({ title: z.string().trim().min(1), body: z.string().trim().default('') });
 const FormatBody = z.object({ text: z.string().trim().min(1, '整える本文を入れてください') });
 const NewUtterance = z.object({ text: z.string().trim().min(1), today: date.optional() });
+const DOCUMENT_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic'] as const;
 // 入力ページで受け付ける形式。PDF・画像は Gemini、録音（WAV）は Speech-to-Text で読む
 const Attachment = z.object({
-  mimeType: z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/heic', 'audio/wav']),
+  mimeType: z.enum([...DOCUMENT_TYPES, 'audio/wav']),
   data: z.base64(),
 });
 // Gemini に1回で渡せる大きさ（約20MB）に収める
 const MAX_ATTACHMENT_CHARS = 15_000_000;
+const ReadBody = z.object({
+  files: z
+    .array(z.object({ mimeType: z.enum(DOCUMENT_TYPES), data: z.base64() }))
+    .min(1, '読み取るファイルを選んでください')
+    .refine((fs) => fs.reduce((n, f) => n + f.data.length, 0) <= MAX_ATTACHMENT_CHARS, 'ファイルは合わせて10MBまでにしてください'),
+});
 const NewIntake = z
   .object({
     text: z.string().trim().default(''),
@@ -106,7 +115,7 @@ const SELF = '自分';
 const now = () => new Date().toISOString();
 const todayInJapan = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 
-export function createApp({ store, assess, check, transcribe, format, listen, dictate, allowOrigin }: Deps) {
+export function createApp({ store, assess, check, transcribe, format, readNote, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
@@ -214,6 +223,14 @@ export function createApp({ store, assess, check, transcribe, format, listen, di
   app.post('/format', async (c) => {
     const body = FormatBody.parse(await c.req.json());
     return c.json({ text: await format(body.text) });
+  });
+
+  // 読み取った本文と題名の案を返すだけで保存しない（ADR 0012）
+  app.post('/read', async (c) => {
+    const body = ReadBody.parse(await c.req.json());
+    const read = await readNote(body.files);
+    if (!read.text) throw new HTTPException(422, { message: 'ファイルから文字を読み取れませんでした' });
+    return c.json(read);
   });
 
   app.get('/manuals/:id', async (c) => c.json(await load(c.var.userId, c.req.param('id'))));

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/manual_screen.dart';
@@ -106,6 +107,52 @@ void main() {
     await tester.tap(find.widgetWithText(MoonFilledButton, 'この内容で作る'));
     await tester.pumpAndSettle();
     expect(sent['/manuals'], {'title': 'キッチン', 'body': formatted});
+  });
+
+  testWidgets('PDF を選ぶと、読み取った文で本文を置き換え、空の題名には AI の題名を入れる', (tester) async {
+    final sent = <String, Object?>{};
+    final client = MockClient((req) async {
+      if (req.method == 'POST') sent[req.url.path] = jsonDecode(req.body);
+      if (req.url.path == '/read') return _json({'title': 'キッチンマニュアル', 'text': '仕込み\n野菜を切る'}, 200);
+      return _json(_blank, req.method == 'POST' ? 201 : 200);
+    });
+    var picked = [(name: 'manual.pdf', type: '', bytes: Uint8List.fromList([37, 80, 68, 70]))];
+    await _pump(
+      tester,
+      NewManualScreen(api: Api(client: client, baseUrl: 'http://api'), pickFiles: () async => picked),
+      height: 1600,
+    );
+    String text(int i) => tester.widget<EditableText>(find.byType(EditableText).at(i)).controller.text;
+    Future<void> pick() async {
+      await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ファイルから読み取る'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ファイルを選ぶ'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.enterText(find.byType(EditableText).at(1), '書きかけ');
+    await pick();
+    expect(sent['/read'], {
+      'files': [
+        {'mimeType': 'application/pdf', 'data': 'JVBERg=='},
+      ],
+    });
+    expect(text(0), 'キッチンマニュアル');
+    expect(text(1), '仕込み\n野菜を切る');
+
+    // 入れてある題名は変えない
+    await tester.enterText(find.byType(EditableText).first, '仕込み');
+    await pick();
+    expect(text(0), '仕込み');
+
+    // 受け付けない形式は送らない
+    sent.clear();
+    picked = [(name: 'memo.txt', type: 'text/plain', bytes: Uint8List.fromList([1]))];
+    await pick();
+    expect(sent, isEmpty);
+    expect(find.textContaining('読み取れるのは PDF と画像'), findsOneWidget);
+    // 知らせが消えるまで待つ
+    await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
   testWidgets('白紙のノートは、直接書くか記録すると書き足されることを案内する', (tester) async {

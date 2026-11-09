@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
-import { generateJson, type GenerateJson } from './gemini.ts';
+import { generateJson, type GenerateJson, type InlineFile } from './gemini.ts';
 
 /*
- * ノートを作るときの本文の整形（ADR 0011）。案を返すだけで保存しない。土台にも衝突検知にも入らない。
+ * ノートを作るときの本文の整形（ADR 0011）と、PDF・画像からの読み取り（ADR 0012）。
+ * どちらも案を返すだけで保存しない。土台にも衝突検知にも入らない。
  */
 
 /** 平文の本文を、1行を1まとまりとするマークダウンに整えた案を返す */
@@ -21,6 +22,38 @@ const formatSystem = `渡すのは、新人が職場のマニュアルや自分�
 - 表・コードブロックなど、複数行にまたがる書き方は使わない
 - すでにマークダウンで書かれている所はそのまま残す
 - 見出しの前に空行を1行置く。それ以外の空行は入れない`;
+
+/** PDF・画像から、書いてある通りの本文とノートの題名の案を読み取る */
+export type ReadNote = (files: InlineFile[]) => Promise<{ title: string; text: string }>;
+
+// 整形は「マークダウンに整える」に任せ、ここでは書いてある通りに起こすだけにする（ADR 0012）
+const readSystem = `添付は、新人が受け取った職場のマニュアルや自分用のメモ（PDF・画像）です。
+このアプリのノートの最初の本文にするため、書いてある文字を日本語のテキストに書き起こしてください。
+- 書いてある通りに起こす。要約・言い換え・書き足し・数値の丸めをしない
+- 見出し・項目・段落の区切りは改行で残す
+- 複数のファイルがあれば、渡した順に続けて起こす
+- 題名には、このノートが何についてのものかを20文字以内で付ける。資料に題があればそれを使う
+- 文字が読み取れなければ、本文も題名も空文字を返す`;
+
+export async function readNoteWithGemini(files: InlineFile[], generate: GenerateJson = generateJson) {
+  const out = await generate({
+    system: readSystem,
+    prompt: '添付したファイルを書き起こしてください。',
+    schema: z.object({
+      title: z.string().describe('ノートの題名の案'),
+      text: z.string().describe('書き起こした本文。改行で行を分ける'),
+    }),
+    files,
+  });
+  return {
+    title: out.title.trim(),
+    text: out.text
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .join('\n')
+      .trim(),
+  };
+}
 
 export async function formatWithGemini(text: string, generate: GenerateJson = generateJson): Promise<string> {
   const out = await generate({

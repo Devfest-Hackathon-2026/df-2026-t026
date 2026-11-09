@@ -5,9 +5,9 @@ import { createApp } from './app.ts';
 import { assessWithGemini } from './assess.ts';
 import { hashPassword } from './auth.ts';
 import { checkWithGemini } from './conflict/check.ts';
-import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeTranscribe } from './fake-ai.ts';
+import { fakeAssess, fakeCheckPatch, fakeDictate, fakeFormat, fakeListen, fakeReadNote, fakeTranscribe } from './fake-ai.ts';
 import { FirestoreStore } from './firestore-store.ts';
-import { formatWithGemini } from './format.ts';
+import { formatWithGemini, readNoteWithGemini } from './format.ts';
 import { transcribeWithGemini } from './intake.ts';
 import { seedWithHistory } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
@@ -32,6 +32,7 @@ const app = createApp({
   check: useGemini ? (i) => checkWithGemini(i) : fakeCheckPatch,
   transcribe: useGemini ? (f) => transcribeWithGemini(f) : fakeTranscribe,
   format: useGemini ? (t) => formatWithGemini(t) : fakeFormat,
+  readNote: useGemini ? (f) => readNoteWithGemini(f) : fakeReadNote,
   listen: useGemini ? listenWithSpeech : fakeListen,
   dictate: useGemini ? dictateWithSpeech : fakeDictate,
   allowOrigin: process.env.ALLOW_ORIGIN,
