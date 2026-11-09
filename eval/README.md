@@ -6,7 +6,12 @@
 cd api
 pnpm eval                 # Gemini（Vertex AI）で回す。GOOGLE_CLOUD_PROJECT と ADC が必要
 pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだけ確かめる（数字に意味はない）
+pnpm eval -- --only plain       # 資料なしの cases.json（18件）だけ
+pnpm eval -- --only materials   # 資料つきの material-cases.json（24件）だけ
+pnpm eval -- --check      # 直接編集の確かめ（check）で回す。発言を1行の追記として渡し、待ち時間を見る
 ```
+
+何も付けなければ `cases.json` と `material-cases.json` の両方を回す。
 
 モデルは `GEMINI_MODEL=... pnpm eval` で変えられる。
 
@@ -25,6 +30,17 @@ pnpm eval -- --compare ../eval/results/<変更前>.json    # 変更後
 ```
 
 `--compare` を付けると、表が「変更前 ／ 変更後」の2列になり、判定が変わったケースと新しく足したケースも出る。
+
+### 資料をまぜる（ADR 0019、設計書 §11.3）
+
+`--with-material <ファイル>` で、すべてのケースのノートに関係の無い資料を足す。何冊でも重ねられ、ケースの資料の後ろに並ぶ（ケースの正解の M の番号は変わらない）。題名はファイル名。
+
+```sh
+pnpm eval -- --only plain --with-material ../eval/materials/long-kitchen.md --compare ../eval/results/<変更前>.json   # まぜる1
+pnpm eval -- --only plain --with-material ../eval/materials/long-kitchen.md --with-material ../eval/materials/long-hygiene.md --with-material ../eval/materials/long-store.md --compare ../eval/results/<変更前>.json   # まぜる2
+```
+
+資料つきのケースは資料を載せる前のブランチでは回せないので、変更前と比べるのは資料なしの18件と、まぜる1・2。
 
 ## 複数のマニュアルへの振り分け（`multi.mts`）
 
@@ -47,6 +63,14 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 - **衝突相手の行の正答率**：矛盾と正しく判定したケースのうち、衝突相手の行（`conflictLine`）が正解と同じ割合
 - **言った人・日付の正答率**：`speaker`・`saidAt` が正解と同じ割合。日付は、メモに書かれていなければ Gemini は null を返し、アプリは記録した日（`today`）を使うので、評価も同じように読む
 - **質問文の約束を破った数**：AI を使わずに確かめられる約束（責める言い方をしない、120字以内、判断を仰ぐ問いになっている）を破った質問文の数。「もう一方の指示を出した人の名前を出さない」は、いまのケースのマニュアルに出どころの人がいないので確かめていない
+
+衝突相手・同じ内容の相手が資料の行なら `M1 L38` の形にして正解と比べる。資料の行を指すべきところでノートの行を指した（またはその逆の）ものは誤りにする。`--check` では言った人・日付は判定しないので数えない。
+
+時間と費用（ADR 0019）：
+
+- **いちばん遅い時間**、**並べて送った件数**（返事が遅く、2本目以降を送った件。ADR 0002）
+- **入力トークン（うちキャッシュ）**・**出力トークン**：Gemini の応答の `usageMetadata` の合計。キャッシュは暗黙のコンテキストキャッシュが効いた分（設計書 §9 段階A）
+- 資料つきのケースは、場面（`scene`）ごとの取りこぼし率・誤って聞きに来た率も出す
 
 1つの発言から複数のパッチが出たときは、いちばん重い分類をその発言の判定にする（矛盾が1つでもあれば聞きに行くため）。パッチが出なかったときは `addition` 扱い（聞きに行かない）。
 
@@ -78,7 +102,7 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 
 ## 資料つきのケース（`material-cases.json`・`materials/`）
 
-ノートに付けた資料（ADR 0019、設計書 `docs/design/0019-reference-materials.md` の §11）の評価に使うデータ。**回し方は、`run.mts`・`multi.mts` を直す PR で書く**。今のスクリプトはこのファイルを読まないので、上の18件の数字は変わらない。
+ノートに付けた資料（ADR 0019、設計書 `docs/design/0019-reference-materials.md` の §11）の評価に使うデータ。`run.mts` が `cases.json` と一緒に読む（回し方は上）。`multi.mts` は振り分けの評価で、ケースに話題の節が要るので、これまで通り `cases.json` だけを読む。
 
 項目は `cases.json` と同じで、次を足す（どれも任意）。
 
