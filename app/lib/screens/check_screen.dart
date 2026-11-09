@@ -68,6 +68,50 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 確定の入力欄を開いたか。急がせないよう、利用者が「確認できたので記録する」を押すまで閉じておく
   var _recording = false;
 
+  /// ノートを共有している人（自分は除く）。AI の候補に無くても確認した相手に選べるようにする（ADR 0016）
+  var _members = const <Person>[];
+
+  @override
+  void initState() {
+    super.initState();
+    // 共有された人には「誰に確認する？」を出さないので読まない（ADR 0017）
+    if (widget.c.state!.sharedBy == null) _loadMembers();
+  }
+
+  /// 読めなくても、AI の候補と手入力で続ける
+  Future<void> _loadMembers() async {
+    final people = await widget.c.api.shares(widget.c.manualId).catchError((Object _) => const <Person>[]);
+    final me = widget.c.state!.me;
+    if (mounted) setState(() => _members = [for (final p in people) if (p.id != me) p]);
+  }
+
+  /// 確認した相手の欄に打った言葉で、名前かログイン ID にその言葉を含む人。ID で当たった人には ID を添える。
+  /// 空のときや、共有している人の名前をそのまま選んだときは絞らない
+  List<({String name, String? id})> get _matchedMembers {
+    final typed = _decidedBy.text.trim();
+    final q = typed.toLowerCase();
+    if (q.isEmpty || _members.any((p) => p.name == typed)) return const [];
+    return [
+      for (final p in _members)
+        if (p.name.toLowerCase().contains(q)) (name: p.name, id: null)
+        else if (p.id.toLowerCase().contains(q)) (name: p.name, id: p.id),
+    ];
+  }
+
+  Widget _memberChips(List<({String name, String? id})> people) {
+    final k = context.tokens;
+    return Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
+      for (final (:name, :id) in people)
+        MoonChip(
+          chipSize: MoonChipSize.sm,
+          isActive: _decidedBy.text.trim() == name,
+          semanticLabel: '確認した相手を$nameにする',
+          label: Text(id == null ? name : '$name（$id）'),
+          onTap: () => setState(() => _decidedBy.text = name),
+        ),
+    ]);
+  }
+
   /// 共有された人は、自分の答えとして確定する。確認した相手は送らない（ADR 0017）
   Future<void> _resolve(Check chk, Patch p, {required bool answering}) async {
     final text = switch (_outcome) {
@@ -159,6 +203,12 @@ class _CheckDetailState extends State<CheckDetail> {
               SizedBox(height: k.space.xxl),
               _step('2', '誰に確認する？'),
               for (final cand in chk.candidates) _candidate(cand),
+              if (_members.isNotEmpty) ...[
+                SizedBox(height: k.space.md),
+                Text('共有している人', style: k.text.small),
+                SizedBox(height: k.space.xs),
+                _memberChips([for (final p in _members) (name: p.name, id: null)]),
+              ],
               if (chk.question != null) ...[
                 SizedBox(height: k.space.md),
                 _copyable('聞き方の例', chk.question!, '聞き方をコピーする'),
@@ -269,6 +319,10 @@ class _CheckDetailState extends State<CheckDetail> {
             label: Text('${fmtDay(_decidedAt)} に聞いた'),
           ),
         ]),
+        if (_matchedMembers case final matched when matched.isNotEmpty) ...[
+          SizedBox(height: k.space.xs),
+          _memberChips(matched),
+        ],
         SizedBox(height: k.space.xl),
       ],
       Text(answering ? 'どちらにする？' : 'どちらに決まった？', style: k.text.small),

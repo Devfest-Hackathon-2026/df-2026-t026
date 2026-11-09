@@ -348,8 +348,9 @@ void main() {
     expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
   });
 
-  Future<_Server> pumpCheck(WidgetTester tester, {required bool shared, Map<String, dynamic>? resolution}) async {
-    final server = _Server(shared: shared);
+  Future<_Server> pumpCheck(WidgetTester tester,
+      {required bool shared, Map<String, dynamic>? resolution, List<Map<String, dynamic>> people = const []}) async {
+    final server = _Server(shared: shared)..people.addAll(people);
     final state = server.state;
     if (resolution != null) (state['checks'] as List).first['resolution'] = resolution;
     final c = ManualController(server.api, 'm1', ManualState.fromJson(state));
@@ -367,6 +368,31 @@ void main() {
     expect(find.text('どちらですか？'), findsOneWidget);
     expect(_outlined('聞いた結果を記録する'), findsOneWidget);
     expect(find.text('答えて確定する'), findsNothing);
+  });
+
+  testWidgets('確認のページ（持ち主）：「誰に確認する？」で共有している人を選べ、確認した相手の欄では名前かログイン ID で絞れる', (tester) async {
+    await pumpCheck(tester, shared: false, people: [
+      {'id': 'sato', 'name': '佐藤店長'},
+      {'id': 'haruto', 'name': 'はると'},
+    ]);
+    expect(find.text('共有している人'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('確認した相手をはるとにする'));
+    await tester.pump();
+    await tester.tap(_outlined('聞いた結果を記録する'));
+    await tester.pumpAndSettle();
+    final field = find.byType(EditableText).first;
+    expect(tester.widget<EditableText>(field).controller.text, 'はると');
+
+    // ログイン ID で探せる。ID で当たった人には ID を添え、押すと名前が入る
+    await tester.enterText(field, 'sat');
+    await tester.pump();
+    expect(find.text('佐藤店長（sato）'), findsOneWidget);
+    expect(find.text('はると（haruto）'), findsNothing);
+    await tester.tap(find.ancestor(of: find.text('佐藤店長（sato）'), matching: find.byType(MoonChip)));
+    await tester.pump();
+    expect(tester.widget<EditableText>(field).controller.text, '佐藤店長');
+    // 選んだあとは絞った候補を消す
+    expect(find.text('佐藤店長（sato）'), findsNothing);
   });
 
   testWidgets('確認のページ（共有された人）：誰に確認するか・聞き方の例は出さず、自分の答えとして確定する', (tester) async {
