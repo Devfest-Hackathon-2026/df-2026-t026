@@ -19,6 +19,14 @@ final _rules = {
 final _shadow = RegExp(r'\bBoxShadow\b');
 const _shadowAllowed = 'lib/screens/common.dart';
 
+/// 例外：下のタブバー（狭い画面）だけ、後ろが透けるガラス（ぼかしと色の鮮やかさの BackdropFilter・ImageFilter）を許す
+/// （2026-11-09 決定。.claude/rules/flutter-ui.md の構成の節）。グラデーションは許さない
+const _blurTrial = 'lib/screens/tab_bar.dart';
+final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b');
+
+/// 下のタブバーの影はトークン（theme.dart の tabBarShadow）で持つ。theme.dart は検査の外なので、使ってよいのは tab_bar.dart だけと確かめる
+final _tabBarShadow = RegExp(r'\btabBarShadow\b');
+
 void main() {
   test('画面のコードが UI ルールに沿っている', () {
     final violations = <String>[];
@@ -29,7 +37,12 @@ void main() {
     for (final f in files) {
       // コメント中の語は検査しない。行の位置は保つ
       final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
-      final rules = {..._rules, if (f.path != _shadowAllowed) '影': _shadow};
+      final rules = {
+        ..._rules,
+        if (f.path != _shadowAllowed) '影': _shadow,
+        if (f.path == _blurTrial) 'グラデーション・ぼかし': _gradientOnly,
+        if (f.path != _blurTrial) 'タブバーの影（tab_bar.dart だけ）': _tabBarShadow,
+      };
       for (final MapEntry(key: name, value: re) in rules.entries) {
         for (final m in re.allMatches(src)) {
           final line = src.substring(0, m.start).split('\n').length;

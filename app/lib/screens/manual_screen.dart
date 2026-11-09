@@ -10,6 +10,7 @@ import 'common.dart';
 import 'history_screen.dart';
 import 'review_dialog.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 /// マニュアル1冊の画面：文書面（現行マニュアル）と、記録した発言のパネル。食い違いは確認リスト（別の画面）にまとめる
 class ManualScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class ManualScreen extends StatefulWidget {
 class _ManualScreenState extends State<ManualScreen> {
   late final c = ManualController(widget.api, widget.manualId)..load();
 
-  /// 狭い画面で開いているタブ（0: マニュアル、1: 発言）
+  /// 狭い画面で開いているタブ（0: 本文、1: 発言）
   var _tab = 0;
 
   /// 直接編集している所。at の行を書き換えるか、insert なら at の行の後ろ（null なら末尾）に足す
@@ -87,11 +88,18 @@ class _ManualScreenState extends State<ManualScreen> {
     }
   }
 
-  void _openCheck(Check check) => openCheckViaList(Navigator.of(context), c, check.id);
+  void _openCheck(Check check) =>
+      openCheckViaList(Navigator.of(context), c, check.id, settings: aboveNote(context, fromNote: true));
 
-  void _openList() => Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c)));
+  // 狭い画面（サイドバーが出ない幅）では、キーボードでタブバーが隠れている間も、下のタブバーと同じ移り方にする。
+  // 広い画面でも「ノートの上」の印を付けておき、狭い幅に変わっても「ノート」タブで1枚のノートに戻れるようにする
+  void _openList() => _open(NoteTab.checks, CheckListScreen(c: c));
 
-  void _openHistory() => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoryScreen(c: c)));
+  void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
+
+  void _open(NoteTab tab, Widget screen) => showsSidebar(context)
+      ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
+      : openNoteTab(context, c, from: NoteTab.note, to: tab);
 
   @override
   Widget build(BuildContext context) {
@@ -100,11 +108,15 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         final s = c.state;
         final open = s?.openChecks.length ?? 0;
+        // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
+        final narrow = s != null && !showsSidebar(context);
         return Scaffold(
+          extendBody: true,
+          bottomNavigationBar: narrow && showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.note) : null,
           body: WithSidebar(api: widget.api, manualId: widget.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
               crumbs: ['DiffNote（仮）', s?.title ?? ''],
-              trailing: s == null
+              trailing: s == null || narrow
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
                       MoonOutlinedButton(
@@ -153,7 +165,8 @@ class _ManualScreenState extends State<ManualScreen> {
           initialIndex: _tab,
           onTabChanged: (i) => setState(() => _tab = i),
           tabs: [
-            const MoonTab(label: Text('ノート')),
+            // 下のタブバーの「ノート」とぶつからないよう「本文」と呼ぶ
+            const MoonTab(label: Text('本文')),
             MoonTab(label: Text('発言 ${s.said.length}')),
           ],
         ),
@@ -166,8 +179,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _document(ManualState s) {
     final k = context.tokens;
     final changed = s.lines.where((l) => l.patchId != null && !_fromEdit(s, l)).length;
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl),
+    return Builder(builder: (context) => SingleChildScrollView(
+      padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.xxl)),
       child: Narrow(
         child: PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xxl, k.space.xl, k.space.xxl),
@@ -209,7 +222,7 @@ class _ManualScreenState extends State<ManualScreen> {
           ]),
         ),
       ),
-    );
+    ));
   }
 
   bool _fromEdit(ManualState s, ManualLine line) =>
@@ -384,15 +397,15 @@ class _ManualScreenState extends State<ManualScreen> {
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
               )
-            : ListView(
-                padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg),
+            : Builder(builder: (context) => ListView(
+                padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
                 children: [
                   for (final u in s.said.reversed) ...[
                     _utteranceEntry(s, u),
                     SizedBox(height: k.space.lg),
                   ],
                 ],
-              ),
+              )),
       ),
     ]);
   }

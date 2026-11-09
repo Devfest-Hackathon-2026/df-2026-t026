@@ -94,6 +94,9 @@ class AppRadius {
 
   /// アバターと状態のタグ
   final BorderRadius round = const BorderRadius.all(Radius.circular(999));
+
+  /// 狭い画面の下に浮かせるタブバー（試作）
+  final BorderRadius floating = const BorderRadius.all(Radius.circular(22));
 }
 
 class AppText {
@@ -194,6 +197,27 @@ class AppTokens extends ThemeExtension<AppTokens> {
 
   /// 履歴のグラフで、まだ確認していない枝を今まで伸ばす点線の1つ分の長さ
   final double graphDash = 4;
+
+  /// 狭い画面の下に浮かせるタブバー（試作。スマホで重くないかを見る）。高さ・後ろをぼかす強さ・半透明の白・影
+  final double tabBarHeight = 60;
+
+  /// 後ろをぼかす強さ。強すぎると後ろの色や形が消えて白い板に見えるので、ぼやけて見える程度にとどめる
+  final double tabBarBlur = 12;
+
+  /// 後ろの色の鮮やかさ（1 でそのまま）。iPhone の Liquid Glass のように少し上げると、透けた色がガラス越しに見える
+  final double tabBarSaturation = 1.6;
+
+  /// ガラスの白。後ろが透けて見えるよう半分より薄くする（ぼかしを切ったときは、不透明の白い帯 canvas にする）
+  final Color tabBarGlass = const Color(0x66FFFFFF);
+
+  /// ガラスの縁。細い白の半透明と、上側に少し明るい線（光が当たって見える）
+  final Color tabBarEdge = const Color(0x8CFFFFFF);
+  final Color tabBarEdgeLight = const Color(0xE6FFFFFF);
+  final List<BoxShadow> tabBarShadow = const [BoxShadow(color: Color(0x2417173D), blurRadius: 24, offset: Offset(0, 8))];
+
+  /// 選んでいるタブの後ろに敷くカプセル（action の青を薄く）と、横に動く時間
+  final Color tabBarPill = const Color(0x262459F5);
+  final Duration tabBarPillMove = const Duration(milliseconds: 220);
 
   @override
   AppTokens copyWith() => this;
