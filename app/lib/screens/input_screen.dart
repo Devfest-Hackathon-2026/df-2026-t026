@@ -798,7 +798,7 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 入力欄の中の記録先。押すと記録先を選ぶ。選んだノートは題名で見せる
+  /// 入力欄の中の記録先。押すと記録先を選ぶ。選んだノートが1冊なら題名で、2冊以上なら冊数で見せる
   Widget _target(List<ManualState> manuals) {
     final k = context.tokens;
     final titles = [for (final m in manuals) if (_targets.contains(m.id)) m.title];
@@ -813,10 +813,13 @@ class _InputScreenState extends State<InputScreen> {
                 ..clear()
                 ..addAll(ids));
             },
-      label: Text(
-        '記録先：${titles.isEmpty ? '自動' : titles.join('、')}',
-        style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
-        overflow: TextOverflow.ellipsis,
+      // moon_design 1.1.0 はラベルを幅の決まらない Row に入れるので、Flexible で包まないと長い題名がはみ出す
+      label: Flexible(
+        child: Text(
+          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length}冊' }}',
+          style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }

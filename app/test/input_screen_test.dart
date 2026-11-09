@@ -346,6 +346,19 @@ void main() {
     expect(sent.last.containsKey('manualIds'), isFalse);
   });
 
+  testWidgets('記録先を2冊選ぶと冊数で出し、狭い画面でもはみ出さない', (tester) async {
+    await _pumpInput(tester, _client((_) async => _json({})), size: const Size(360, 800));
+    await tester.tap(find.widgetWithText(MoonTextButton, '記録先：自動'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('キッチン')));
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
+    await tester.pumpAndSettle();
+    expect(find.text('記録先：2冊'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('差分の確認を閉じるときに、発言者の修正を保存する', (tester) async {
     Map<String, dynamic>? editBody;
     await _pumpInput(
