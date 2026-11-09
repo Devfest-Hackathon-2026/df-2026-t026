@@ -27,6 +27,49 @@ Future<void> showReview(BuildContext context, List<ReviewTarget> targets) => sho
           ReviewDialog(targets: targets, listSettings: aboveNote(context, fromNote: context.widget is ManualScreen)),
     );
 
+/// 記録した後、迷う所が無ければ確認を開かずに書き込み、知らせの「確かめる」から確認を開けるようにする。
+/// 発言者が分からないか、分類の付いていない差分があれば確認を開く。食い違いは確認リストに入っているので触らない
+Future<void> writeOrReview(BuildContext context, List<ReviewTarget> targets) async {
+  final clear = targets.every((t) {
+    final s = t.c.state!;
+    return s.utterance(t.utteranceId).speaker != null &&
+        s.patchesOf(t.utteranceId).every((p) => p.status != 'proposed' || s.checkOf(p.id) != null);
+  });
+  if (!clear) return showReview(context, targets);
+  var written = 0;
+  var conflicts = 0;
+  // 同じノートの差分は前の書き込みの結果に重ねるので順に送る。ノートが違えば並べて送る
+  await Future.wait([
+    for (final t in targets)
+      () async {
+        // 書き込むたびに状態が置き換わるので、分類は先に控えておく
+        final s = t.c.state!;
+        final kinds = {for (final p in s.patchesOf(t.utteranceId)) if (p.status == 'proposed') p: s.checkOf(p.id)!.kind};
+        for (final MapEntry(key: p, value: kind) in kinds.entries) {
+          switch (kind) {
+            case Kind.addition || Kind.qualification:
+              await t.c.applyPatch(p.id);
+              written++;
+            case Kind.same:
+              await t.c.discardPatch(p.id);
+            case Kind.contradiction:
+              conflicts++;
+          }
+        }
+      }(),
+  ]);
+  if (!context.mounted) return;
+  final message = [
+    if (written > 0) 'ノートに$written行書き込みました',
+    if (conflicts > 0) '食い違いが$conflicts件あり、確認リストに入れました',
+  ].join('。');
+  showToast(
+    context,
+    message.isEmpty ? 'ノートは変えずに、言われた記録として残しました' : message,
+    action: (label: '確かめる', onTap: () => context.mounted ? showReview(context, targets) : null),
+  );
+}
+
 /// 差分化と分類の結果を見て、発言者と日付を確かめてから反映する。
 /// 1つの発言が複数のノートに関わるときは、発言者と日付を1回だけ入れ、ノートごとの変わる行を上下に並べる
 class ReviewDialog extends StatefulWidget {

@@ -321,7 +321,7 @@ class _InputScreenState extends State<InputScreen> {
     });
   }
 
-  /// 記録して、関係したマニュアルごとに差分の確認を出す。onSaved は記録できたとき、確認を出す前に呼ぶ
+  /// 記録して、関係したマニュアルに書き込むか確認を出す。onSaved は記録できたとき、その前に呼ぶ
   Future<void> _send(List<ManualState> manuals,
       {required String text,
       required List<Attachment> files,
@@ -344,7 +344,7 @@ class _InputScreenState extends State<InputScreen> {
         _busy = false;
       });
       if (r.results.isNotEmpty && mounted) {
-        await showReview(context, [
+        await writeOrReview(context, [
           for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
         ]);
       }
