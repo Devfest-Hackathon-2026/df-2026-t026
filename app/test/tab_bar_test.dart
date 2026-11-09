@@ -155,9 +155,10 @@ void main() {
     expect(find.text('ノート'), findsOneWidget);
     expect(_tab('ノート'), findsOneWidget);
     expect(find.descendant(of: find.byType(MoonTabBar), matching: find.text('本文')), findsOneWidget);
-    // 上部バーには、タブバーに無い「共有」だけを出す（ADR 0013）
+    // 上部バーには、タブバーに無い「資料」と「共有」だけを出す（ADR 0013・0019）
     // 本文の下の「行を足す」も枠のボタンなので、上部バーの中だけを数える
-    expect(find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton)), findsOneWidget);
+    expect(find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton)), findsNWidgets(2));
+    expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '資料')), findsOneWidget);
     expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '共有')), findsOneWidget);
   });
 
