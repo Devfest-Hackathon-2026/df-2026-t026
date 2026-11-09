@@ -85,18 +85,38 @@ class NoteTabBar extends StatefulWidget {
   State<NoteTabBar> createState() => _NoteTabBarState();
 }
 
-/// 前の画面で選んでいたタブ。タブを替えると画面ごと入れ替わるので、新しい画面のカプセルを前の位置から動かすために覚えておく
-NoteTab? _lastShown;
+/// ノートごと（同じ ManualController を使う、ノート・確認リスト・履歴のひと続き）に、いちばん上の画面で見せているタブを覚える。
+/// タブを替えると画面ごと入れ替わる（積む・外す）ので、出てきた画面のカプセルを前のタブの位置から動かすために使う。
+/// ノートの外から開いたときは ManualController が新しいので覚えが無く、動かさずにその位置に出す
+final _shown = Expando<NoteTab>('いちばん上の画面のタブ');
 
 class _NoteTabBarState extends State<NoteTabBar> {
   late NoteTab _pill;
 
+  /// カプセルを前のタブの位置に「置き直す」たびに増やす。AnimatedAlign を作り直して、動かさずにその位置から始めるため
+  var _placed = 0;
+
   @override
   void initState() {
     super.initState();
-    // 前の画面のタブの位置から始める（_lastShown を書き換える前に読む）
-    _pill = _lastShown ?? widget.current;
-    _lastShown = widget.current;
+    _showFrom(_shown[widget.c]);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 上に積んだ画面が外れて、この画面がいちばん上に戻ったとき（「ノート」タブ・戻るボタン）も、前のタブの位置から動かす
+    if (ModalRoute.of(context)?.isCurrent ?? true) {
+      final before = _shown[widget.c];
+      if (before != null && before != widget.current) _showFrom(before);
+    }
+  }
+
+  /// カプセルを before の位置に置き、次の枠で今のタブへ動かす。覚えを今のタブにする（読んでから書き換える）
+  void _showFrom(NoteTab? before) {
+    _pill = before ?? widget.current;
+    _placed++;
+    _shown[widget.c] = widget.current;
     if (_pill != widget.current) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _pill = widget.current);
@@ -107,10 +127,7 @@ class _NoteTabBarState extends State<NoteTabBar> {
   @override
   void didUpdateWidget(NoteTabBar old) {
     super.didUpdateWidget(old);
-    if (old.current != widget.current) {
-      _lastShown = widget.current;
-      _pill = widget.current;
-    }
+    if (old.current != widget.current || old.c != widget.c) _showFrom(_shown[widget.c]);
   }
 
   @override
@@ -123,6 +140,7 @@ class _NoteTabBarState extends State<NoteTabBar> {
       child: Stack(children: [
         // 選んでいるタブの後ろのカプセル。タブを替えると横に動く
         AnimatedAlign(
+          key: ValueKey(_placed),
           duration: k.tabBarPillMove,
           curve: Curves.easeOutCubic,
           alignment: Alignment(-1 + 2 * tabs.indexOf(_pill) / (tabs.length - 1), 0),

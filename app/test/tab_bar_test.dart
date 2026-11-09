@@ -343,4 +343,100 @@ void main() {
     // ぼかしだけでなく、色の行列（鮮やかさ）も重ねている
     expect(tester.widget<BackdropFilter>(glass).filter.toString(), contains('matrix'));
   });
+
+  /// カプセルが from のタブの位置から to のタブの位置へ、途中を通って動くことを確かめる（タブを押す・戻るのあとに呼ぶ）
+  Future<void> expectPillMoves(WidgetTester tester, String from, String to) async {
+    final pill = find.byKey(const ValueKey('tab-pill'));
+    double x(Finder f) => tester.getCenter(f).dx;
+    await tester.pump(); // 出てきた画面の1枚目：カプセルは前のタブの位置
+    expect((x(pill) - x(_tab(from))).abs(), lessThan(1), reason: '$from の位置から始まる');
+    await tester.pump(); // 次の枠で動き始める
+    await tester.pump(const Duration(milliseconds: 100));
+    final mid = x(pill);
+    final (lo, hi) = x(_tab(from)) < x(_tab(to)) ? (x(_tab(from)), x(_tab(to))) : (x(_tab(to)), x(_tab(from)));
+    expect(mid, greaterThan(lo + 1), reason: '動いている途中');
+    expect(mid, lessThan(hi - 1), reason: '動いている途中');
+    await tester.pumpAndSettle();
+    expect((x(pill) - x(_tab(to))).abs(), lessThan(1), reason: '$to の位置に着く');
+  }
+
+  for (final from in ['確認リスト', '履歴']) {
+    testWidgets('$from から「ノート」に戻るときも、カプセルが$fromの位置からなめらかに動く', (tester) async {
+      _size(tester, const Size(390, 844));
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+      await tester.pumpAndSettle();
+      await tester.tap(_tab(from));
+      await tester.pumpAndSettle();
+
+      await tester.tap(_tab('ノート'));
+      await expectPillMoves(tester, from, 'ノート');
+    });
+  }
+
+  testWidgets('確認リスト → 履歴 → ノート、と替えても、いつも直前のタブの位置から動く', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+    await tester.tap(_tab('確認リスト'));
+    await expectPillMoves(tester, 'ノート', '確認リスト');
+    await tester.tap(_tab('履歴'));
+    await expectPillMoves(tester, '確認リスト', '履歴');
+    await tester.tap(_tab('ノート'));
+    await expectPillMoves(tester, '履歴', 'ノート');
+  });
+
+  testWidgets('戻るボタンでノートに戻ったときも、カプセルが前のタブの位置から動く', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+    await tester.tap(_tab('履歴'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await expectPillMoves(tester, '履歴', 'ノート');
+  });
+
+  testWidgets('ノートの外から開いたときは、カプセルを動かさずにその位置に出す', (tester) async {
+    _size(tester, const Size(390, 844));
+    final pill = find.byKey(const ValueKey('tab-pill'));
+    double x(Finder f) => tester.getCenter(f).dx;
+    // 別のノートの流れで「確認リスト」を見たあとでも、外から開いた画面には影響しない
+    final c = ManualController(_api(), 'm1', ManualState.fromJson(_note()));
+    await tester.pumpWidget(MaterialApp(
+      theme: appTheme(),
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CheckListScreen(c: c))),
+              child: const Text('入力ページ'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('入力ページ'));
+    // MaterialPageRoute は1枚目を画面に出さない（Hero の下調べ）ので、2枚目から見る。前のタブの覚えが無いので、はじめから確認リストの位置で動かない
+    await tester.pump();
+    await tester.pump();
+    expect((x(pill) - x(_tab('確認リスト'))).abs(), lessThan(1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect((x(pill) - x(_tab('確認リスト'))).abs(), lessThan(1));
+    await tester.pumpAndSettle();
+    expect((x(pill) - x(_tab('確認リスト'))).abs(), lessThan(1));
+
+    // そこから「ノート」でノートに入れ替えると、ノートの流れの中なので確認リストの位置から動く
+    await tester.tap(_tab('ノート'));
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect((x(pill) - x(_tab('ノート'))).abs(), lessThan(1));
+  });
+
+  testWidgets('ノートを開いたばかりのときは、カプセルを動かさない', (tester) async {
+    _size(tester, const Size(390, 844));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    final pill = find.byKey(const ValueKey('tab-pill'));
+    await tester.pumpAndSettle();
+    // 1枚目からずっと「ノート」の位置（動きが無いので、pumpAndSettle の間に位置は変わらない）
+    expect((tester.getCenter(pill).dx - tester.getCenter(_tab('ノート')).dx).abs(), lessThan(1));
+  });
 }
