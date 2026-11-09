@@ -23,6 +23,7 @@ import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'open_checks_screen.dart';
 import 'profile_screen.dart';
 import 'review_dialog.dart';
 import 'rewind_panel.dart';
@@ -814,35 +815,13 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 「あとで確認」への導線。確認リストはマニュアルごとなので、件数とともに1冊ずつ並べる
+  /// 「あとで確認」への導線。中身はサイドバーから開く「あとで確認」の画面と同じ部品
   List<Widget> _openChecks(List<ManualState> manuals) {
     final k = context.tokens;
-    final open = manuals.where((s) => s.openChecks.isNotEmpty).toList();
     return [
       Text('あとで確認', style: k.text.title),
       SizedBox(height: k.space.sm),
-      if (open.isEmpty)
-        Text('食い違いは、いまはありません', style: k.text.small)
-      else
-        // 罫線が方眼とぶつからないよう、白い面に載せる
-        PaperSheet(
-          padding: EdgeInsets.symmetric(horizontal: k.space.sm),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            for (final (i, s) in open.indexed) ...[
-              if (i > 0) const Rule(),
-              MoonMenuItem(
-                onTap: () => _push(CheckListScreen(c: ManualController(widget.api, s.id, s))),
-                menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
-                label: Text(s.title, style: k.text.heading),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
-                  SizedBox(width: k.space.sm),
-                  Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
-                ]),
-              ),
-            ],
-          ]),
-        ),
+      OpenChecksList(manuals: manuals, onOpen: (s) => _push(CheckListScreen(c: ManualController(widget.api, s.id, s)))),
     ];
   }
 

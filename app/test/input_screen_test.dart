@@ -398,8 +398,8 @@ void main() {
     expect(find.byType(MoonTextArea), findsNothing);
     expect(tester.getTopLeft(find.byType(MoonSwitch)), toggleAt);
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('言われたことを記録')), findsOneWidget);
-    // サイドバーにだけある項目
-    expect(find.text('ノートを作る'), findsOneWidget);
+    // サイドバーにだけある項目（ノートを作る＋）。リワインドにしてもサイドバーはそのまま
+    expect(find.bySemanticsLabel('ノートを作る'), findsOneWidget);
     expect(find.text('最近の記録'), findsNothing);
     expect(find.text('いま言われたことをメモすると、ここにたまります'), findsOneWidget);
 
@@ -831,8 +831,8 @@ void main() {
     // ホールは「あとで確認」が無いので、入力ページの一覧には出ず、サイドバーにだけ並ぶ
     final hall = find.widgetWithText(MoonMenuItem, 'ホール');
     expect(hall, findsOneWidget);
-    // ノートがあっても、サイドバーから新しいノートを作れる
-    expect(find.widgetWithText(MoonMenuItem, 'ノートを作る'), findsOneWidget);
+    // ノートがあっても、サイドバーの「ノート」の右の＋から新しいノートを作れる
+    expect(find.bySemanticsLabel('ノートを作る'), findsOneWidget);
     expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'キッチン').first, matching: find.text('1')), findsOneWidget);
 
     await tester.tap(hall);

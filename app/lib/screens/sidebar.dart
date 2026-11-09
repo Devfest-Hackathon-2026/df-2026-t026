@@ -9,10 +9,11 @@ import 'common.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'open_checks_screen.dart';
 import 'profile_screen.dart';
 
 /// サイドバーで、いまいる画面
-enum Place { input, manuals, profile }
+enum Place { input, checks, manuals, profile }
 
 /// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
 bool showsSidebar(BuildContext context) {
@@ -111,14 +112,55 @@ class _SidebarState extends State<_Sidebar> {
       color: k.colors.canvas,
       child: FutureBuilder(
         future: _manuals,
-        builder: (context, snap) => ListView(
-          padding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.lg),
-          children: [
-            MeBuilder(
-              api: widget.api,
-              builder: (context, me) => Padding(
-                padding: EdgeInsets.only(bottom: k.space.lg),
-                child: _item(
+        builder: (context, snap) {
+          final manuals = snap.data ?? const <ManualSummary>[];
+          final open = manuals.fold(0, (n, m) => n + m.openCount);
+          // 上から：言われたことを記録 → あとで確認 → 「ノート」と＋ → 全部のノート → 自分（いちばん下に固定）。
+          // ノートの並びの所だけスクロールする
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(k.space.sm, k.space.lg, k.space.sm, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // 新しく書き始める所なので、チャットの「新しいチャット」と同じペンと四角のアイコンを付け、いちばん上に置く（違和感 #4）
+                _item(
+                  '言われたことを記録',
+                  icon: LucideIcons.squarePen,
+                  selected: widget.place == Place.input,
+                  strong: true,
+                  onTap: () => _go(null),
+                ),
+                // 全部のノートのあとで確認をまとめた画面へ。アイコンはタブバーの「確認リスト」と同じ
+                _item(
+                  'あとで確認',
+                  icon: LucideIcons.listChecks,
+                  selected: widget.place == Place.checks,
+                  open: open,
+                  onTap: () => _go(OpenChecksScreen(api: widget.api)),
+                ),
+              ]),
+            ),
+            SizedBox(height: k.space.lg),
+            Padding(padding: EdgeInsets.symmetric(horizontal: k.space.sm), child: _notesHeading()),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+                children: [
+                  for (final m in manuals)
+                    _item(
+                      m.title,
+                      selected: widget.manualId == m.id,
+                      open: m.openCount,
+                      onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
+                    ),
+                ],
+              ),
+            ),
+            Container(height: k.hairline, color: k.colors.rule),
+            Padding(
+              padding: EdgeInsets.all(k.space.sm),
+              child: MeBuilder(
+                api: widget.api,
+                builder: (context, me) => _item(
                   me.name,
                   leading: Avatar(me.name, image: me.icon?.bytes),
                   selected: widget.place == Place.profile,
@@ -126,47 +168,55 @@ class _SidebarState extends State<_Sidebar> {
                 ),
               ),
             ),
-            _item(
-              '言われたことを記録',
-              selected: widget.place == Place.input,
-              // 新しく書き始める所なので、チャットの「新しいチャット」と同じペンと四角のアイコンを付ける（違和感 #4）
-              leading: SizedBox(
-                width: k.sidebarLeading,
-                child: Icon(LucideIcons.squarePen, size: k.sidebarIcon, color: k.colors.ink),
-              ),
-              onTap: () => _go(null),
-            ),
-            SizedBox(height: k.space.lg),
-            _item('ノート', selected: widget.place == Place.manuals, onTap: () => _go(HomeScreen(api: widget.api))),
-            for (final m in snap.data ?? const <ManualSummary>[])
-              _item(
-                m.title,
-                nested: true,
-                selected: widget.manualId == m.id,
-                open: m.openCount,
-                onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
-              ),
-            _item('ノートを作る', nested: true, selected: false, onTap: () => _go(NewManualScreen(api: widget.api))),
-          ],
-        ),
+          ]);
+        },
       ),
     );
   }
 
-  Widget _item(String label,
-      {required bool selected, required VoidCallback onTap, bool nested = false, int open = 0, Widget? leading}) {
+  /// ノートの並びの小見出し。押すとノート一覧へ。右の＋でノートを作る（メニューに「ノート」の項目は別に作らない）
+  Widget _notesHeading() {
     final k = context.tokens;
+    final selected = widget.place == Place.manuals;
     return MoonMenuItem(
-      onTap: onTap,
+      onTap: () => _go(HomeScreen(api: widget.api)),
+      height: k.sidebarRow,
       backgroundColor: selected ? k.colors.shell : null,
       borderRadius: k.radius.control,
-      menuItemPadding: EdgeInsets.fromLTRB(nested ? k.space.lg : k.space.sm, k.space.sm, k.space.sm, k.space.sm),
-      leading: leading,
+      menuItemPadding: EdgeInsets.only(left: k.space.sm),
+      label: Text('ノート', style: k.text.small.copyWith(fontWeight: selected ? FontWeight.w700 : null)),
+      trailing: MoonButton.icon(
+        buttonSize: MoonButtonSize.sm,
+        semanticLabel: 'ノートを作る',
+        onTap: () => _go(NewManualScreen(api: widget.api)),
+        icon: Icon(LucideIcons.plus, size: k.sidebarIcon, color: k.colors.inkMuted),
+      ),
+    );
+  }
+
+  /// サイドバーの1項目。アイコン（あれば）+ 文字で、高さはそろえる。選んでいる項目は薄い地色にする
+  Widget _item(String label,
+      {required bool selected,
+      required VoidCallback onTap,
+      int open = 0,
+      IconData? icon,
+      Widget? leading,
+      bool strong = false}) {
+    final k = context.tokens;
+    final lead = leading ??
+        (icon == null ? null : SizedBox(width: k.sidebarLeading, child: Icon(icon, size: k.sidebarIcon, color: k.colors.ink)));
+    return MoonMenuItem(
+      onTap: onTap,
+      height: k.sidebarRow,
+      backgroundColor: selected ? k.colors.shell : null,
+      borderRadius: k.radius.control,
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm),
+      leading: lead,
       label: Text(
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: (nested ? k.text.body : k.text.heading).copyWith(fontWeight: selected ? FontWeight.w700 : null),
+        style: k.text.body.copyWith(fontWeight: selected || strong ? FontWeight.w700 : null),
       ),
       trailing: open > 0 ? StatusTag('$open', bg: k.colors.pendingBg, fg: k.colors.pending) : null,
     );
