@@ -1,3 +1,4 @@
+import type { Account, Session } from './auth.ts';
 import type { Manual } from './foundation/manual.ts';
 
 /**
@@ -11,12 +12,18 @@ export interface Store {
   list<T>(userId: string, manualId: string, collection: string): Promise<T[]>;
   put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T): Promise<void>;
   remove(userId: string, manualId: string, collection: string, id: string): Promise<void>;
+  getAccount(id: string): Promise<Account | null>;
+  putAccount(account: Account): Promise<void>;
+  getSession(id: string): Promise<Session | null>;
+  putSession(session: Session): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
 export class MemoryStore implements Store {
   private manuals = new Map<string, Map<string, Manual>>();
   private docs = new Map<string, Map<string, unknown>>();
+  private accounts = new Map<string, Account>();
+  private sessions = new Map<string, Session>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -44,5 +51,21 @@ export class MemoryStore implements Store {
 
   async remove(userId: string, manualId: string, collection: string, id: string) {
     this.docs.get(`${userId}/${manualId}/${collection}`)?.delete(id);
+  }
+
+  async getAccount(id: string) {
+    return structuredClone(this.accounts.get(id) ?? null);
+  }
+
+  async putAccount(account: Account) {
+    this.accounts.set(account.id, structuredClone(account));
+  }
+
+  async getSession(id: string) {
+    return structuredClone(this.sessions.get(id) ?? null);
+  }
+
+  async putSession(session: Session) {
+    this.sessions.set(session.id, structuredClone(session));
   }
 }

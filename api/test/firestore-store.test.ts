@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createApp } from '../src/app.ts';
+import { hashPassword } from '../src/auth.ts';
 import { fakeAssess, fakeCheckPatch, fakeDictate, fakeListen, fakeTranscribe } from '../src/fake-ai.ts';
 import { FirestoreStore } from '../src/firestore-store.ts';
 import { seed } from '../src/seed.ts';
@@ -14,9 +15,13 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   await fetch(`http://${host}/emulator/v1/projects/${project}/databases/(default)/documents`, { method: 'DELETE' });
   const store = new FirestoreStore();
   await seed(store, 'demo');
+  await store.putAccount({ id: 'demo', ...(await hashPassword('pass-demo')), createdAt: '' });
   const app = createApp({ store, assess: fakeAssess, check: fakeCheckPatch, transcribe: fakeTranscribe, listen: fakeListen, dictate: fakeDictate });
+  const send = (method: string, path: string, body: unknown, headers = {}) =>
+    app.request(path, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const { token } = (await (await send('POST', '/login', { id: 'demo', password: 'pass-demo' })).json()) as any;
   const call = async (method: string, path: string, body: unknown) =>
-    (await app.request(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json() as Promise<any>;
+    (await send(method, path, body, { Authorization: `Bearer ${token}` })).json() as Promise<any>;
 
   const recorded = await call('POST', '/manuals/demo-kitchen/utterances', { text: '田中さんから塩は小さじ1/2でいいと言われた' });
   const check = recorded.state.checks[0];

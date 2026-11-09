@@ -16,7 +16,7 @@ class ApiException implements Exception {
 }
 
 class Api {
-  Api({http.Client? client, String? baseUrl, this.passcode, WebSocketChannel Function(Uri)? connect})
+  Api({http.Client? client, String? baseUrl, this.token, WebSocketChannel Function(Uri)? connect})
       : _client = client ?? http.Client(),
         _connect = connect ?? WebSocketChannel.connect,
         baseUrl = baseUrl ?? const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:8787');
@@ -25,11 +25,15 @@ class Api {
   final WebSocketChannel Function(Uri) _connect;
   final String baseUrl;
 
-  /// API の合言葉。サーバーが合言葉を決めていないとき（ローカル開発）は null のままでよい
-  String? passcode;
+  /// ログインで受け取ったトークン。ログインしていなければ null
+  String? token;
 
   /// 記録や確定でデータが変わるたびに増える。どの画面で変えても、サイドバーの件数を合わせるため
   final changes = ValueNotifier(0);
+
+  /// 配った ID とパスワードでログインし、以後の呼び出しに使うトークンを返す
+  Future<String> login(String id, String password) async =>
+      token = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
 
   Future<List<ManualSummary>> listManuals() async =>
       [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
@@ -66,8 +70,8 @@ class Api {
     return _connect(base.replace(
       scheme: base.scheme == 'https' ? 'wss' : 'ws',
       path: '${base.path}/dictation',
-      // ブラウザの WebSocket はヘッダーを付けられないので、合言葉はクエリで渡す
-      queryParameters: passcode == null ? null : {'passcode': passcode},
+      // ブラウザの WebSocket はヘッダーを付けられないので、トークンはクエリで渡す
+      queryParameters: token == null ? null : {'token': token},
     ));
   }
 
@@ -116,7 +120,7 @@ class Api {
 
   Future<dynamic> _send(String method, String path, [Map<String, dynamic>? body]) async {
     final req = http.Request(method, Uri.parse('$baseUrl$path'));
-    if (passcode case final p?) req.headers['X-Passcode'] = p;
+    if (token case final t?) req.headers['Authorization'] = 'Bearer $t';
     if (body != null) {
       req.headers['Content-Type'] = 'application/json';
       req.body = jsonEncode(body);

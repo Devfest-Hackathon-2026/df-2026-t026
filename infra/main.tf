@@ -85,10 +85,6 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "ALLOW_ORIGIN"
         value = "https://${google_firebase_hosting_site.web.site_id}.web.app,https://${google_firebase_hosting_site.web.site_id}.firebaseapp.com"
       }
-      env {
-        name  = "PASSCODE"
-        value = var.passcode
-      }
     }
   }
 
@@ -98,7 +94,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [google_project_service.this]
 }
 
-# ブラウザから直接呼ぶので公開する。デモ版は認証の代わりに API が合言葉（PASSCODE）を確かめる
+# ブラウザから直接呼ぶので公開する。API は配った ID とパスワードのログインで守る（ADR 0009）
 resource "google_cloud_run_v2_service_iam_member" "public" {
   name     = google_cloud_run_v2_service.api.name
   location = google_cloud_run_v2_service.api.location
