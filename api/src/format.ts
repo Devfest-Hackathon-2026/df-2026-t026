@@ -27,13 +27,13 @@ const formatSystem = `渡すのは、新人が職場のマニュアルや自分�
 export type ReadNote = (files: InlineFile[]) => Promise<{ title: string; text: string }>;
 
 // 整形は「マークダウンに整える」に任せ、ここでは書いてある通りに起こすだけにする（ADR 0012）
+// 「読み取れなければ空文字を返す」と書くと、応答が毎回約30秒遅くなった（無いと約6秒）。空の扱いは app.ts で受ける
 const readSystem = `添付は、新人が受け取った職場のマニュアルや自分用のメモ（PDF・画像）です。
 このアプリのノートの最初の本文にするため、書いてある文字を日本語のテキストに書き起こしてください。
 - 書いてある通りに起こす。要約・言い換え・書き足し・数値の丸めをしない
 - 見出し・項目・段落の区切りは改行で残す
 - 複数のファイルがあれば、渡した順に続けて起こす
-- 題名には、このノートが何についてのものかを20文字以内で付ける。資料に題があればそれを使う
-- 文字が読み取れなければ、本文も題名も空文字を返す`;
+- 題名には、このノートが何についてのものかを20文字以内で付ける。資料に題があればそれを使う`;
 
 export async function readNoteWithGemini(files: InlineFile[], generate: GenerateJson = generateJson) {
   const out = await generate({
