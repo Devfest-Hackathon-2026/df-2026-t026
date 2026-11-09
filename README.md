@@ -32,7 +32,7 @@ fvm install
 fvm flutter run -d chrome
 ```
 
-アプリを開いたら、ID `demo`・パスワード `demo` でログインする（メモリ上のデータで動かすときだけ、起動時にこのアカウントを作る）。
+アプリを開いたら、ID `demo`・パスワード `demo` でログインする。本番に配ったのと同じ ID（`kanade`・`haruto`・`hikaru`・`chinatsu`）でも入れるが、パスワードはどれもローカル専用の `demo`。どれもメモリ上のデータで動かすときだけ起動時に作り、デモの記録が入っているのは `demo` だけ。
 
 アプリが呼ぶ API の URL は `--dart-define=API_URL=...` で変えられる（既定は `http://localhost:8787`）。
 
