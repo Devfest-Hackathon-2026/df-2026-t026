@@ -607,9 +607,9 @@ class _InputScreenState extends State<InputScreen> {
         MoonTextArea(
           controller: _memoText,
           autofocus: true,
-          // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない
+          // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない。
+          // expands は付けない（moon_design 1.1.0 は expands のとき文字を縦の真ん中に置く）
           height: k.memoEditorHeight,
-          expands: true,
           readOnly: _busy,
           textStyle: k.text.body,
           onChanged: (_) => setState(() {}),
@@ -649,24 +649,54 @@ class _InputScreenState extends State<InputScreen> {
       child: PaperSheet(
         padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.lg),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Stack(children: [
-            MoonTextArea(
-              controller: _text,
-              height: k.composerHeight,
-              expands: true,
-              readOnly: _dictating,
-              textStyle: k.text.body,
-              // 下の行に添付とマイクのボタンを置くので、文字がその下に潜らないよう空けておく
-              textPadding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.xxl),
-              hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-              onChanged: (v) => setState(() {
-                // 消し切ったら、流し込んだメモはもう使っていない
-                if (v.trim().isEmpty) _poured.clear();
-              }),
+          // 書く欄と、その下の添付・マイクのボタンを1つの枠に入れる。moon_design 1.1.0 の MoonTextArea は、文字の上下に
+          // textPadding の下の値を使い、例文には上の値を使うので、ボタンの分を下に空けると文字だけ下にずれる。
+          // そこで欄の上下の余白はそろえ、ボタンは欄の下の行に置く（枠は外側に描く）
+          // 中の書く欄にフォーカスがあるかを見るだけ。この Focus 自身にはフォーカスを移さない
+          Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            onFocusChange: (_) => setState(() {}),
+            child: Builder(
+              // 枠は中の欄の上に描く（後ろに描くと、中の欄の白い地に隠れる）
+              builder: (context) => DecoratedBox(
+                position: DecorationPosition.foreground,
+                decoration: BoxDecoration(
+                  borderRadius: k.radius.control,
+                  border: Border.all(
+                    color: Focus.of(context).hasFocus ? k.colors.action : k.colors.rule,
+                    width: k.hairline,
+                  ),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  MoonTextArea(
+                    controller: _text,
+                    height: k.composerHeight - k.composerTools,
+                    readOnly: _dictating,
+                    textStyle: k.text.body,
+                    // 枠は外側の DecoratedBox が描く
+                    backgroundColor: k.colors.canvas,
+                    inactiveBorderColor: k.colors.canvas,
+                    hoverBorderColor: k.colors.canvas,
+                    activeBorderColor: k.colors.canvas,
+                    textPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
+                    hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
+                    onChanged: (v) => setState(() {
+                      // 消し切ったら、流し込んだメモはもう使っていない
+                      if (v.trim().isEmpty) _poured.clear();
+                    }),
+                  ),
+                  SizedBox(
+                    height: k.composerTools,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: k.space.sm),
+                      child: Row(children: [_attach(), const Spacer(), _mic()]),
+                    ),
+                  ),
+                ]),
+              ),
             ),
-            Positioned(left: k.space.sm, bottom: k.space.sm, child: _attach()),
-            Positioned(right: k.space.sm, bottom: k.space.sm, child: _mic()),
-          ]),
+          ),
           if (_files.isNotEmpty) ...[
             SizedBox(height: k.space.sm),
             Wrap(
