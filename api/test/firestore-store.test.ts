@@ -35,6 +35,15 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   assert.ok(resolved.lines.some((l: any) => l.text === '- 塩 小さじ1/2' && l.patchId === resolved.checks[0].resolution.patchId));
   assert.equal(resolved.utterances.length, 2);
 
+  // 確定済みの行を書き換えると確定と食い違うとして確認に入り、ノートのままで確定すると前の確定に戻る（#86・#83）
+  const rewritten = await call('POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 塩 小さじ1/2', text: '- 塩 小さじ1' });
+  const rewrite = rewritten.patches.at(-1);
+  const rechecked = await call('POST', `/manuals/demo-kitchen/patches/${rewrite.id}/check`, {});
+  const recheck = rechecked.checks.find((c: any) => c.patchId === rewrite.id);
+  assert.deepEqual([recheck.kind, recheck.conflictLine], ['contradiction', '- 塩 小さじ1/2']);
+  const restored = await call('POST', `/manuals/demo-kitchen/checks/${recheck.id}/resolve`, { decidedBy: '店長', decidedAt: '2026-11-10', text: '- 塩 小さじ1/2' });
+  assert.deepEqual(restored.lines.filter((l: any) => l.text.startsWith('- 塩')).map((l: any) => l.text), ['- 塩 小さじ1/2']);
+
   // 名前とアイコンはノートの親のドキュメントに置くが、ノートは消えない
   await call('PUT', '/me', { name: 'かなで', icon: null });
   assert.equal((await (await send('GET', '/me', undefined, { Authorization: `Bearer ${token}` })).json() as any).name, 'かなで');

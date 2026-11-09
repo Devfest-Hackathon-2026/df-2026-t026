@@ -221,7 +221,10 @@ class _CheckDetailState extends State<CheckDetail> {
   Widget _form(Check chk, Patch p, Utterance u) {
     final k = context.tokens;
     final ready = _decidedBy.text.trim().isNotEmpty && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    final keep = _choice(_Outcome.keep, 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
+    // 相手の行が書き換えられてもうノートに無いときは、「ノートのまま」だと今のノートの行と読めてしまう（#86）
+    final gone = !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
+    final keep = _choice(
+        _Outcome.keep, gone ? '書き換える前の内容' : 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
