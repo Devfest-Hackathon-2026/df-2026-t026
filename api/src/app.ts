@@ -548,23 +548,17 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const u = find(s.utterances, c.req.param('uid'), '発言');
     mustBeRecorder(s, u, userId);
     const { text, ...meta } = body;
-    // 書き込んだ・確定した記録は、本文や確認の記録の証拠なので、書き起こしも発言者も日付も直させない（ADR 0018）
-    const patches = s.patches.filter((p) => p.utteranceId === u.id);
-    const checks = s.checks.filter((x) => x.utteranceId === u.id);
-    const used = patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution);
-    const changed =
-      (!!text && text !== u.text) ||
-      (meta.speaker !== undefined && meta.speaker !== u.speaker) ||
-      (meta.saidAt !== undefined && meta.saidAt !== u.saidAt);
-    if (used && changed) {
-      throw new HTTPException(409, { message: 'ノートに書き込んだか確定した記録なので、証拠として残すため直せません' });
-    }
     if (!text || text === u.text) {
       await store.put(s.owner, manualId, 'utterances', { ...u, ...meta });
       return c.json(await load(userId, manualId));
     }
 
-    // 書き起こしの聞き間違いを直す
+    // 書き起こしの聞き間違いを直す。反映・確定したものは本文や確認の記録に残っているので直させない
+    const patches = s.patches.filter((p) => p.utteranceId === u.id);
+    const checks = s.checks.filter((x) => x.utteranceId === u.id);
+    if (patches.some((p) => p.status === 'applied') || checks.some((x) => x.resolution)) {
+      throw new HTTPException(409, { message: '反映・確定した差分があるので、書き起こしは直せません' });
+    }
     const rest: State = {
       ...s,
       utterances: s.utterances.filter((x) => x.id !== u.id),

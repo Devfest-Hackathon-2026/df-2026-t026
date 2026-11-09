@@ -278,7 +278,7 @@ test('記録した人：記録を直す・書き込む・書き込まないは�
   assert.equal((await call('PATCH', `/manuals/demo-kitchen/utterances/${mine.utterance.id}`, { speaker: '鈴木さん' })).status, 200);
 });
 
-test('記録した人：書き込んだ・確定した記録は、本人でも発言者・日付・書き起こしを直せない', async () => {
+test('記録した人：書き込んだ・確定した記録も、本人なら発言者と日付は直せる。書き起こしは直せない', async () => {
   const applied = await record('佐藤さんから、ご飯はおかわり1回まで無料と教わった');
   await call('POST', `/manuals/demo-kitchen/patches/${applied.patch.id}/apply`, {});
   const resolved = await record('田中さんから塩は小さじ1/2でいいと言われた');
@@ -286,11 +286,11 @@ test('記録した人：書き込んだ・確定した記録は、本人でも�
 
   for (const r of [applied, resolved]) {
     const path = `/manuals/demo-kitchen/utterances/${r.utterance.id}`;
-    for (const body of [{ speaker: '鈴木さん' }, { saidAt: '2026-11-01' }, { text: '別の話' }]) {
-      assert.equal((await call('PATCH', path, body)).status, 409, JSON.stringify(body));
-    }
-    // 変えずに送るだけなら通す（書き込む前の確認を閉じるときに送ることがある）
-    assert.equal((await call('PATCH', path, { speaker: r.utterance.speaker, saidAt: r.utterance.saidAt })).status, 200);
+    const fixed = await call('PATCH', path, { speaker: '鈴木さん', saidAt: '2026-11-01' });
+    assert.equal(fixed.status, 200);
+    const u = fixed.json.utterances.find((x: any) => x.id === r.utterance.id);
+    assert.deepEqual([u.speaker, u.saidAt], ['鈴木さん', '2026-11-01']);
+    assert.equal((await call('PATCH', path, { text: '別の話' })).status, 409);
   }
 });
 

@@ -102,7 +102,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
 
   bool get _hasSpeaker => _speaker.text.trim().isNotEmpty;
 
-  /// 反映・確定したものは本文や確認の記録に残っているので、書き起こし・発言者・日付は直させない（ADR 0018）
+  /// 反映・確定したものは本文や確認の記録に残っているので、書き起こしは直させない
   bool get _fixable => widget.targets.every((t) {
         final s = t.c.state!;
         return s.patchesOf(t.utteranceId).every((p) => p.status != 'applied') &&
@@ -267,10 +267,6 @@ class _ReviewDialogState extends State<ReviewDialog> {
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         ..._said(),
                         SizedBox(height: k.space.lg),
-                        // 書き込んだ・確定した記録は証拠なので、発言者と日付も直させない（ADR 0018）
-                        if (!_fixable)
-                          Speaker(name: _u.speaker, day: _u.saidAt)
-                        else ...[
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
                         MoonTextInput(
@@ -297,7 +293,6 @@ class _ReviewDialogState extends State<ReviewDialog> {
                           leading: const Icon(LucideIcons.calendar),
                           label: Text('${fmtDay(_saidAt)} に言われた'),
                         ),
-                        ],
                         for (final t in widget.targets) ..._note(t),
                       ]),
                     ),
