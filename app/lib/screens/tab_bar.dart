@@ -107,9 +107,9 @@ class NoteTabBar extends StatelessWidget {
     final selected = tab == current;
     final color = selected ? k.colors.action : k.colors.inkMuted;
     return Expanded(
+      // MoonButton がボタンとして読み上げるので、ここでは選ばれているかだけを足す
       child: Semantics(
         selected: selected,
-        button: true,
         child: MoonButton(
           height: k.tabBarHeight,
           isFullWidth: true,
