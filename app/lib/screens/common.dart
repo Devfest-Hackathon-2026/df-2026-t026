@@ -7,6 +7,7 @@ import 'package:moon_design/moon_design.dart';
 
 import '../models.dart';
 import '../theme.dart';
+import 'sidebar.dart';
 
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
@@ -134,12 +135,15 @@ class TopBar extends StatelessWidget {
             ] else
               SizedBox(width: k.space.sm),
             Expanded(
-              child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-                for (var i = 0; i < crumbs.length; i++) ...[
-                  if (i > 0) Text(' / ', style: k.text.small),
-                  _crumb(context, i),
-                ],
-              ]),
+              // スマホ（サイドバーの出ない幅）では、パンくずを出さず、いまの画面の名前だけにする。前の画面へは戻る矢印で戻る
+              child: showsSidebar(context)
+                  ? Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+                      for (var i = 0; i < crumbs.length; i++) ...[
+                        if (i > 0) Text(' / ', style: k.text.small),
+                        _crumb(context, i),
+                      ],
+                    ])
+                  : Text(crumbs.last, maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.heading),
             ),
             ?trailing,
           ]),
@@ -277,9 +281,12 @@ class Avatar extends StatelessWidget {
 
 /// 誰が・いつ言ったか
 class Speaker extends StatelessWidget {
-  const Speaker({super.key, required this.name, required this.day, this.onTap});
+  const Speaker({super.key, required this.name, required this.day, this.after, this.onTap});
   final String? name;
   final String day;
+
+  /// 日付の後ろに添える言葉（例：「に確認」）。添えた言葉も含めてひとまとまりで押せる
+  final String? after;
   final VoidCallback? onTap;
 
   @override
@@ -291,9 +298,14 @@ class Speaker extends StatelessWidget {
       Text(name ?? '発言者未入力', style: k.text.small.copyWith(color: k.colors.ink)),
       SizedBox(width: k.space.sm),
       Text(fmtDay(day), style: k.text.small),
+      if (after != null) ...[SizedBox(width: k.space.sm), Text(after!, style: k.text.small)],
     ]);
     if (onTap == null) return row;
-    return MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(onTap: onTap, child: row));
+    // アイコンと名前の間のすき間を押しても、下の行（押すと書き換えの欄が開く）でなく、こちらが受ける
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: row),
+    );
   }
 }
 
