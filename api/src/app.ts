@@ -71,7 +71,8 @@ const Edit = z
     op: z.enum(['insert', 'replace', 'delete']),
     /** insert はこの行の後ろ（null なら末尾）、replace・delete はこの行 */
     line: z.string().nullable(),
-    text: z.string().trim().default(''),
+    // 行頭の空白はマークダウンの入れ子なので残す（ADR 0009）
+    text: z.string().overwrite((s) => s.trimEnd()).default(''),
     today: date.optional(),
   })
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')

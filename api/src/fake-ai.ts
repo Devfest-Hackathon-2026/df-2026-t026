@@ -2,6 +2,7 @@ import type { Assess } from './assess.ts';
 import type { CheckPatch, CheckResult } from './conflict/check.ts';
 import type { PatchDraft } from './foundation/manual.ts';
 import type { Transcribe } from './intake.ts';
+import { isHeading, unmark } from './gemini.ts';
 import type { Dictate, Listen } from './stt.ts';
 
 /*
@@ -15,8 +16,6 @@ const CONDITION = /^(.+?(?:日|時|とき|場合))は/;
 const KEY_VALUE = /^(.+?)(?:は|を)(.+?)(?:でいい|にして|にする|に)?$/;
 const AMOUNT = /(?:小さじ|大さじ)?[\d/.]+\s*(?:g|分|個|杯|円|cc|ml)?/;
 
-const strip = (line: string) => line.replace(/^(?:- |## )/, '');
-
 function fakePatchify(lines: string[], text: string, today: string): { speaker: string | null; saidAt: string; patches: PatchDraft[] } {
   const speaker = text.match(SPEAKER)?.[1] ?? null;
   const saidAt = text.startsWith('昨日') ? shiftDays(today, -1) : today;
@@ -26,13 +25,13 @@ function fakePatchify(lines: string[], text: string, today: string): { speaker: 
   if (!kv) return { speaker, saidAt, patches: [{ op: 'insert', line: null, text: `- ${statement}`, summary: '追記' }] };
 
   const [, key, value] = kv;
-  const target = lines.find((l) => !l.startsWith('## ') && l.includes(key));
+  const target = lines.find((l) => !isHeading(l) && l.includes(key));
   let patch: PatchDraft;
   if (target && condition) {
     patch = { op: 'replace', line: target, text: `${target}（${condition}は${value}）`, summary: `${key}: ${condition}は${value}` };
   } else if (target) {
     const replaced = AMOUNT.test(target) ? target.replace(AMOUNT, value) : `- ${key}は${value}`;
-    patch = { op: 'replace', line: target, text: replaced, summary: `${key}: ${strip(target)} → ${value}` };
+    patch = { op: 'replace', line: target, text: replaced, summary: `${key}: ${unmark(target)} → ${value}` };
   } else {
     patch = { op: 'insert', line: sectionEnd(lines, key), text: `- ${statement}`, summary: `${key}について追記` };
   }
@@ -66,10 +65,10 @@ export const fakeCheckPatch: CheckPatch = async ({ lines, patch, utterance }) =>
 function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): CheckResult {
   const same = lines.find((l) => l === patch.text);
   if (same) {
-    return { kind: 'same', conflictLine: null, sameLine: same, reason: `ノートの「${strip(same)}」と同じ内容です`, ask: null };
+    return { kind: 'same', conflictLine: null, sameLine: same, reason: `ノートの「${unmark(same)}」と同じ内容です`, ask: null };
   }
   // 追記は、頭の言葉（「塩」など）が同じで中身の違う項目があれば、その項目と食い違うとみなす
-  const rival = patch.op === 'insert' ? lines.find((l) => !l.startsWith('## ') && headWord(l) === headWord(patch.text)) : null;
+  const rival = patch.op === 'insert' ? lines.find((l) => !isHeading(l) && headWord(l) === headWord(patch.text)) : null;
   if (patch.op === 'insert' && !rival) {
     return { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null };
   }
@@ -85,10 +84,10 @@ function fakeCheck(lines: string[], patch: PatchDraft, speaker: string | null): 
     kind: 'contradiction',
     conflictLine,
     sameLine: null,
-    reason: `ノートの「${strip(conflictLine)}」と両立しません`,
+    reason: `ノートの「${unmark(conflictLine)}」と両立しません`,
     ask: {
       candidates,
-      question: `「${strip(conflictLine)}」と教わっていたのですが、「${strip(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
+      question: `「${unmark(conflictLine)}」と教わっていたのですが、「${unmark(patch.text)}」とも聞きました。どちらに合わせればよいですか？`,
     },
   };
 }
@@ -111,15 +110,15 @@ export const fakeDictate: Dictate = async (_, on) => {
 };
 
 function headWord(line: string): string {
-  return strip(line).split(/[\sはをにがの、（]/)[0];
+  return unmark(line).split(/[\sはをにがの、（]/)[0];
 }
 
 /** key を見出しに含む節の最後の行。なければ null（末尾に追記） */
 function sectionEnd(lines: string[], key: string): string | null {
-  const h = lines.findIndex((l) => l.startsWith('## ') && l.includes(key));
+  const h = lines.findIndex((l) => isHeading(l) && l.includes(key));
   if (h < 0) return null;
   let i = h;
-  while (i + 1 < lines.length && !lines[i + 1].startsWith('## ')) i++;
+  while (i + 1 < lines.length && !isHeading(lines[i + 1])) i++;
   // 空行は同じ文字列が他にもあり、行の特定に使えない
   while (i > h && !lines[i].trim()) i--;
   return lines[i];

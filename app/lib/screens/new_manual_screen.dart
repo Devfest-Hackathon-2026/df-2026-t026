@@ -60,7 +60,7 @@ class _NewManualScreenState extends State<NewManualScreen> {
               SizedBox(height: k.space.xl),
               Text('最初の本文', style: k.text.heading),
               SizedBox(height: k.space.xs),
-              Text('今あるマニュアルやメモは、そのまま貼り付けてください。「## 見出し」「- 項目」の形にすると読みやすくなります。\n'
+              Text('今あるマニュアルやメモは、そのまま貼り付けてください。マークダウン（「## 見出し」「- 項目」「**太字**」など）は1行ずつ整えて表示します。\n'
                   '無ければ空のままで、白紙から書き始められます。', style: k.text.small),
               SizedBox(height: k.space.sm),
               MoonTextArea(

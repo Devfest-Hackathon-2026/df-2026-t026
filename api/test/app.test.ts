@@ -115,6 +115,11 @@ test('直接編集：行を足す・書き換える・消すと、自分が書�
   assert.equal(deleted.state.checks.length, 0);
 });
 
+test('直接編集：行頭の空白（マークダウンの入れ子）は残し、行末の空白だけを落とす', async () => {
+  const { texts } = await edit({ op: 'insert', line: '- 塩 小さじ1', text: '  - 粗塩でもよい  ' });
+  assert.equal(texts[texts.indexOf('- 塩 小さじ1') + 1], '  - 粗塩でもよい');
+});
+
 test('直接編集：無い行は編集できず、中身が空の行は書けない', async () => {
   assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 無い行' })).status, 409);
   assert.equal((await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: ' ' })).status, 400);
