@@ -349,6 +349,18 @@ class ManualState {
   /// それ以外は持ち主の記録とみなす（ADR 0018）
   bool recordedByMe(Utterance u) => (u.recordedBy?.id ?? u.editedBy ?? owner) == me;
 
+  /// 発言者の候補に出す名前。記録を見せた答えは見せた人の名前で残るので、自分の名前（決めていなければログイン ID）を
+  /// ほかの人として並べない（#125）。自分のノートでは「自分」にまとめ、ログイン ID を打っても出るよう ID を添える。
+  /// 共有されたノートの「自分」は持ち主の直接の編集なので（ADR 0013）、まとめると持ち主と取り違える。そこでは自分を出さない
+  ({String name, String? id})? speakerCandidate(Utterance u) {
+    final n = u.speaker;
+    if (n == null) return null;
+    // 前からある、共有された人の直接の編集は、記録した人が無く発言者がその人の名前（ADR 0013）
+    final mine = n == me || (u.recordedBy?.id == me && n == u.recordedBy!.name) || u.editedBy == me;
+    if (sharedBy != null) return mine ? null : (name: n, id: null);
+    return mine || n == '自分' ? (name: '自分', id: me) : (name: n, id: null);
+  }
+
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;
 
