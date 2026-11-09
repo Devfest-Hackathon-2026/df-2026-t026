@@ -52,7 +52,9 @@ class _CheckListScreenState extends State<CheckListScreen> {
           extendBody: true,
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.checks) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            TopBar(crumbs: [s.title, '確認リスト']),
+            // パンくずは画面の積み重ねと同じにする。ノートの外（入力ページなど）から開いたときは下にノートが無く、
+            // ← もそこへ戻るので、ノートの題名を出さない（どのノートかはサイドバーで分かる）
+            TopBar(crumbs: [if (aboveNote(context) != null) s.title, '確認リスト']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, onOpen: _push));
