@@ -1,4 +1,4 @@
-import { ApiError, GoogleGenAI, type HttpOptions } from '@google/genai';
+import { ApiError, GoogleGenAI, type HttpOptions, type ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 
 export interface JsonRequest<T> {
@@ -8,6 +8,10 @@ export interface JsonRequest<T> {
   schema: z.ZodType<T>;
   /** プロンプトに添えるファイル・音声 */
   files?: InlineFile[];
+  /** 返事がこの時間を過ぎたら、中身を変えた依頼を並べて送る。省略すると 20 秒 */
+  hedgeMs?: number;
+  /** 考える量。書き写すだけの呼び出しは LOW にして速くする。省略するとモデルの既定 */
+  thinkingLevel?: ThinkingLevel;
 }
 
 /** base64 で受け渡すファイル・音声 */
@@ -29,7 +33,7 @@ export const httpOptions: HttpOptions = { timeout: 90_000 };
 const RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 const MAX_ATTEMPTS = 3;
 
-/** 返事がこの時間を過ぎたら、中身を変えた依頼を並べて送る。書き起こしも assess も、ふだんは 3〜15 秒で返る */
+/** 並べて送るまでの既定の時間。assess はふだん 5〜20 秒で返る */
 const HEDGE_MS = 20_000;
 
 /** やり直してよい失敗か。ApiError 以外は、応答が来ないまま打ち切った・接続が切れたもの */
@@ -66,13 +70,13 @@ export const generateJson: GenerateJson = (req) => requestJson(gemini(), req);
  *
  * Args:
  *   ai: 呼び出しに使うクライアント（テストでは偽の fetch を持たせる）
- *   req: 指示・プロンプト・スキーマ・添えるファイル
- *   timing: 並べて送るまでの時間と、失敗のあとに待つ時間の基準（テストで短くする）
+ *   req: 指示・プロンプト・スキーマ・添えるファイル・並べて送るまでの時間・考える量
+ *   delayMs: 失敗のあとに待つ時間の基準（テストで短くする）
  */
 export function requestJson<T>(
   ai: GoogleGenAI,
-  { system, prompt, schema, files }: JsonRequest<T>,
-  { hedgeMs = HEDGE_MS, delayMs = 1000 } = {},
+  { system, prompt, schema, files, hedgeMs = HEDGE_MS, thinkingLevel }: JsonRequest<T>,
+  delayMs = 1000,
 ): Promise<T> {
   const jsonSchema = toGeminiSchema(schema);
   const stop = new AbortController();
@@ -92,6 +96,7 @@ export function requestJson<T>(
           responseJsonSchema: jsonSchema,
           temperature: 0,
           abortSignal: stop.signal,
+          ...(thinkingLevel && { thinkingConfig: { thinkingLevel } }),
         },
       });
     } catch (e) {

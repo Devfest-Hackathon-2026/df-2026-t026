@@ -174,6 +174,8 @@ test('書き起こし：ファイルを添えて呼ぶ', async () => {
   const files = [{ mimeType: 'image/png', data: 'AAAA' }];
   assert.equal(await transcribeWithGemini(files, generate), '田中さんから塩は小さじ1/2');
   assert.deepEqual(calls[0].files, files);
+  // 書き写すだけなので考えさせず、遅ければ早めに並べて送る
+  assert.deepEqual([calls[0].thinkingLevel, calls[0].hedgeMs], ['LOW', 8_000]);
 });
 
 test('整形：本文を渡し、行末の空白だけを落として行頭の入れ子は残す', async () => {
@@ -189,6 +191,18 @@ test('読み取り：ファイルを渡し、本文と題名の前後の空白�
   assert.deepEqual(await readNoteWithGemini(files, generate), { title: 'キッチンマニュアル', text: '仕込み\n  野菜を切る' });
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].files, files);
+});
+
+test('読み取り：1回の呼び出しで、整形と同じ書き方のマークダウンに整えさせる', async () => {
+  const read = stub({ title: 't', text: 'x' });
+  await readNoteWithGemini([{ mimeType: 'application/pdf', data: 'JVBERg==' }], read.generate);
+  const format = stub({ text: 'x' });
+  await formatWithGemini('x', format.generate);
+  // 整形の決まり（見出しから空行まで）を、読み取りの指示にもそのまま含める
+  const rules = format.calls[0].system.slice(format.calls[0].system.indexOf('ノートは1行を1まとまり'));
+  assert.ok(read.calls[0].system.includes(rules));
+  assert.equal(read.calls.length, 1);
+  assert.equal(read.calls[0].thinkingLevel, 'LOW');
 });
 
 /**
@@ -221,7 +235,7 @@ async function requestWith(replies: (number | 'hang' | string)[], { timeout = ht
   const f = fakeFetch(replies);
   const ai = new GoogleGenAI({ vertexai: true, apiKey: 'test', httpOptions: { ...httpOptions, timeout, fetch: f.fetch } });
   // 待ち時間だけ短くして、送る本数と対象のステータスは本番と同じ設定で確かめる
-  const res = await requestJson(ai, { system: 's', prompt: '書き起こして', schema: z.object({ text: z.string() }) }, { hedgeMs, delayMs: 1 }).then(
+  const res = await requestJson(ai, { system: 's', prompt: '書き起こして', schema: z.object({ text: z.string() }), hedgeMs }, 1).then(
     (r) => r.text,
     (e) => e,
   );
