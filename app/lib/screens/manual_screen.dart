@@ -421,6 +421,8 @@ class _ManualScreenState extends State<ManualScreen> {
     final note = ModalRoute.of(context);
     final deleted = await showMoonModal<bool>(
       context: context,
+      // 消している間に外を押して閉じると、消えたノートの画面に取り残される。閉じるのは「やめる」だけ
+      barrierDismissible: false,
       builder: (_) => _DeleteDialog(api: widget.api, manualId: widget.manualId, title: s.title),
     );
     if (deleted != true || !mounted) return;

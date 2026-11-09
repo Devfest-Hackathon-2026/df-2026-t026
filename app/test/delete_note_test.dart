@@ -285,6 +285,23 @@ void main() {
     expect(server.deletes, hasLength(1));
   });
 
+  testWidgets('消している間にダイアログの外を押しても閉じず、消し終わると一覧へ移る', (tester) async {
+    final server = await _pump(tester);
+    final done = Completer<http.Response>();
+    server.onDelete = () => done.future;
+    await _openDialog(tester);
+    await tester.tap(_deleteButton());
+    await tester.pump();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pump();
+    expect(find.text('消しています…'), findsOneWidget);
+
+    done.complete(http.Response('', 204));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.byType(HomeScreen), findsOneWidget);
+  });
+
   test('deleteManual：204 の空の本文で落ちず、changes が増える（サイドバーや一覧が読み直す）', () async {
     final api = Api(client: MockClient((req) async => http.Response('', 204)), baseUrl: 'http://api');
     final before = api.changes.value;
