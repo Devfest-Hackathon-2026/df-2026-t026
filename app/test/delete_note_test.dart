@@ -16,6 +16,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // ノートを消す（ADR 0014・実装23）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -70,13 +72,8 @@ class _Server {
       if (res.statusCode == 204) deleted = true;
       return res;
     }
-    if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
-    if (path == '/shared') return _json([]);
-    if (path == '/manuals') {
-      return _json([
-        if (!deleted) {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1},
-        {'id': 'm2', 'title': 'ホール', 'utteranceCount': 0, 'openCount': 0},
-      ]);
+    if (path == '/home') {
+      return _json(homeJson([if (!deleted) state('m1'), state('m2')], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
     }
     if (path == '/manuals/m1' && deleted) return _json({'error': 'ノートが見つかりません'}, 404);
     if (path.startsWith('/manuals/m1')) return _json(state('m1'));
@@ -303,11 +300,12 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
   });
 
-  test('deleteManual：204 の空の本文で落ちず、changes が増える（サイドバーや一覧が読み直す）', () async {
-    final api = Api(client: MockClient((req) async => http.Response('', 204)), baseUrl: 'http://api');
-    final before = api.changes.value;
+  test('deleteManual：204 の空の本文で落ちず、store から外す（読み直さずにサイドバーや一覧から消える）', () async {
+    final api = _Server().api;
+    await api.store.load();
+    expect(api.store.notes!.map((s) => s.id), ['m1', 'm2']);
     await api.deleteManual('m1');
-    expect(api.changes.value, before + 1);
+    expect(api.store.notes!.map((s) => s.id), ['m2']);
   });
 
   test('deleteManual：持ち主でない・無いときの 404 は ApiException「ノートが見つかりません」', () async {

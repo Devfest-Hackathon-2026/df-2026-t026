@@ -84,8 +84,8 @@ test('当たらない差分は当てずに未反映として返し、その差�
   // 返った行と、返った差分の反映済みだけを当て直した行（履歴）が食い違わない
   assert.deepEqual(replay(json), json.lines);
 
-  // 保存してある中身は書き換えないので、読むたびに同じになる
-  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, json);
+  // 保存してある中身は書き換えないので、読むたびに同じになる（読んだ時刻 asOf のほか）
+  assert.deepEqual({ ...(await call('GET', '/manuals/demo-kitchen')).json, asOf: json.asOf }, json);
   const stored = await store.list<Patch>('demo', 'demo-kitchen', 'patches');
   assert.deepEqual(
     stored.filter((p) => p.id === 'p2' || p.id === 'p3').map((p) => [p.status, p.appliedAt]),

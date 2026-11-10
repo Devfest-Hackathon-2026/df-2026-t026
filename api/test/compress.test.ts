@@ -48,7 +48,8 @@ test('大きい応答は gzip で返し、解凍すると圧縮しないとき�
   const res = await app.request(path, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Encoding'), 'gzip');
-  assert.deepEqual(await jsonOf(res), expected);
+  // 読んだ時刻（asOf）は読むたびに変わる
+  assert.deepEqual({ ...(await jsonOf(res)) as object, asOf: (expected as any).asOf }, expected);
   // CORS のヘッダーが落ちない
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), origin);
   assert.match(res.headers.get('Vary') ?? '', /Origin/);
