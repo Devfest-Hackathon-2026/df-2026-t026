@@ -62,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
         PageTitle(
           'ノート',
-          meta: [Text('書いたことと教わったことを、誰がいつ言ったか付きで積み上げる', style: k.text.small)],
+          meta: [Text('書いたことと言われたことを、誰がいつ言ったか付きで積み上げる', style: k.text.small)],
           trailing: manuals.isEmpty ? null : _createButton(),
         ),
         SizedBox(height: k.space.xl),

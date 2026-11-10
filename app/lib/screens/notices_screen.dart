@@ -109,7 +109,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
       leading: SpeakerFace(n.by.name),
       label: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          Text('${n.by.name}が${n.kind == 'answer' ? '回答しました' : 'ノートを編集しました'}', style: k.text.heading),
+          Text('${n.by.name}が${n.kind == 'answer' ? '確認に答えました' : '行を直しました'}', style: k.text.heading),
           if (fresh) StatusTag('新しい', bg: k.colors.found, fg: k.colors.action),
         ]),
         SizedBox(height: k.space.xs),

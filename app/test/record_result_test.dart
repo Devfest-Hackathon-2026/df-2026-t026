@@ -570,18 +570,18 @@ void main() {
     expect(tester.takeException(), isNull);
 
     expect(server.posted, ['/manuals/m2/patches/p0/discard', '/manuals/m2/patches/p1/apply', '/manuals/m2/patches/p2/apply']);
-    expect(_inCard(find.text('ノートに2行書き込みました')), findsOneWidget);
+    expect(_inCard(find.text('ノートに 2 行書き込みました')), findsOneWidget);
     expect(_inCard(find.text('ホール')), findsOneWidget);
-    _expectLine(tester, '追記', 'おしぼりも一緒に出す');
-    _expectLine(tester, '条件付きの補足', 'レジは現金とカードのみ。団体はまとめて会計');
+    _expectLine(tester, '追加', 'おしぼりも一緒に出す');
+    _expectLine(tester, '補足', 'レジは現金とカードのみ。団体はまとめて会計');
     _expectLine(tester, '同じ内容', 'お冷やはすぐ出す');
     // 書き込んだ行を先に、同じ内容を後に並べる
     expect(tester.getTopLeft(_inCard(find.text('同じ内容'))).dy,
-        greaterThan(tester.getTopLeft(_inCard(find.text('条件付きの補足'))).dy));
+        greaterThan(tester.getTopLeft(_inCard(find.text('補足'))).dy));
     expect(_inCard(find.byType(ConflictPair)), findsNothing);
     expect(_inCard(find.text('確認リストに入れました')), findsNothing);
     // 食い違いが無ければ、白いカードに今までの大きさの見出しと文字の「確かめる」のまま。確認印も出さない
-    _expectLook(tester, 'ノートに2行書き込みました', conflicted: false);
+    _expectLook(tester, 'ノートに 2 行書き込みました', conflicted: false);
     expect(_inCard(find.byType(ConfirmStamp)), findsNothing);
 
     // 書き込んだ結果の「確かめる」は今まで通り、書き込んだ行を書き込む前の確認と同じダイアログで見せる
@@ -598,9 +598,9 @@ void main() {
     await _recordText(tester, '田中さんから、お冷やはすぐ出す');
 
     expect(server.posted, ['/manuals/m2/patches/p0/discard']);
-    expect(_inCard(find.text('ノートと同じ内容でした（記録として残しました）')), findsOneWidget);
+    expect(_inCard(find.text('ノートと同じ内容でした（言われた記録として残しました）')), findsOneWidget);
     _expectLine(tester, '同じ内容', 'お冷やはすぐ出す');
-    _expectLook(tester, 'ノートと同じ内容でした（記録として残しました）', conflicted: false);
+    _expectLook(tester, 'ノートと同じ内容でした（言われた記録として残しました）', conflicted: false);
   });
 
   for (final size in const [_wide, _narrow]) {
@@ -631,7 +631,7 @@ void main() {
 
     await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
     expect(_card, findsOneWidget);
-    expect(_inCard(find.text('ノートに1行書き込みました')), findsOneWidget);
+    expect(_inCard(find.text('ノートに 1 行書き込みました')), findsOneWidget);
     expect(find.text('ノートと食い違っています'), findsNothing);
     expect(_inCard(find.byType(ConflictPair)), findsNothing);
   });
@@ -646,7 +646,7 @@ void main() {
     await tester.tap(_inCard(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '結果を閉じる')));
     await tester.pumpAndSettle();
     expect(_card, findsNothing);
-    expect(find.text('ノートに1行書き込みました'), findsNothing);
+    expect(find.text('ノートに 1 行書き込みました'), findsNothing);
   });
 
   testWidgets('発言者が分からず確認を開いたときは、今まで通り確認だけを出し、結果のカードは出さない', (tester) async {

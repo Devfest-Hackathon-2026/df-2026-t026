@@ -170,7 +170,7 @@ void main() {
     await tester.tap(find.descendant(of: list, matching: find.text('ホール')));
     await tester.pumpAndSettle();
     expect(find.byType(CheckListScreen), findsOneWidget);
-    expect(find.text('あとで確認（2）'), findsOneWidget);
+    expect(find.text('あとで確認 2 件'), findsOneWidget);
   });
 
   testWidgets('ノートが多いときは、ノートの並びの所だけスクロールし、上の項目と自分は動かない', (tester) async {

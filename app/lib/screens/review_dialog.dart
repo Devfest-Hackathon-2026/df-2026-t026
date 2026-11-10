@@ -280,7 +280,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
                         MoonTextInput(
                           controller: _speaker,
                           onChanged: (_) => setState(() {}),
-                          errorText: _hasSpeaker ? null : '反映する前に入れてください',
+                          errorText: _hasSpeaker ? null : '書き込む前に入れてください',
                         ),
                         if (_knownSpeakers case final known when known.isNotEmpty) ...[
                           SizedBox(height: k.space.xs),
@@ -326,7 +326,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (patches.isEmpty) ...[
         const Rule(),
         SizedBox(height: k.space.lg),
-        Text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。', style: k.text.body),
+        Text('ノートに関わる内容は見つかりませんでした。ノートは変えずに、言われた記録として残しました', style: k.text.body),
       ],
       for (final p in patches) ...[
         const Rule(),
@@ -438,11 +438,11 @@ class _ReviewDialogState extends State<ReviewDialog> {
     return [
       Text(
           '${chk.materialRef == null ? 'ノート' : '${chk.materialRef!.label} '}の「${plain(chk.sameLine ?? '')}」と同じ内容です。'
-          '本文は変えずに、言われた記録として残します',
+          'ノートは変えずに、言われた記録として残します',
           style: k.text.body),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
-        Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
+        Text(p.status == 'applied' ? '書き込み済み' : '書き込まない', style: k.text.small)
       else
         _buttons([
           MoonTextButton(
@@ -475,10 +475,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (edit == null)
         PatchDiff(op: p.op, line: p.line, text: p.text)
       else
-        MoonTextInput(controller: edit, maxLines: 4, minLines: 1, hintText: '反映する内容を修正'),
+        MoonTextInput(controller: edit, maxLines: 4, minLines: 1, hintText: '書き込む内容'),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
-        Text(p.status == 'applied' ? '反映済み' : '反映しない', style: k.text.small)
+        Text(p.status == 'applied' ? '書き込み済み' : '書き込まない', style: k.text.small)
       else
         _buttons([
           MoonTextButton(

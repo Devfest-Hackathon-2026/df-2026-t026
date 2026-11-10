@@ -90,9 +90,9 @@ class _RecordResultCardState extends State<RecordResultCard> {
     // 相手がどれも資料の行なら、ノートでなく資料と言う（ADR 0019）
     if (conflicts.isNotEmpty) return '${conflicts.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
     final written = checks.where((chk) => chk.kind == Kind.addition || chk.kind == Kind.qualification).length;
-    if (written > 0) return 'ノートに$written行書き込みました';
+    if (written > 0) return 'ノートに $written 行書き込みました';
     if (checks.isNotEmpty) {
-      return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
+      return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（言われた記録として残しました）';
     }
     return 'ノートは変えずに、言われた記録として残しました';
   }
@@ -125,7 +125,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
             final shown? => '$shown（$record）',
             null => record,
           });
-      showToast(context, '確定しました。確認の記録に残しています');
+      showToast(context, '確認済みにしました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -238,7 +238,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
         ],
       if (items.isEmpty && widget.records.length > 1) ...[
         SizedBox(height: k.space.xs),
-        Text('このノートは変えずに、記録として残しました', style: k.text.small),
+        Text('このノートは変えずに、言われた記録として残しました', style: k.text.small),
       ],
     ];
   }

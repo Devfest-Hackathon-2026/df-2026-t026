@@ -77,9 +77,9 @@ void main() {
     await tester.tap(me);
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('通知')), findsOneWidget);
-    expect(find.text('佐藤店長がノートを編集しました'), findsOneWidget);
+    expect(find.text('佐藤店長が行を直しました'), findsOneWidget);
     expect(find.text('「炊けたら10分蒸らす」→「炊けたら15分蒸らす」'), findsOneWidget);
-    expect(find.text('佐藤店長が回答しました'), findsOneWidget);
+    expect(find.text('佐藤店長が確認に答えました'), findsOneWidget);
     expect(find.text('「塩 小さじ1」→「塩 小さじ1/2」（1/2で統一）'), findsOneWidget);
     // 前に見たときより後の、行の直しだけが新しい
     expect(find.text('新しい'), findsOneWidget);
@@ -88,7 +88,7 @@ void main() {
     expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'かなで'), matching: find.text('1')), findsNothing);
     expect(find.text('新しい'), findsOneWidget);
 
-    await tester.tap(find.text('佐藤店長がノートを編集しました'));
+    await tester.tap(find.text('佐藤店長が行を直しました'));
     await tester.pumpAndSettle();
     expect(server.requests, contains('GET /manuals/m1'));
   });

@@ -234,7 +234,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final list = find.byType(CheckListScreen);
-      expect(find.text('確認済み（1）'), findsOneWidget);
+      expect(find.text('確認済み 1 件'), findsOneWidget);
       expect(find.descendant(of: list, matching: find.byType(ConfirmStamp)), findsNothing);
       final who = find.descendant(of: list, matching: find.widgetWithText(Speaker, '店長'));
       expect(who, findsOneWidget);

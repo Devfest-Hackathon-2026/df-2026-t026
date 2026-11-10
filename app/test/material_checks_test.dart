@@ -771,7 +771,7 @@ void main() {
         ),
         'u1',
       );
-      expect(find.text('資料と同じ内容でした（記録として残しました）'), findsOneWidget);
+      expect(find.text('資料と同じ内容でした（言われた記録として残しました）'), findsOneWidget);
       expect(find.text('$_where：味噌汁の塩は小さじ1'), findsOneWidget);
     });
   });
@@ -806,7 +806,7 @@ void main() {
           checks: [_check('c1', 'p1', 'u1', kind: 'same')],
         ),
       );
-      expect(find.text('$_where の「味噌汁の塩は小さじ1」と同じ内容です。本文は変えずに、言われた記録として残します'), findsOneWidget);
+      expect(find.text('$_where の「味噌汁の塩は小さじ1」と同じ内容です。ノートは変えずに、言われた記録として残します'), findsOneWidget);
     });
 
     testWidgets('資料と食い違ったら、比較の見出しは資料の箇所', (tester) async {
