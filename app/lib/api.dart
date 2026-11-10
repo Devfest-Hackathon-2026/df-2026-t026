@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'models.dart';
+import 'note_store.dart';
 
 class ApiException implements Exception {
   ApiException(this.message, [this.status, this.body]);
@@ -31,31 +32,38 @@ class Api {
   /// ログインで受け取ったトークン。ログインしていなければ null
   String? token;
 
-  /// 記録や確定でデータが変わるたびに増える。どの画面で変えても、サイドバーの件数を合わせるため
-  final changes = ValueNotifier(0);
+  /// 画面が描く状態の置き場。読むのは store で、書き込みの応答はここ（Api）から store に入れる（ADR 0020）
+  late final store = NoteStore(this);
 
   /// 配った ID とパスワードでログインし、以後の呼び出しに使うトークンを返す
   Future<String> login(String id, String password) async {
     final t = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
     token = t;
-    // トークンを持ってから知らせる。_send の中で知らせると、サイドバーがトークン無しで読み直して空のままになる
-    changes.value++;
     return t;
   }
 
-  Future<Me> me() async => Me.fromJson(await _send('GET', '/me'));
+  /// 自分・全部のノートの状態・未整理メモ。store が読む
+  Future<({Me me, List<ManualState> notes, List<Memo> memos})> home() async {
+    final j = await _send('GET', '/home');
+    return (
+      me: Me.fromJson(j['me']),
+      notes: [for (final s in j['notes']) ManualState.fromJson(s)],
+      memos: [for (final m in j['memos']) Memo.fromJson(m)],
+    );
+  }
 
   /// 名前とアイコンを保存する。icon が null ならアイコンを外す
-  Future<Me> updateMe(String name, IconImage? icon) async => Me.fromJson(await _send('PUT', '/me', {
-        'name': name,
-        'icon': icon == null ? null : {'mimeType': icon.mimeType, 'data': base64Encode(icon.bytes)},
-      }));
-
-  Future<List<ManualSummary>> listManuals() async =>
-      [for (final m in await _send('GET', '/manuals')) ManualSummary.fromJson(m)];
+  Future<Me> updateMe(String name, IconImage? icon) async {
+    final me = Me.fromJson(await _send('PUT', '/me', {
+      'name': name,
+      'icon': icon == null ? null : {'mimeType': icon.mimeType, 'data': base64Encode(icon.bytes)},
+    }));
+    store.putMe(me);
+    return me;
+  }
 
   Future<ManualState> createManual(String title, String body) async =>
-      ManualState.fromJson(await _send('POST', '/manuals', {'title': title, 'body': body}));
+      store.put(ManualState.fromJson(await _send('POST', '/manuals', {'title': title, 'body': body})));
 
   /// 本文を AI にマークダウンへ整えさせた案を返す。保存はしない
   Future<String> format(String text) async => (await _send('POST', '/format', {'text': text}))['text'] as String;
@@ -70,10 +78,14 @@ class Api {
     return (title: r['title'] as String, text: r['text'] as String);
   }
 
+  /// 1冊を読む。store が読む（NoteStore.refresh）
   Future<ManualState> getManual(String id) async => ManualState.fromJson(await _send('GET', '/manuals/$id'));
 
-  /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。消すと changes が増え、サイドバーや一覧が読み直す
-  Future<void> deleteManual(String id) async => _send('DELETE', '/manuals/$id');
+  /// ノートを消す（ADR 0014）。持ち主だけ。本文は空（204）。store からも外し、サイドバーや一覧から消す
+  Future<void> deleteManual(String id) async {
+    await _send('DELETE', '/manuals/$id');
+    store.remove(id);
+  }
 
   /// ノートに付けた資料の一覧。足した順（ADR 0019）
   Future<List<MaterialSummary>> listMaterials(String manualId) async =>
@@ -99,10 +111,6 @@ class Api {
   Future<void> deleteMaterial(String manualId, String materialId) async =>
       _send('DELETE', '/manuals/$manualId/materials/$materialId');
 
-  /// ほかの人から自分に共有されたノート
-  Future<List<SharedManual>> listShared() async =>
-      [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
-
   /// このノートを共有している相手
   Future<List<Person>> shares(String manualId) async => _people(await _send('GET', '/manuals/$manualId/shares'));
 
@@ -110,9 +118,12 @@ class Api {
   Future<List<Person>> share(String manualId, String userId) async =>
       _people(await _send('POST', '/manuals/$manualId/shares', {'userId': userId}));
 
-  /// その人への共有をやめ、共有している相手を返す
-  Future<List<Person>> unshare(String manualId, String userId) async =>
-      _people(await _send('DELETE', '/manuals/$manualId/shares/$userId'));
+  /// その人への共有をやめ、共有している相手を返す。共有された人が自分を外したら、そのノートはもう読めないので store から外す
+  Future<List<Person>> unshare(String manualId, String userId) async {
+    final people = _people(await _send('DELETE', '/manuals/$manualId/shares/$userId'));
+    if (store.note(manualId)?.me == userId) store.remove(manualId);
+    return people;
+  }
 
   List<Person> _people(dynamic json) => [for (final p in json) (id: p['id'] as String, name: p['name'] as String)];
 
@@ -126,32 +137,44 @@ class Api {
     required String today,
     List<String> memoIds = const [],
     bool write = false,
-  }) async =>
-      IntakeResult.fromJson(await _send('POST', '/utterances', {
-        'text': text,
-        'files': [
-          for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
-        ],
-        'manualIds': ?manualIds,
-        'today': today,
-        if (memoIds.isNotEmpty) 'memoIds': memoIds,
-        if (write) 'write': true,
-      }));
+  }) async {
+    final r = IntakeResult.fromJson(await _send('POST', '/utterances', {
+      'text': text,
+      'files': [
+        for (final f in files) {'mimeType': f.mimeType, 'data': base64Encode(f.bytes)},
+      ],
+      'manualIds': ?manualIds,
+      'today': today,
+      if (memoIds.isNotEmpty) 'memoIds': memoIds,
+      if (write) 'write': true,
+    }));
+    for (final x in r.results) {
+      store.put(x.state);
+    }
+    if (r.results.isNotEmpty && memoIds.isNotEmpty) store.removeMemos(memoIds);
+    return r;
+  }
 
   /// リワインドで切り出した WAV を書き起こし、未整理メモにためる。ノートには記録しない。at は切り出した時刻
-  Future<Memo> listen(Uint8List wav, DateTime at) async => Memo.fromJson(
-      await _send('POST', '/listen', {'data': base64Encode(wav), 'at': at.toUtc().toIso8601String()}));
+  Future<Memo> listen(Uint8List wav, DateTime at) async =>
+      _memo(await _send('POST', '/listen', {'data': base64Encode(wav), 'at': at.toUtc().toIso8601String()}));
 
-  /// 未整理メモを切り出した順に返す
-  Future<List<Memo>> listMemos() async => [for (final m in await _send('GET', '/memos')) Memo.fromJson(m)];
-
-  /// 端末内に置いていた前の版の未整理メモを、サーバーに移す
+  /// 未整理メモを置く。入力ページで照らし合わせる文面と、前の版が端末内に置いていたメモ
   Future<Memo> addMemo(DateTime at, String text) async =>
-      Memo.fromJson(await _send('POST', '/memos', {'at': at.toUtc().toIso8601String(), 'text': text}));
+      _memo(await _send('POST', '/memos', {'at': at.toUtc().toIso8601String(), 'text': text}));
 
-  Future<Memo> editMemo(String id, String text) async => Memo.fromJson(await _send('PATCH', '/memos/$id', {'text': text}));
+  Future<Memo> editMemo(String id, String text) async => _memo(await _send('PATCH', '/memos/$id', {'text': text}));
 
-  Future<void> deleteMemo(String id) async => _send('DELETE', '/memos/$id');
+  Future<void> deleteMemo(String id) async {
+    await _send('DELETE', '/memos/$id');
+    store.removeMemos([id]);
+  }
+
+  Memo _memo(dynamic json) {
+    final m = Memo.fromJson(json);
+    store.putMemo(m);
+    return m;
+  }
 
   /// テキスト欄の音声入力。16kHz・16bit の PCM を送ると途中の文面（{text}）が届き、"end" を送ると
   /// 確定の文面（{text, done: true}）が届いて閉じる。失敗したら {error} が届く。記録はしない
@@ -167,14 +190,14 @@ class Api {
 
   /// text を変えると、その文面で差分と分類を作り直す
   Future<ManualState> editUtterance(String manualId, String id, {String? speaker, String? saidAt, String? text}) async =>
-      ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
+      store.put(ManualState.fromJson(await _send('PATCH', '/manuals/$manualId/utterances/$id', {
         'speaker': ?speaker,
         'saidAt': ?saidAt,
         'text': ?text,
-      }));
+      })));
 
   Future<ManualState> applyPatch(String manualId, String id, {String? text}) async =>
-      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
+      store.put(ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text})));
 
   /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete。
   /// 発言と差分の ID はアプリが作って送る（先に画面へ出した編集と取り違えないため。ADR 0007）。
@@ -187,26 +210,31 @@ class Api {
       required String utteranceId,
       required String patchId}) async {
     try {
-      return ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
+      return store.put(ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
         'op': op,
         'line': line,
         'text': text,
         'today': today,
         'utteranceId': utteranceId,
         'patchId': patchId,
-      }));
+      })));
     } on ApiException catch (e) {
       if (e.body case {'conflict': final Map<String, dynamic> j}) throw EditConflict.fromJson(e.message, j);
       rethrow;
     }
   }
 
-  /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめる
-  Future<ManualState> checkEdit(String manualId, String patchId) async =>
-      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$patchId/check', {}));
+  /// 直接書いた行が、ほかの行や確定済みの記録と食い違わないかを確かめ、その確認を返す。
+  /// 応答の全体は確かめを始めたときに読んだものなので、store にはその確認1件だけを足す（ADR 0007）
+  Future<Check?> checkEdit(String manualId, String patchId) async {
+    final chk =
+        ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$patchId/check', {})).checkOf(patchId);
+    if (chk != null) store.addCheck(manualId, chk);
+    return chk;
+  }
 
   Future<ManualState> discardPatch(String manualId, String id) async =>
-      ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {}));
+      store.put(ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/discard', {})));
 
   /// 確定する。共有された人は decidedBy を送らず、自分の答えとして確定する（ADR 0017）
   Future<ManualState> resolve(
@@ -217,17 +245,17 @@ class Api {
     required String text,
     required String note,
   }) async =>
-      ManualState.fromJson(await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {
+      store.put(ManualState.fromJson(await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {
         'decidedBy': ?decidedBy,
         'decidedAt': decidedAt,
         'text': text,
         'note': note,
-      }));
+      })));
 
   /// 聞き直さず、前の確定（shownFrom はその確認の id）の記録を見せて確定する。決めた人・日付・内容はサーバーが前の確定から引き継ぐ（#118）
   Future<ManualState> resolveByRecord(String manualId, String checkId, {required String shownFrom}) async =>
-      ManualState.fromJson(
-          await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {'shownFrom': shownFrom}));
+      store.put(ManualState.fromJson(
+          await _send('POST', '/manuals/$manualId/checks/$checkId/resolve', {'shownFrom': shownFrom})));
 
   Future<dynamic> _send(String method, String path, [Map<String, dynamic>? body]) async {
     final req = http.Request(method, Uri.parse('$baseUrl$path'));
@@ -254,8 +282,6 @@ class Api {
       final error = json is Map ? json['error'] : null;
       throw ApiException(error is String ? error : 'エラーが起きました（${res.statusCode}）', res.statusCode, json);
     }
-    // ログインは login() の中で、トークンを持ってから知らせる
-    if (method != 'GET' && path != '/login') changes.value++;
     return json;
   }
 }

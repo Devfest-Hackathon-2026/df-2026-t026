@@ -14,6 +14,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // ノートの共有（ADR 0013）と、共有した全員での編集（ADR 0016）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -69,14 +71,8 @@ class _Server {
   late final client = MockClient((req) async {
     final path = req.url.path;
     if (req.method != 'GET') sent.add('${req.method} $path ${req.body}');
-    if (path == '/me') return _json({'id': shared ? 'sato' : 'demo', 'name': shared ? '佐藤店長' : 'かなで', 'icon': null});
-    if (path == '/manuals') return _json([]);
-    if (path == '/shared') {
-      return _json(shared
-          ? [
-              {'id': 'm1', 'title': 'キッチン', 'sharedBy': {'id': 'demo', 'name': 'かなで'}, 'sharedAt': '2026-11-09T00:00:00Z', 'openCount': 1},
-            ]
-          : []);
+    if (path == '/home') {
+      return _json(homeJson([state], me: {'id': shared ? 'sato' : 'demo', 'name': shared ? '佐藤店長' : 'かなで', 'icon': null}));
     }
     if (path == '/manuals/m1/shares' && req.method == 'POST') {
       final id = (jsonDecode(req.body) as Map)['userId'] as String;

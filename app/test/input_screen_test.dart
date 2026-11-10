@@ -19,6 +19,7 @@ import 'package:record/record.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -75,7 +76,7 @@ Map<String, dynamic> _state(String id) => switch (id) {
 Map<String, dynamic> _memo(String id, DateTime at, String text) =>
     {'id': id, 'at': at.toUtc().toIso8601String(), 'text': text};
 
-/// 一覧と各マニュアルを返し、POST /utterances は onIntake、POST /listen は onListen（書き起こした {text}）に任せる。
+/// GET /home と各マニュアルを返し、POST /utterances は onIntake、POST /listen は onListen（書き起こした {text}）に任せる。
 /// memos はサーバーに置いた未整理メモで、アプリの読み書きをそのまま映す
 MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onIntake,
     {void Function(http.Request)? onOther,
@@ -99,12 +100,9 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
       return _json(memo, 201);
     }
     if (req.url.path == '/memos') {
-      if (req.method == 'POST') {
-        final body = jsonDecode(req.body) as Map<String, dynamic>;
-        saved.add({'id': 'moved${++added}', ...body});
-        return _json(saved.last, 201);
-      }
-      return _json([...saved]..sort((a, b) => (a['at'] as String).compareTo(b['at'])));
+      final body = jsonDecode(req.body) as Map<String, dynamic>;
+      saved.add({'id': 'moved${++added}', ...body});
+      return _json(saved.last, 201);
     }
     if (req.url.path.startsWith('/memos/')) {
       final id = req.url.pathSegments[1];
@@ -117,12 +115,9 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
       return _json(m);
     }
     onOther?.call(req);
-    if (req.url.path == '/shared') return _json([]);
-    if (req.url.path == '/manuals') {
-      return _json([
-        {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1},
-        {'id': 'm2', 'title': 'ホール', 'utteranceCount': 1, 'openCount': 0},
-      ]);
+    if (req.url.path == '/home') {
+      return _json(homeJson([_state('m1'), _state('m2')],
+          memos: [...saved]..sort((a, b) => (a['at'] as String).compareTo(b['at']))));
     }
     return _json(_state(req.url.pathSegments[1]));
   });
@@ -602,7 +597,7 @@ void main() {
   });
 
   testWidgets('マニュアルが無いうちは、登録への案内を出す', (tester) async {
-    await _pumpInput(tester, MockClient((_) async => _json([])));
+    await _pumpInput(tester, MockClient((_) async => _json(homeJson([]))));
 
     expect(find.text('まだノートがありません'), findsOneWidget);
     expect(find.text('$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。'), findsOneWidget);

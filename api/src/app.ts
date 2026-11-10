@@ -357,6 +357,28 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
   });
 
+  // アプリを開いたときに1本で読む。自分・全部のノートの状態・未整理メモ（ADR 0020）。
+  // ノートは GET /manuals（作った新しい順）→ GET /shared（共有された新しい順）と同じ並び。
+  // loadAll は並べないので（記録の振り分けに渡す順を変えないため触らない）、ここで並べてから読む
+  app.get('/home', async (c) => {
+    const { userId } = c.var;
+    const [manuals, pointers, profile, memos] = await Promise.all([
+      store.listManuals(userId),
+      store.listShared(userId),
+      store.getProfile(userId),
+      store.listMemos(userId),
+    ]);
+    const [own, shared] = await Promise.all([
+      Promise.all(manuals.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((m) => load(userId, m.id))),
+      Promise.all(pointers.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((x) => loadShared(userId, x.id))),
+    ]);
+    return c.json({
+      me: { id: userId, name: profile?.name ?? userId, icon: profile?.icon ?? null },
+      notes: [...own, ...shared.filter((x) => x !== null)],
+      memos: memos.sort((a, b) => a.at.localeCompare(b.at)),
+    });
+  });
+
   app.post('/manuals', async (c) => {
     const body = NewManual.parse(await c.req.json());
     const manual: Manual = { id: randomUUID(), title: body.title, base: body.body, createdAt: now() };

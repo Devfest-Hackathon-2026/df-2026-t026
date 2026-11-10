@@ -56,40 +56,20 @@ class OpenChecksScreen extends StatefulWidget {
 }
 
 class _OpenChecksScreenState extends State<OpenChecksScreen> {
-  late Future<List<ManualState>> _manuals = _load();
-
   @override
   void initState() {
     super.initState();
-    widget.api.changes.addListener(_reload);
+    widget.api.store.ensureLoaded();
   }
 
-  @override
-  void dispose() {
-    widget.api.changes.removeListener(_reload);
-    super.dispose();
+  void _reload() {
+    widget.api.store.load();
+    setState(() {});
   }
-
-  /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
-  Future<List<ManualState>> _load() async {
-    // 失敗を ParallelWaitError で包まず、画面にそのまま出せる ApiException で受ける
-    final ids = await Future.wait([
-      widget.api.listManuals().then((l) => [for (final m in l) m.id]),
-      widget.api.listShared().then((l) => [for (final m in l) m.id]),
-    ]);
-    return Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
-  }
-
-  void _reload() => setState(() {
-        _manuals = _load();
-      });
 
   // 入力ページと同じく「ノートの外から開いた」確認リストにする（ノートの上に積んだ印は付けない）
-  Future<void> _open(ManualState s) async {
-    await Navigator.push(
-        context, MaterialPageRoute(builder: (_) => CheckListScreen(c: ManualController(widget.api, s.id, s))));
-    if (mounted) _reload();
-  }
+  void _open(ManualState s) => Navigator.push(
+      context, MaterialPageRoute(builder: (_) => CheckListScreen(c: ManualController(widget.api, s.id, s))));
 
   @override
   Widget build(BuildContext context) {
@@ -99,17 +79,21 @@ class _OpenChecksScreenState extends State<OpenChecksScreen> {
         place: Place.checks,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const TopBar(crumbs: ['あとで確認']),
-          Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+          Expanded(child: ListenableBuilder(listenable: widget.api.store, builder: (context, _) => _body())),
         ])),
       ),
     );
   }
 
-  Widget _body(AsyncSnapshot<List<ManualState>> snap) {
-    if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-    if (!snap.hasData) return const Loading();
+  /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
+  Widget _body() {
+    final store = widget.api.store;
+    final notes = store.notes;
+    if (notes == null) {
+      return store.error == null ? const Loading() : LoadFailed(message: store.error.toString(), onRetry: _reload);
+    }
     final k = context.tokens;
-    final open = snap.data!.fold(0, (n, s) => n + s.openChecks.length);
+    final open = notes.fold(0, (n, s) => n + s.openChecks.length);
     return Narrow(
       maxWidth: k.pageWidth,
       child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
@@ -118,7 +102,7 @@ class _OpenChecksScreenState extends State<OpenChecksScreen> {
           if (open > 0) StatusTag('全部で $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
         ]),
         SizedBox(height: k.space.xl),
-        OpenChecksList(manuals: snap.data!, onOpen: _open),
+        OpenChecksList(manuals: notes, onOpen: _open),
       ]),
     );
   }

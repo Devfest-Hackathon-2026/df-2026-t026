@@ -11,6 +11,7 @@ import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 http.Response _json(Object body, int status) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -26,12 +27,7 @@ void main() {
             : _json({'error': 'ID かパスワードが違います'}, 401);
       }
       if (req.headers['Authorization'] != 'Bearer token-1') return _json({'error': 'ログインしてください'}, 401);
-      if (req.url.path == '/memos' || req.url.path == '/shared') return _json([], 200);
-      if (req.url.path == '/manuals') {
-        return _json([
-          {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 0, 'openCount': 0},
-        ], 200);
-      }
+      if (req.url.path == '/home') return _json(homeJson([noteJson('m1', 'キッチン')]), 200);
       return _json({
         'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},
         'lines': [],
@@ -72,12 +68,8 @@ void main() {
     final client = MockClient((req) async {
       if (req.url.path == '/login') return _json({'token': 'token-1'}, 200);
       if (req.headers['Authorization'] != 'Bearer token-1') return _json({'error': 'ログインしてください'}, 401);
-      if (req.url.path == '/memos' || req.url.path == '/shared') return _json([], 200);
-      if (req.url.path == '/me') return _json({'name': 'たろう', 'icon': null}, 200);
-      if (req.url.path == '/manuals') {
-        return _json([
-          {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 0, 'openCount': 0},
-        ], 200);
+      if (req.url.path == '/home') {
+        return _json(homeJson([noteJson('m1', 'キッチン')], me: {'id': 'taro', 'name': 'たろう', 'icon': null}), 200);
       }
       return _json({
         'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '', 'createdAt': '2026-11-01T00:00:00Z'},

@@ -17,6 +17,8 @@ import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'home.dart';
+
 /// 塩の量が食い違い、あとで確認が1件ある
 Map<String, dynamic> _note() => {
       'owner': 'demo',      'me': 'demo',      'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -86,8 +88,10 @@ Map<String, dynamic> _confirmed() {
   return n;
 }
 
-Api _api([Map<String, dynamic> Function() data = _note]) =>
-    Api(client: MockClient((_) async => http.Response.bytes(utf8.encode(jsonEncode(data())), 200)), baseUrl: 'http://api');
+Api _api([Map<String, dynamic> Function() data = _note]) => Api(
+    client: MockClient((req) async => http.Response.bytes(
+        utf8.encode(jsonEncode(req.url.path == '/home' ? homeJson([data()]) : data())), 200)),
+    baseUrl: 'http://api');
 
 void _size(WidgetTester tester, Size size) {
   tester.view.physicalSize = size;
@@ -141,11 +145,7 @@ void main() {
       final api = Api(
           client: MockClient((req) async => http.Response.bytes(
               utf8.encode(jsonEncode(switch (req.url.path) {
-                '/manuals' => [
-                    {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1},
-                  ],
-                '/shared' || '/memos' => [],
-                '/me' => {'id': 'demo', 'name': 'デモ', 'icon': null},
+                '/home' => homeJson([_note()], me: {'id': 'demo', 'name': 'デモ', 'icon': null}),
                 _ => _note(),
               })),
               200)),

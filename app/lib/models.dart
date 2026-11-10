@@ -35,37 +35,6 @@ typedef Person = ({String id, String name});
 
 Person _person(Map<String, dynamic> j) => (id: j['id'] as String, name: j['name'] as String);
 
-/// ほかの人から共有されたノート（ADR 0013）
-class SharedManual {
-  SharedManual.fromJson(Map<String, dynamic> j)
-      : id = j['id'],
-        title = j['title'],
-        sharedBy = _person(j['sharedBy']),
-        openCount = j['openCount'];
-
-  final String id;
-  final String title;
-
-  /// ノートの持ち主
-  final Person sharedBy;
-
-  /// 共有された人も確定できるので数える（ADR 0016）
-  final int openCount;
-}
-
-class ManualSummary {
-  ManualSummary.fromJson(Map<String, dynamic> j)
-      : id = j['id'],
-        title = j['title'],
-        utteranceCount = j['utteranceCount'],
-        openCount = j['openCount'];
-
-  final String id;
-  final String title;
-  final int utteranceCount;
-  final int openCount;
-}
-
 /// 資料の一覧の1件（ADR 0019）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
 class MaterialSummary {
   MaterialSummary.fromJson(Map<String, dynamic> j)

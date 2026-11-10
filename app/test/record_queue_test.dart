@@ -15,6 +15,8 @@ import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'home.dart';
+
 // 記録を待たせない（設計書 0020 の C2）：押したらすぐ入力欄を空け、裏で押した順に1件ずつ照らし合わせる
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -59,18 +61,12 @@ class _Server {
       if (res.statusCode == 201) memos.removeWhere((m) => (body['memoIds'] ?? []).contains(m['id']));
       return res;
     }
+    if (path == '/home') return _json(homeJson([_hall()], memos: [...memos]));
     if (path == '/memos') {
-      if (req.method == 'GET') return _json([...memos]);
       if (await memoGate?.future case final failed?) return failed;
       final m = {'id': 'memo${++_memoCount}', ...jsonDecode(req.body) as Map<String, dynamic>};
       memos.add(m);
       return _json(m, 201);
-    }
-    if (path == '/shared') return _json([]);
-    if (path == '/manuals') {
-      return _json([
-        {'id': 'm2', 'title': 'ホール', 'utteranceCount': 1, 'openCount': 0},
-      ]);
     }
     return _json(_hall());
   }
