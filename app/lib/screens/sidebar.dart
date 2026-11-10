@@ -27,10 +27,13 @@ bool showsSidebar(BuildContext context) {
 
 /// 広い画面では、左にサイドバーを常に出して画面のあいだを直接移れるようにする。狭い画面では child だけ（押して進んで戻る）
 class WithSidebar extends StatelessWidget {
-  const WithSidebar({super.key, required this.api, required this.child, this.place, this.manualId});
+  const WithSidebar({super.key, required this.api, required this.child, this.place, this.manualId, this.onRecord});
   final Api api;
   final Widget child;
   final Place? place;
+
+  /// 入力ページのときだけ。「言われたことを記録」で、リワインドから書く欄に戻す
+  final VoidCallback? onRecord;
 
   /// マニュアルの中（マニュアル画面・確認リスト）にいるときの、そのマニュアル
   final String? manualId;
@@ -40,7 +43,7 @@ class WithSidebar extends StatelessWidget {
     if (!showsSidebar(context)) return child;
     final k = context.tokens;
     return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      SizedBox(width: k.sidebarWidth, child: _Sidebar(api: api, place: place, manualId: manualId)),
+      SizedBox(width: k.sidebarWidth, child: _Sidebar(api: api, place: place, manualId: manualId, onRecord: onRecord)),
       Container(width: k.hairline, color: k.colors.rule),
       Expanded(child: child),
     ]);
@@ -50,9 +53,10 @@ class WithSidebar extends StatelessWidget {
 /// 狭い画面の入力ページで、上部バーの三本線から左に出すメニュー。中身は広い画面のサイドバーと同じ。
 /// 影は付けず、右の罫線で本文と区切る。項目を押すと、先にメニューを閉じてから open で移る
 class SidebarDrawer extends StatelessWidget {
-  const SidebarDrawer({super.key, required this.api, required this.place, required this.open});
+  const SidebarDrawer({super.key, required this.api, required this.place, required this.open, this.onRecord});
   final Api api;
   final Place place;
+  final VoidCallback? onRecord;
 
   /// 画面を開く（入力ページの push）
   final Future<void> Function(Widget screen) open;
@@ -67,16 +71,17 @@ class SidebarDrawer extends StatelessWidget {
         color: k.colors.canvas,
         border: Border(right: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
-      child: SafeArea(right: false, child: _Sidebar(api: api, place: place, open: open)),
+      child: SafeArea(right: false, child: _Sidebar(api: api, place: place, open: open, onRecord: onRecord)),
     );
   }
 }
 
 class _Sidebar extends StatefulWidget {
-  const _Sidebar({required this.api, this.place, this.manualId, this.open});
+  const _Sidebar({required this.api, this.place, this.manualId, this.open, this.onRecord});
   final Api api;
   final Place? place;
   final String? manualId;
+  final VoidCallback? onRecord;
 
   /// メニュー（狭い画面）のときだけ。画面の開き方を入力ページに任せ、ふつうの横から出る動きで開く
   final Future<void> Function(Widget screen)? open;
@@ -161,7 +166,10 @@ class _SidebarState extends State<_Sidebar> {
                   icon: LucideIcons.squarePen,
                   selected: widget.place == Place.input,
                   strong: true,
-                  onTap: () => _go(null),
+                  onTap: () {
+                    _go(null);
+                    widget.onRecord?.call();
+                  },
                 ),
                 // 全部のノートのあとで確認をまとめた画面へ。アイコンはタブバーの「確認リスト」と同じ
                 _item(

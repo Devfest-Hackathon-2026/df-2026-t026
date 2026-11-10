@@ -274,6 +274,11 @@ class _InputScreenState extends State<InputScreen> {
         _editingMemo = null;
       });
 
+  /// サイドバーの「言われたことを記録」で、書く欄（最初の画面）に戻す。トグルと同じく、話し終わり待ちの間は止めない
+  void _leaveRewind() {
+    if (_rewind && !_capturing) _toggleRewind(false);
+  }
+
   /// メモを入力欄の後ろに足す。続けて入れると1つの指示にまとめられる
   void _pour(Memo m) => setState(() {
         _text.text = [_text.text.trimRight(), m.text].where((t) => t.isNotEmpty).join('\n');
@@ -638,10 +643,11 @@ class _InputScreenState extends State<InputScreen> {
       drawerEnableOpenDragGesture: false,
       // 狭い画面では、サイドバーの代わりに上部バーの三本線から左にメニューを出す（Claude・ChatGPT のスマホ版と同じ）。
       // 広い幅に変わったらメニューは外す（開いていたら閉じる）
-      drawer: narrow || open ? SidebarDrawer(api: widget.api, place: Place.input, open: _push) : null,
+      drawer: narrow || open ? SidebarDrawer(api: widget.api, place: Place.input, open: _push, onRecord: _leaveRewind) : null,
       body: WithSidebar(
         api: widget.api,
         place: Place.input,
+        onRecord: _leaveRewind,
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           TopBar(
             // アプリ名は、広い画面ではサイドバーの一番上に出すので、上部バーには何も出さない。
