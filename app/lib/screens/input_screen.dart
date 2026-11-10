@@ -521,8 +521,12 @@ class _InputScreenState extends State<InputScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       showError(context, e);
-      // 文面は待ちを外せば未整理メモに出る。ファイルはメモに置けないので入力欄に戻す
-      if (p.files.isNotEmpty) setState(() => _files.insertAll(0, p.files));
+      setState(() {
+        // 文面は待ちを外せば未整理メモに出る。ファイルはメモに置けないので入力欄に戻す
+        _files.insertAll(0, p.files);
+        // 記録先を選び直して送ったものは、カードを戻す。ファイルだけの記録は、読み取った文面がカードにしか無い
+        if (p.retryOf case final r?) _results.insert(0, r);
+      });
       return;
     }
     if (!mounted) return;
@@ -553,7 +557,7 @@ class _InputScreenState extends State<InputScreen> {
     final ids = await _pickManuals(manuals, heard: m.text);
     if (ids == null || !mounted) return;
     setState(() => _results.remove(result));
-    _enqueue(_Pending(text: m.text, manualIds: ids, today: m.today, poured: m.poured, memo: m.memo));
+    _enqueue(_Pending(text: m.text, manualIds: ids, today: m.today, poured: m.poured, memo: m.memo, retryOf: result));
   }
 
   /// 結果のカードを、見出しから下の端まで見える所へ送る。画面より高いカードは見出しを上の端に合わせる。
@@ -1247,7 +1251,15 @@ class _InputScreenState extends State<InputScreen> {
 
 /// 「ノートと照らし合わせる」を押して、照らし合わせを待っている記録
 class _Pending {
-  _Pending({required this.text, this.files = const [], this.manualIds, required this.today, this.poured = const [], this.memo});
+  _Pending({
+    required this.text,
+    this.files = const [],
+    this.manualIds,
+    required this.today,
+    this.poured = const [],
+    this.memo,
+    this.retryOf,
+  });
   final String text;
   final List<Attachment> files;
   final List<String>? manualIds;
@@ -1255,6 +1267,9 @@ class _Pending {
 
   /// 入力欄に流し込んだ未整理メモ
   final List<Memo> poured;
+
+  /// 関係するノートが見つからず、記録先を選んで送り直したときの、そのカード。失敗したら戻す
+  final _Result? retryOf;
 
   /// 文面を置いた未整理メモ。置き終わるまでと、文面が無い（ファイルだけの）ときは null
   Memo? memo;

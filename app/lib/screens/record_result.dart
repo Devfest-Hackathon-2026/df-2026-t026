@@ -11,7 +11,7 @@ import 'common.dart';
 import 'review_dialog.dart';
 
 /// 書き込む前に利用者が確かめることが残っているか。誰が言ったか読み取れなかった（サーバーは書き込まない）か、
-/// ノートが変わっていて書き込めなかった行が残っている。入力ページは、このカードを次の結果が出ても消さない
+/// まだ書き込んでいない行（ノートが変わっていて書き込めなかった行など）が残っている。入力ページは、このカードを次の結果が出ても消さない
 bool needsReview(List<Recorded> records) => records.any((r) => _speakerMissing(r) || _unwritten(r).isNotEmpty);
 
 bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == null;
@@ -20,6 +20,12 @@ bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == 
 Iterable<Patch> _unwritten(Recorded r) => r.state
     .patchesOf(r.utteranceId)
     .where((p) => p.status == 'proposed' && r.state.checkOf(p.id)?.kind != Kind.contradiction);
+
+/// 書き換える・後ろに足す行が、もうノートに無い。照らし合わせている間にノートが変わって、サーバーが書き込めなかった
+bool _targetGone(Recorded r, Patch p) => p.line != null && !r.state.lines.any((l) => l.text == p.line);
+
+/// 誰が言ったか分からないときの見出し。行ごとの印は付けず、見出しで言うだけにする
+const _unnamedTitle = '誰が言ったか分からないので、まだ書き込んでいません';
 
 /// 入力ページで照らし合わせた結果。入力欄のすぐ下に出し、次の結果が出るか、閉じるまで残す（#112）。
 /// 食い違いは「ノート ／ 言われたこと」で並べ、相手が確定済みの記録なら確認印と「記録を見せる」文を添え、
@@ -96,9 +102,10 @@ class _RecordResultCardState extends State<RecordResultCard> {
           : '${decision.decidedBy}が決めたことと食い違っています';
     }
     final left = widget.records.where((r) => _unwritten(r).isNotEmpty);
-    if (left.isNotEmpty) {
-      return left.any(_speakerMissing) ? '誰が言ったか分からないので、まだ書き込んでいません' : 'ノートが変わっていて、書き込めなかった行があります';
-    }
+    if (left.any(_speakerMissing)) return _unnamedTitle;
+    // 誰が言ったかを確かめで入れたあと、まだ書き込んでいない行は、ノートが変わったせいではない
+    if (left.any((r) => _unwritten(r).any((p) => _targetGone(r, p)))) return 'ノートが変わっていて、書き込めなかった行があります';
+    if (left.isNotEmpty) return 'まだ書き込んでいない行があります';
     final items = [
       for (final r in widget.records) ..._items(r),
     ];
@@ -170,8 +177,9 @@ class _RecordResultCardState extends State<RecordResultCard> {
     return LayoutBuilder(
       builder: (context, box) {
         final stacked = box.maxWidth < k.stackBelow;
+        final heading = _title(decision);
         // 食い違いはこのアプリの見せ場なので、見出しを大きくする。食い違いが無ければ落ち着いた見た目のまま
-        final title = Text(_title(decision), style: conflicts.isNotEmpty ? k.text.display : k.text.title);
+        final title = Text(heading, style: conflicts.isNotEmpty ? k.text.display : k.text.title);
         final close = MoonButton.icon(
           semanticLabel: '結果を閉じる',
           icon: Icon(LucideIcons.x, color: k.colors.ink),
@@ -216,8 +224,8 @@ class _RecordResultCardState extends State<RecordResultCard> {
                 else
                   MoonTextButton(onTap: _review, label: const Text('確かめる')),
                 if (open.isNotEmpty) Text('確認リストに入れました', style: k.text.small),
-                // 書き込む行が無くても、誰が言ったかは確かめて入れられる。書き込む行があれば見出しで言っている
-                if (widget.records.any((r) => _speakerMissing(r) && _unwritten(r).isEmpty))
+                // 見出しで言っていなければ（食い違いの見出しのときなど）、誰が言ったか分からないことをここで言う
+                if (heading != _unnamedTitle && widget.records.any(_speakerMissing))
                   Text('誰が言ったか分かりませんでした', style: k.text.small),
               ],
             ),
@@ -263,11 +271,12 @@ class _RecordResultCardState extends State<RecordResultCard> {
                   chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
                   style: k.text.body,
                 ),
-                // 誰が言ったか分かっているのに残った行は、ノートが変わっていて当たらなかった。どの行かを示す。
-                // 分からないときは全部の行が残るので、見出しで言うだけにする
+                // 誰が言ったか分かっているのに残った行は、どの行かを示す。分からないときは全部の行が残るので、
+                // 見出しで言うだけにする
                 if (p.status == 'proposed' && u.speaker != null) ...[
                   SizedBox(height: k.space.xs),
-                  StatusTag('書き込めませんでした', bg: k.colors.shell, fg: k.colors.inkMuted),
+                  StatusTag(_targetGone(r, p) ? '書き込めませんでした' : 'まだ書き込んでいません',
+                      bg: k.colors.shell, fg: k.colors.inkMuted),
                 ],
               ]),
             ),

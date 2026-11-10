@@ -760,6 +760,27 @@ void main() {
     expect(_inCard(find.widgetWithText(MoonTextButton, '確かめる')), findsOneWidget);
   });
 
+  testWidgets('確かめで誰が言ったかだけを入れて閉じたら、ノートが変わったとは言わず、まだ書き込んでいない行として残す', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamed(['addition']), 'u2')],
+    ]);
+    await _recordText(tester, 'おしぼりも一緒に出す');
+    await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+    await tester.pumpAndSettle();
+    await tester.enterText(_inModal(find.byType(MoonTextInput)), '田中さん');
+    await tester.pump();
+    // 閉じると発言者だけを保存する。行はまだ書き込んでいない
+    server.notes['m2'] = _hall(['addition']);
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
+    await tester.pumpAndSettle();
+
+    expect(_inCard(find.text('まだ書き込んでいない行があります')), findsOneWidget);
+    expect(_inCard(find.text('まだ書き込んでいません')), findsOneWidget);
+    expect(find.text('ノートが変わっていて、書き込めなかった行があります'), findsNothing);
+    expect(find.text('書き込めませんでした'), findsNothing);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+  });
+
   testWidgets('確かめることが残ったカードは、次の結果が出ても消さず、新しい結果を上に出す', (tester) async {
     await _pump(tester, [
       [(unnamed(['addition']), 'u2')],

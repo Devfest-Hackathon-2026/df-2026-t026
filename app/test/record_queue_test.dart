@@ -136,6 +136,12 @@ void main() {
     expect(find.text('未整理メモ'), findsNothing);
     expect(server.intakes.single.body['memoIds'], [server.memos.single['id']]);
     expect(server.intakes.single.body['write'], isTrue);
+    // アプリに戻ってきて未整理メモを読み直し、サーバーから戻ってきても、待っている間は出さない
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('未整理メモ'), findsNothing);
+    expect(note, findsOneWidget);
 
     await tester.enterText(_area, 'レジ締めは店長');
     await tester.pump();
@@ -219,6 +225,43 @@ void main() {
     expect(find.text('読み取れませんでした'), findsOneWidget);
     expect(find.text(_waiting), findsNothing);
     expect(find.widgetWithText(MoonTag, '手順.pdf'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+  });
+
+  testWidgets('ファイルだけの記録で関係するノートが無く、記録先を選んで送り直して失敗したら、読み取った文面のカードを戻す', (tester) async {
+    final server = _Server();
+    await _pump(tester, server, picked: [(name: '手順.pdf', type: 'application/pdf', bytes: Uint8List(8))]);
+    await tester.tap(find.bySemanticsLabel('ファイルを添える'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ファイルを選ぶ'));
+    await tester.pumpAndSettle();
+    await tester.tap(_send);
+    await tester.pump();
+    server.intakes[0].reply.complete(_json({'text': '傘は入口に置く', 'results': []}));
+    await tester.pumpAndSettle();
+    expect(find.text('関係するノートが見つかりませんでした'), findsOneWidget);
+    // メモは無いので、未整理メモに残しているとは言わない
+    expect(find.text('未整理メモに残しています'), findsNothing);
+
+    await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を選ぶ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.text('ホール')));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, '選んだノートと照らし合わせる'));
+    await tester.pumpAndSettle();
+    // 読み取った文面だけを、選んだノート宛てに送る
+    expect(server.intakes[1].body['text'], '傘は入口に置く');
+    expect(server.intakes[1].body['manualIds'], ['m2']);
+    expect(server.intakes[1].body['files'], isEmpty);
+    expect(find.text('関係するノートが見つかりませんでした'), findsNothing);
+    expect(find.descendant(of: _note('傘は入口に置く'), matching: find.text(_waiting)), findsOneWidget);
+
+    server.intakes[1].reply.complete(_json({'error': '混んでいます'}, 503));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('混んでいます'), findsOneWidget);
+    expect(find.text('関係するノートが見つかりませんでした'), findsOneWidget);
+    expect(find.text('「傘は入口に置く」'), findsOneWidget);
     await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
