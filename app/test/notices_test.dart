@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:diff_note/api.dart';
@@ -27,6 +28,12 @@ class _Server {
   final requests = <String>[];
   final lines = <Map<String, dynamic>>[];
 
+  /// あとから届いた通知（新しい順の先頭に入る）
+  final later = <Map<String, dynamic>>[];
+
+  /// あれば、GET /home は中身を読んでから、これが済むまで返さない
+  Completer<void>? homeGate;
+
   Map<String, dynamic> get note => {
         ...noteJson('m1', 'キッチン'),
         'lines': lines,
@@ -35,6 +42,7 @@ class _Server {
   Map<String, dynamic> get notices => {
         'seenAt': seenAt,
         'items': [
+          ...later,
           {
             'id': 'u9',
             'kind': 'edit',
@@ -64,7 +72,9 @@ class _Server {
     requests.add('${req.method} ${req.url.path}');
     switch (req.url.path) {
       case '/home':
-        return _json(homeJson([note], me: {'id': 'demo', 'name': 'かなで', 'icon': null}, notices: notices));
+        final body = homeJson([note], me: {'id': 'demo', 'name': 'かなで', 'icon': null}, notices: notices);
+        await homeGate?.future;
+        return _json(body);
       case '/notices/seen':
         seenAt = '2026-11-10T09:00:00.000Z';
         return http.Response('', 204);
@@ -115,6 +125,41 @@ void main() {
     await tester.tap(find.text('佐藤店長がノートを編集しました'));
     await tester.pumpAndSettle();
     expect(find.byType(ManualScreen), findsOneWidget);
+    expect(server.requests, contains('GET /manuals/m1'));
+  });
+
+  testWidgets('戻ってきたときの読み直しの途中に見たことにしても、その読み直しで届いた通知は出し、「新しい」を付ける', (tester) async {
+    _wide(tester);
+    final server = _Server();
+    final api = Api(client: server.client, baseUrl: 'http://api');
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: api)));
+    await tester.pumpAndSettle();
+
+    // 戻ってきて読み直している間に、佐藤店長がもう1行直していた。読み直しはまだ返らない
+    server.later.add({
+      'id': 'u10',
+      'kind': 'edit',
+      'manualId': 'm1',
+      'title': 'キッチン',
+      'by': {'id': 'sato', 'name': '佐藤店長'},
+      'at': '2026-11-10T03:00:00.000Z',
+      'op': 'delete',
+      'line': '- 塩 小さじ1/2',
+      'text': '',
+    });
+    server.homeGate = Completer();
+    api.store.load();
+    await tester.pump();
+
+    await tester.tap(_me);
+    await tester.pumpAndSettle();
+    expect(server.requests, contains('POST /notices/seen'));
+    expect(find.text('「塩 小さじ1/2」を消した'), findsNothing);
+
+    server.homeGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('「塩 小さじ1/2」を消した'), findsOneWidget);
+    expect(find.text('新しい'), findsNWidgets(2));
   });
 
   testWidgets('まだ読めていないときに開いたら、読んでから「新しい」を付け、そのあとで見たことにする', (tester) async {

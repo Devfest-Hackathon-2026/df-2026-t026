@@ -74,7 +74,11 @@ class NoteStore extends ChangeNotifier {
       _notes = next;
       if (_meWrittenAt <= since) me = h.me;
       if (_memosWrittenAt <= since) memos = h.memos;
-      if (_noticesWrittenAt <= since) notices = h.notices;
+      // 読んでいる間に見たことにしても、通知そのものは古くならない。古くなるのは見た時刻だけなので、新しい方を残す
+      final seen = notices?.seenAt;
+      notices = _noticesWrittenAt > since && seen != null && seen.compareTo(h.notices.seenAt ?? '') > 0
+          ? (seenAt: seen, items: h.notices.items)
+          : h.notices;
       _loaded = true;
     } catch (e) {
       // 応答の形が違ったときも、画面に出せる失敗として持つ
