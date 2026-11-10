@@ -340,14 +340,14 @@ void main() {
       final card = tester.getRect(_card);
       expect(card.top, greaterThan(tester.getRect(find.byType(MoonTextArea)).bottom));
       expect(card.bottom, lessThan(tester.getRect(find.byType(OpenChecksList)).top));
-      // 「あとで確認」の見出しに、全部の件数を黄の札で添える
+      // 「あとで確認」の見出しに、全部の件数を文字で添える
       final total = tester.getRect(find.text('全部で 1 件'));
       expect(total.top, greaterThan(card.bottom));
       expect(total.bottom, lessThan(tester.getRect(find.byType(OpenChecksList)).top));
       // 前の知らせのように数秒で消えない
       await tester.pump(const Duration(seconds: 10));
       expect(_card, findsOneWidget);
-      // 食い違いは見せ場：白地のまま黄の線で囲み、見出しを大きく、「確かめる」を主のボタンにする
+      // 食い違いがあれば「確かめる」を主のボタンにする
       _expectLook(tester, 'ノートと食い違っています', conflicted: true);
 
       // 確定済みの記録と食い違ったのではないので、カードで決着させるボタンは出さない
