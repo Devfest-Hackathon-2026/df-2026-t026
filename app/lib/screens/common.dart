@@ -14,6 +14,10 @@ import 'sidebar.dart';
 /// 何の道具かを言う一文。ログイン・入力ページ・ノートが無いときの案内で同じ文を出す。中央揃えの案内でも読点で折れるよう、改行を入れておく
 const appPurpose = '書いたことと口頭で言われたことを積み上げ、\n食い違いに気づけるノートです。';
 
+/// moon_design の入力欄（MoonTextInput・MoonTextArea）は、必ずこれで包む。moon_design は入力欄の読み上げ用の情報に
+/// 「使える」を付けず、Flutter の Web 版はそれを disabled の欄にするので、読み上げソフトからは打てない（純正の TextField は付ける）
+Widget typable(Widget input) => Semantics(enabled: true, child: input);
+
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
   final p = ymd.split('-');

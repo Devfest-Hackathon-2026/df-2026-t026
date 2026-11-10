@@ -62,12 +62,12 @@ class _SearchScreenState extends State<SearchScreen> {
               child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
                 const PageTitle('ノートを探す'),
                 SizedBox(height: k.space.xl),
-                MoonTextInput(
+                typable(MoonTextInput(
                   controller: _query,
                   autofocus: true,
                   leading: Icon(LucideIcons.search, color: k.colors.inkMuted),
                   onChanged: (_) => setState(() {}),
-                ),
+                )),
                 SizedBox(height: k.space.xl),
                 ListenableBuilder(listenable: widget.api.store, builder: (context, _) => _results()),
               ]),

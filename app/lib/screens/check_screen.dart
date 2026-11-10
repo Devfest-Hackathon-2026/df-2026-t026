@@ -291,7 +291,7 @@ class _CheckDetailState extends State<CheckDetail> {
               SizedBox(height: k.space.md),
               Text('ほかの人', style: k.text.small),
               SizedBox(height: k.space.xs),
-              MoonTextInput(controller: _decidedBy, hintText: '名前かログイン ID', onChanged: (_) => setState(() {})),
+              typable(MoonTextInput(controller: _decidedBy, hintText: '名前かログイン ID', onChanged: (_) => setState(() {}))),
               _peopleChips(chk),
               if (chk.question != null) ...[
                 SizedBox(height: k.space.md),
@@ -402,7 +402,7 @@ class _CheckDetailState extends State<CheckDetail> {
         Text('確認した相手', style: k.text.small),
         SizedBox(height: k.space.xs),
         Row(children: [
-          Expanded(child: MoonTextInput(controller: _decidedBy, onChanged: (_) => setState(() {}))),
+          Expanded(child: typable(MoonTextInput(controller: _decidedBy, onChanged: (_) => setState(() {})))),
           SizedBox(width: k.space.sm),
           MoonOutlinedButton(
             onTap: _pickDate,
@@ -431,13 +431,13 @@ class _CheckDetailState extends State<CheckDetail> {
       _choice(
         _Outcome.custom,
         answering ? '別の内容にする' : '別の内容に決まった',
-        _outcome == _Outcome.custom ? MoonTextInput(controller: _custom, onChanged: (_) => setState(() {})) : null,
+        _outcome == _Outcome.custom ? typable(MoonTextInput(controller: _custom, onChanged: (_) => setState(() {}))) : null,
       ),
       SizedBox(height: k.space.xl),
       Text(answering ? 'メモ（理由など）' : 'メモ（何と言われたか）', style: k.text.small),
       SizedBox(height: k.space.xs),
       // どの項目でも読める例にする（#111）
-      MoonTextInput(controller: _note, hintText: answering ? '例: こちらに統一する' : '例: 店長に聞いて、こちらに統一'),
+      typable(MoonTextInput(controller: _note, hintText: answering ? '例: こちらに統一する' : '例: 店長に聞いて、こちらに統一')),
       SizedBox(height: k.space.xl),
       Align(
         alignment: Alignment.centerRight,

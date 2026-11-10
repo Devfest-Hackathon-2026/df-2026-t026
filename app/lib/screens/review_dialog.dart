@@ -250,10 +250,10 @@ class _ReviewDialogState extends State<ReviewDialog> {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              MoonTextInput(
+                              typable(MoonTextInput(
                                 controller: _speaker,
                                 errorText: _hasSpeaker ? null : '書き込む前に入れてください',
-                              ),
+                              )),
                               if (_knownSpeakers case final known when known.isNotEmpty) ...[
                                 SizedBox(height: k.space.xs),
                                 Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
@@ -329,7 +329,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       ];
     }
     return [
-      MoonTextInput(controller: fix, maxLines: 4, minLines: 1, hintText: '言われたこと'),
+      typable(MoonTextInput(controller: fix, maxLines: 4, minLines: 1, hintText: '言われたこと')),
       SizedBox(height: k.space.sm),
       Row(children: [
         MoonTextButton(onTap: _busy ? null : () => setState(() => _fix = null), label: const Text('やめる')),
@@ -456,7 +456,7 @@ class _ReviewDialogState extends State<ReviewDialog> {
       if (edit == null)
         PatchDiff(op: p.op, line: p.line, text: p.text)
       else
-        MoonTextInput(controller: edit, maxLines: 4, minLines: 1, hintText: '書き込む内容'),
+        typable(MoonTextInput(controller: edit, maxLines: 4, minLines: 1, hintText: '書き込む内容')),
       SizedBox(height: k.space.sm),
       if (p.status != 'proposed')
         Text(p.status == 'applied' ? '書き込み済み' : '書き込まない', style: k.text.small)

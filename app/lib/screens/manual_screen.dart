@@ -457,7 +457,7 @@ class _ManualScreenState extends State<ManualScreen> {
         child: CallbackShortcuts(
           bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _draft,
               focusNode: _focus,
               autofocus: true,
@@ -484,7 +484,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
                 ),
               ]),
-            ),
+            )),
             if (!e.insert) ...[
               SizedBox(height: k.space.sm),
               MoonTextButton(

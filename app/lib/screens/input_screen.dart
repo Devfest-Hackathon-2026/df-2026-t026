@@ -839,7 +839,7 @@ class _InputScreenState extends State<InputScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
           SizedBox(height: k.space.sm),
-          MoonTextArea(
+          typable(MoonTextArea(
             controller: _memoText,
             autofocus: true,
             // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない。
@@ -847,7 +847,7 @@ class _InputScreenState extends State<InputScreen> {
             height: k.memoEditorHeight,
             readOnly: _busy,
             textStyle: k.text.inputArea,
-          ),
+          )),
           SizedBox(height: k.space.sm),
           Align(
             alignment: Alignment.centerLeft,
@@ -912,7 +912,7 @@ class _InputScreenState extends State<InputScreen> {
                   ),
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  MoonTextArea(
+                  typable(MoonTextArea(
                     controller: _text,
                     height: k.composerHeight - k.composerTools,
                     readOnly: _dictating,
@@ -929,7 +929,7 @@ class _InputScreenState extends State<InputScreen> {
                     onChanged: (v) {
                       if (v.trim().isEmpty && _poured.isNotEmpty) setState(_poured.clear);
                     },
-                  ),
+                  )),
                   SizedBox(
                     height: k.composerTools,
                     child: Padding(
@@ -1358,23 +1358,23 @@ class _LoginFormState extends State<_LoginForm> {
             SizedBox(height: k.space.xs),
             Text('ID とパスワードは、このアプリを紹介した人に聞いてください', style: k.text.small),
             SizedBox(height: k.space.lg),
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _id,
               autofocus: true,
               hintText: 'ID',
               autofillHints: const [AutofillHints.username],
               textInputAction: TextInputAction.next,
               onSubmitted: (_) => _passwordFocus.requestFocus(),
-            ),
+            )),
             SizedBox(height: k.space.sm),
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _password,
               focusNode: _passwordFocus,
               obscureText: true,
               hintText: 'パスワード',
               autofillHints: const [AutofillHints.password],
               onSubmitted: (_) => _submit(),
-            ),
+            )),
             SizedBox(height: k.space.md),
             Align(
               alignment: Alignment.centerLeft,

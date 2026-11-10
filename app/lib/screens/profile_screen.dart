@@ -157,12 +157,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         SizedBox(height: k.space.xl),
         Text('名前', style: k.text.heading),
         SizedBox(height: k.space.sm),
-        MoonTextInput(
+        typable(MoonTextInput(
           controller: _name,
           hintText: me.id,
           onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _ready ? _save() : null,
-        ),
+        )),
         SizedBox(height: k.space.xl),
         Align(
           alignment: Alignment.centerLeft,

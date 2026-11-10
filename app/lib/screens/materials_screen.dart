@@ -244,23 +244,23 @@ class _AddDialogState extends State<_AddDialog> {
                   SizedBox(height: k.space.lg),
                   Text('題名', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextInput(
+                  typable(MoonTextInput(
                     controller: _title,
                     enabled: !_busy,
                     hintText: '例: 店舗マニュアル',
                     onChanged: (_) => setState(() {}),
-                  ),
+                  )),
                   SizedBox(height: k.space.lg),
                   Text('本文', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextArea(
+                  typable(MoonTextArea(
                     controller: _text,
                     enabled: !_busy,
                     height: k.composerHeight,
                     textStyle: k.text.inputArea,
                     hintText: '資料の文を貼り付ける',
                     onChanged: (_) => setState(() {}),
-                  ),
+                  )),
                   SizedBox(height: k.space.lg),
                   // 狭い画面では、右の2つが次の行に回る
                   Wrap(
