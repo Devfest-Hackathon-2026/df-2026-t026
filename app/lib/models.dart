@@ -35,6 +35,49 @@ typedef Person = ({String id, String name});
 
 Person _person(Map<String, dynamic> j) => (id: j['id'] as String, name: j['name'] as String);
 
+/// 自分が持ち主のノートで、共有した相手がしたこと（ADR 0020）
+class Notice {
+  Notice.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        kind = j['kind'],
+        manualId = j['manualId'],
+        title = j['title'],
+        by = _person(j['by']),
+        at = j['at'],
+        op = j['op'],
+        line = j['line'],
+        text = j['text'],
+        note = j['note'];
+
+  final String id;
+
+  /// answer（確認に答えた）か edit（行を直した）
+  final String kind;
+  final String manualId;
+
+  /// ノートの題名
+  final String title;
+  final Person by;
+
+  /// ISO 8601
+  final String at;
+
+  /// edit のときの直し方（insert・replace・delete）
+  final String? op;
+
+  /// answer では食い違っていたノートの行、edit では直した元の行（足したときは足した位置）
+  final String? line;
+
+  /// answer では決まった内容、edit では新しい行（消したときは空）
+  final String text;
+
+  /// answer のときのメモ
+  final String? note;
+}
+
+/// 通知と、通知を最後に見た時刻（ADR 0020）。見たことが無ければ seenAt は null。通知は新しい順
+typedef Notices = ({String? seenAt, List<Notice> items});
+
 /// 資料の一覧の1件（ADR 0019）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
 class MaterialSummary {
   MaterialSummary.fromJson(Map<String, dynamic> j)

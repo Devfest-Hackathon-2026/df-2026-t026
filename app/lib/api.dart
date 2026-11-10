@@ -111,6 +111,12 @@ class Api {
   Future<void> deleteMaterial(String manualId, String materialId) async =>
       _send('DELETE', '/manuals/$manualId/materials/$materialId');
 
+  /// 通知を見たことにする（ADR 0020）。見たことにできたら store の見た時刻を進め、サイドバーの件数が消える
+  Future<void> seeNotices() async {
+    await _send('POST', '/notices/seen');
+    store.seeNotices();
+  }
+
   /// このノートを共有している相手
   Future<List<Person>> shares(String manualId) async => _people(await _send('GET', '/manuals/$manualId/shares'));
 

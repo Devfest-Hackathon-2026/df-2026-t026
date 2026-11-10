@@ -12,12 +12,12 @@ import 'help_screen.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'notices_screen.dart';
 import 'open_checks_screen.dart';
-import 'profile_screen.dart';
 import 'search_screen.dart';
 
 /// サイドバーで、いまいる画面
-enum Place { input, checks, search, manuals, profile }
+enum Place { input, checks, search, manuals, notices, profile }
 
 /// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
 bool showsSidebar(BuildContext context) {
@@ -226,8 +226,10 @@ class _SidebarState extends State<_Sidebar> {
                       : _item(
                           me.name,
                           leading: Avatar(me.name, image: me.icon?.bytes),
-                          selected: widget.place == Place.profile,
-                          onTap: () => _go(ProfileScreen(api: widget.api)),
+                          // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
+                          selected: widget.place == Place.notices || widget.place == Place.profile,
+                          fresh: store.freshNotices,
+                          onTap: () => _go(NoticesScreen(api: widget.api)),
                         ),
                 ),
                 SizedBox(width: k.space.xs),
@@ -280,6 +282,7 @@ class _SidebarState extends State<_Sidebar> {
       {required bool selected,
       required VoidCallback onTap,
       int open = 0,
+      int fresh = 0,
       String? owner,
       IconData? icon,
       Widget? leading,
@@ -300,7 +303,10 @@ class _SidebarState extends State<_Sidebar> {
         overflow: TextOverflow.ellipsis,
         style: k.text.body.copyWith(fontWeight: selected || strong ? FontWeight.w700 : null),
       ),
-      trailing: open == 0 && owner == null
+      trailing: fresh > 0
+          // 新しい通知の数。あとで確認の黄と分けて、操作の青にする
+          ? StatusTag('$fresh', bg: k.colors.found, fg: k.colors.action)
+          : open == 0 && owner == null
           ? null
           : Row(mainAxisSize: MainAxisSize.min, children: [
               if (owner != null)

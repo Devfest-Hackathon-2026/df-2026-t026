@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -46,6 +47,9 @@ class _ManualScreenState extends State<ManualScreen> {
 
   /// 編集欄。Enter で次の行へ移っても同じ欄のままにし、打っている所（フォーカス）を外さない
   final _editorKey = GlobalKey();
+
+  /// 直接編集の欄の外を押し始めた所
+  Offset? _downOutside;
 
   /// 食い違いを確かめている編集と、確かめを待っている編集（パッチの ID）
   final _checking = <String>{};
@@ -97,6 +101,15 @@ class _ManualScreenState extends State<ManualScreen> {
       _setEditing((at: at, insert: insert), text: insert ? '' : c.state!.lines[at!].text);
 
   void _close() => _setEditing(null);
+
+  /// 欄の外を押して閉じる。押した先が別の行なら、このあとその行が欄を開き直す。閉じたその場で取っておいた状態を
+  /// 土台に入れると、行がずれて押した行と違う行を開くので、入れるのは描き終えてから、開き直していなければにする
+  void _closeOutside() {
+    setState(() => _editing = null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _editing == null) c.editorOpen = false;
+    });
+  }
 
   /// 書いた行を先に出し、送信は裏で順に送る。next（Enter）なら、メモ帳のように続けて書けるよう、
   /// 書いた行のすぐ下に次の行の欄を開く。空のまま Enter を押したら閉じる
@@ -237,15 +250,17 @@ class _ManualScreenState extends State<ManualScreen> {
   // 広い画面でも「ノートの上」の印を付けておき、狭い幅に変わっても「ノート」タブで1枚のノートに戻れるようにする
   void _openList() => _open(NoteTab.checks, CheckListScreen(c: c));
 
-  void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
+  /// utteranceId を渡すと、その記録で作った版を選んで開く
+  void _openHistory({String? utteranceId}) =>
+      _open(NoteTab.history, HistoryScreen(c: c, utteranceId: utteranceId), utteranceId: utteranceId);
 
   /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（ADR 0019）
   void _openMaterials() => Navigator.push(
       context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => MaterialsScreen(c: c)));
 
-  void _open(NoteTab tab, Widget screen) => showsSidebar(context)
+  void _open(NoteTab tab, Widget screen, {String? utteranceId}) => showsSidebar(context)
       ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
-      : openNoteTab(context, c, from: NoteTab.note, to: tab);
+      : openNoteTab(context, c, from: NoteTab.note, to: tab, utteranceId: utteranceId);
 
   @override
   Widget build(BuildContext context) {
@@ -423,51 +438,64 @@ class _ManualScreenState extends State<ManualScreen> {
   bool _fromEdit(ManualState s, ManualLine line) =>
       line.patchId != null && s.utterance(s.patch(line.patchId!).utteranceId).fromEdit;
 
-  /// 直接編集の欄。行の場所に開く。Enter で保存して下に次の行の欄を開き、空のまま Enter か Esc で閉じる
+  /// 直接編集の欄。行の場所に開く。右端のチェックで保存して閉じ、バツで行を消す（まだ無い行なら閉じる）。
+  /// Enter で保存して下に次の行の欄を開き、空のまま Enter か Esc、欄の外を押すと閉じる
   Widget _editor() {
     final k = context.tokens;
     final e = _editing!;
-    return Padding(
+    return TapRegion(
       key: _editorKey,
-      padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
-      child: CallbackShortcuts(
-        bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          MoonTextInput(
-            controller: _draft,
-            focusNode: _focus,
-            autofocus: true,
-            hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
-            // 既定では Enter で打つ所が外れるので、外さずに次の行を続けて書けるようにする
-            onEditingComplete: () {},
-            onSubmitted: (_) => _save(next: true),
-          ),
-          SizedBox(height: k.space.sm),
-          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            // 打つたびにノート全体を作り直さないよう、欄の文で変わるボタンだけを作り直す
-            ListenableBuilder(
-              listenable: _draft,
-              builder: (_, _) => MoonFilledButton(
-                buttonSize: MoonButtonSize.sm,
-                onTap: _draft.text.trim().isEmpty ? null : _save,
-                label: const Text('保存する'),
-              ),
+      onTapOutside: (down) => _downOutside = down.position,
+      onTapUpOutside: (up) {
+        // スクロールの指で書きかけを消さないよう、ほぼ動かさずに離したときだけ閉じる
+        final down = _downOutside;
+        _downOutside = null;
+        if (down == null || (up.position - down).distance > kTouchSlop) return;
+        _closeOutside();
+      },
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
+        child: CallbackShortcuts(
+          bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            MoonTextInput(
+              controller: _draft,
+              focusNode: _focus,
+              autofocus: true,
+              hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
+              // 既定では Enter で打つ所が外れるので、外さずに次の行を続けて書けるようにする
+              onEditingComplete: () {},
+              onSubmitted: (_) => _save(next: true),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                // 打つたびにノート全体を作り直さないよう、欄の文で変わるチェックだけを作り直す
+                ListenableBuilder(
+                  listenable: _draft,
+                  builder: (_, _) => MoonButton.icon(
+                    buttonSize: MoonButtonSize.sm,
+                    semanticLabel: '保存する',
+                    onTap: _draft.text.trim().isEmpty ? null : _save,
+                    icon: Icon(LucideIcons.check, color: k.colors.action),
+                  ),
+                ),
+                MoonButton.icon(
+                  buttonSize: MoonButtonSize.sm,
+                  semanticLabel: 'この行を消す',
+                  // まだ無い行は、閉じれば消えたのと同じ
+                  onTap: e.insert ? _close : () => _save(delete: true),
+                  icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+                ),
+              ]),
             ),
             if (!e.insert) ...[
-              MoonOutlinedButton(
-                buttonSize: MoonButtonSize.sm,
-                onTap: () => _save(delete: true),
-                label: const Text('この行を消す'),
-              ),
+              SizedBox(height: k.space.sm),
               MoonTextButton(
                 buttonSize: MoonButtonSize.sm,
                 onTap: () => _startEdit(e.at, insert: true),
                 label: const Text('下に行を足す'),
               ),
             ],
-            MoonTextButton(buttonSize: MoonButtonSize.sm, onTap: _close, label: const Text('やめる')),
           ]),
-        ]),
+        ),
       ),
     );
   }
@@ -660,6 +688,8 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
+    // 共有した相手が行を直した記録も、細い札で時刻の順に混ぜる。持ち主の直しは本人の文なので出さない（ADR 0020）
+    final entries = s.utterances.where((u) => !u.fromEdit || u.editedBy != null).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (withHeader)
         Padding(
@@ -667,7 +697,7 @@ class _ManualScreenState extends State<ManualScreen> {
           child: Text('記録した発言（${s.said.length}）', style: k.text.title),
         ),
       Expanded(
-        child: s.said.isEmpty
+        child: entries.isEmpty
             ? Padding(
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
@@ -675,11 +705,14 @@ class _ManualScreenState extends State<ManualScreen> {
             // 記録が多くても、見えている分だけ作る。新しい記録を上にする
             : Builder(builder: (context) => ListView.builder(
                 padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
-                itemCount: s.said.length,
-                itemBuilder: (_, i) => Padding(
-                  padding: EdgeInsets.only(bottom: k.space.lg),
-                  child: _utteranceEntry(s, s.said[s.said.length - 1 - i]),
-                ),
+                itemCount: entries.length,
+                itemBuilder: (_, i) {
+                  final u = entries[entries.length - 1 - i];
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: k.space.lg),
+                    child: u.fromEdit ? _editEntry(s, u) : _utteranceEntry(s, u),
+                  );
+                },
               )),
       ),
     ]);
@@ -700,6 +733,25 @@ class _ManualScreenState extends State<ManualScreen> {
           for (final st in _statuses(s, u)) _statusTag(st),
         ]),
       ]),
+    );
+  }
+
+  /// 共有した相手が行を直した記録。付箋より細い白い札にし、押すと履歴でその版を開く（ADR 0020）
+  Widget _editEntry(ManualState s, Utterance u) {
+    final k = context.tokens;
+    final p = s.patchesOf(u.id).firstOrNull;
+    return MoonMenuItem(
+      onTap: () => _openHistory(utteranceId: u.id),
+      backgroundColor: k.colors.canvas,
+      borderRadius: k.radius.paper,
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
+      label: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Speaker(name: u.speaker, day: u.saidAt, after: 'が行を直した'),
+        SizedBox(height: k.space.xs),
+        Text(p == null ? u.text : editSummary(p.op, p.line, p.text),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.small),
+      ]),
+      trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
     );
   }
 

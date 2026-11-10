@@ -56,6 +56,7 @@ class HelpScreen extends StatelessWidget {
               ]),
               const _Section(title: 'ノートを直接直す', shot: 'edit', lines: [
                 'ノートの行を押すと、その場で書き換え・下に行を足す・消すができます。いちばん下の「行を足す」からも書き足せます。',
+                '欄の右端のチェックで保存し、バツでその行を消します。欄の外を押すと、何も変えずに閉じます。',
                 '保存すると、ほかの行や確認済みの記録と食い違っていないかを AI が確かめます。食い違っていれば確認リストに入ります。',
               ]),
               const _Section(title: 'ノートを共有して一緒に直す', shot: 'share', lines: [

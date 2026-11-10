@@ -174,7 +174,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pump(const Duration(milliseconds: 500));
 
     final body = server.sent.single;
@@ -209,7 +209,7 @@ void main() {
     expect(find.widgetWithText(MoonTextInput, _salt), findsOneWidget);
     expectInputFontsAtLeast16(tester, count: 1); // 行を直接書き換える欄
 
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'この行を消す'));
+    await tester.tap(find.bySemanticsLabel('この行を消す'));
     await tester.pumpAndSettle();
 
     expect(server.sent.single['op'], 'delete');
@@ -519,5 +519,38 @@ void main() {
     expect(_shownLines(tester), ['・塩 小さじ1', '・塩 小さじ2', '・胡椒 少々']);
     expect(find.text('食い違い'), findsOneWidget);
     expect(server.checked, hasLength(2));
+  });
+
+  testWidgets('欄の外を押すと、何も送らずに閉じる。スクロールの指では閉じない', (tester) async {
+    final server = await _pump(tester);
+
+    await tester.tap(find.text('・塩 小さじ1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
+    await tester.pump();
+
+    await tester.dragFrom(const Offset(400, 800), const Offset(0, -100));
+    await tester.pumpAndSettle();
+    expect(find.byType(MoonTextInput), findsOneWidget);
+
+    await tester.tapAt(const Offset(400, 800));
+    await tester.pumpAndSettle();
+    expect(find.byType(MoonTextInput), findsNothing);
+    expect(find.text('・塩 小さじ1'), findsOneWidget);
+    expect(server.sent, isEmpty);
+  });
+
+  testWidgets('足そうとしている行のバツは、何も送らずに閉じる', (tester) async {
+    final server = await _pump(tester);
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('この行を消す'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MoonTextInput), findsNothing);
+    expect(server.sent, isEmpty);
   });
 }
