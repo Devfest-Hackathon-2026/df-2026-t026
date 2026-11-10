@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="app/web/icons/mark-dark-rounded.svg" width="112" alt="DiffNote のロゴ">
+<img src="docs/logo.png" width="480" alt="DiffNote のロゴ">
 
 # DiffNote（仮）
 
