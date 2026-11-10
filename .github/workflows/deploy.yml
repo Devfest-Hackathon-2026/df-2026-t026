@@ -41,6 +41,8 @@ jobs:
           gcloud run deploy diff-note-api --image "$IMAGE" --region "$REGION" --quiet
 
   web:
+    # 新しいアプリは新しい API の口（記録と同時の書き込みなど）を使うので、API を先に出す。API のデプロイが失敗したら Web も出さない
+    needs: api
     if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     defaults:
