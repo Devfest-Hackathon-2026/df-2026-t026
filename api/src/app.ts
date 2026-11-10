@@ -188,7 +188,8 @@ const summaryOf = (m: Material) => ({
 
 export function createApp({ store, assess, check, transcribe, format, readNote, readMaterial, countTokens, listen, dictate, allowOrigin }: Deps) {
   const app = new Hono<Env>();
-  app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*' }));
+  // どの呼び出しにも Authorization が付いてプリフライトが走るので、ブラウザに結果を覚えさせる（上限はブラウザごとに切られる）
+  app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*', maxAge: 86400 }));
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
   app.use(async (c, next) => {
     if (c.req.path === '/health' || c.req.path === '/login') return next();
