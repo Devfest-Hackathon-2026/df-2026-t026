@@ -52,11 +52,12 @@ List<String> _assets(List<Object?> manifest) => [
 
 const _firstFrame = 'i.initEvent("flutter-first-frame",!0,!0)';
 
-/// dart2js が出す MoonIcons の IconData（moon_design 1.1.0 の MoonErrorMessage が描く generic_info_16_light）
-const _infoIcon = 'B.P8=new A.de(60745,"MoonIcons","moon_icons",!1)';
+/// dart2js が出す MoonIcons の IconData（moon_design 1.1.0 の MoonErrorMessage が描く generic_info_16_light）。
+/// `A.dg` は IconData の縮めた名前の一例で、ビルドごとに変わる
+const _infoIcon = 'B.P8=new A.dg(60745,"MoonIcons","moon_icons",!1)';
 
 /// 絞ったフォントに無い字の IconData
-const _otherIcon = 'B.P9=new A.de(60746,"MoonIcons","moon_icons",!1)';
+const _otherIcon = 'B.P9=new A.dg(60746,"MoonIcons","moon_icons",!1)';
 
 const _originalMoonIcons = '元の MoonIcons';
 
@@ -93,7 +94,7 @@ void main() {
     expect(() => dropUnusedFonts(manifest), throwsStateError);
   });
 
-  // 太さ違いのフォントを外してよいのは、アプリが LucideIcons（既定の太さ）しか使わないから。CI は Web をビルドしないので、ここで確かめる
+  // 太さ違いのフォントを外してよいのは、アプリが LucideIcons（既定の太さ）しか使わないから。Web をビルドしなくても分かるよう、ここで確かめる
   test('アプリが lucide_icons_flutter から読むのは lucide_icons.dart だけ', () {
     final imports = RegExp(r'''package:lucide_icons_flutter/[^'"]+''');
     final found = {
@@ -135,18 +136,29 @@ void main() {
   });
 
   test('main.dart.js に最初のフレームのイベントが無ければ、何も変えずに失敗にする', () {
-    final web = _fakeWeb(mainJs: _infoIcon);
+    _expectFailsUnchanged(_fakeWeb(mainJs: _infoIcon));
+  });
+
+  test('main.dart.js が Lucide の太さ違いを使っていたら、何も変えずに失敗にする', () {
+    _expectFailsUnchanged(
+        _fakeWeb(mainJs: '$_firstFrame\n$_infoIcon\nB.x=new A.dg(57808,"Lucide300","lucide_icons_flutter",!1)'));
+  });
+
+  test('消すはずのフォントが1つでも無ければ、何も変えずに失敗にする', () {
+    final web = _fakeWeb(mainJs: '$_firstFrame;$_infoIcon');
+    File('${web.path}/assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w600.ttf').deleteSync();
     final before = File('${web.path}/assets/FontManifest.json').readAsStringSync();
 
     expect(() => postBuild(web, apiUrl: 'https://api.example.com'), throwsStateError);
     expect(File('${web.path}/assets/FontManifest.json').readAsStringSync(), before);
-    expect(_assets(_manifest()).every((a) => File('${web.path}/assets/$a').existsSync()), isTrue);
+    expect(File('${web.path}/assets/packages/lucide_icons_flutter/assets/build_font/LucideVariable-w100.ttf').existsSync(), isTrue);
+    expect(File('${web.path}/index.html').readAsStringSync(), File('web/index.html').readAsStringSync());
     expect(_moonIcons(web).readAsStringSync(), _originalMoonIcons);
   });
 
   test('main.dart.js の MoonIcons の字が絞ったフォントに全部あれば、差し替えてよい', () {
     expect(moonIconsSubsetBlocker('$_firstFrame;$_infoIcon'), isNull);
-    expect(moonIconsSubsetBlocker('$_infoIcon;B.Q1=new A.de(60745,"MoonIcons","moon_icons",!0)'), isNull);
+    expect(moonIconsSubsetBlocker('$_infoIcon;B.Q1=new A.ab(60745,"MoonIcons","moon_icons",!0)'), isNull); // 縮めた名前が違っても拾う
   });
 
   test('絞ったフォントに無い字を使っていれば、その字を挙げて差し替えない', () {
@@ -156,8 +168,8 @@ void main() {
   test('main.dart.js の MoonIcons を拾い漏らしたかもしれなければ、差し替えない', () {
     for (final js in [
       _firstFrame, // 1つも拾えない
-      'B.P8=new A.de(0xed49,"MoonIcons","moon_icons",!1)', // 番号の書き方が変わった
-      'B.s="MoonIcons";B.P8=new A.de(60745,B.s,"moon_icons",!1)', // 文字列を1か所にまとめた
+      'B.P8=new A.dg(0xed49,"MoonIcons","moon_icons",!1)', // 番号の書き方が変わった
+      'B.s="MoonIcons";B.P8=new A.dg(60745,B.s,"moon_icons",!1)', // 文字列を1か所にまとめた
       '$_infoIcon;B.t=A.H("packages/moon_icons/MoonIcons")', // IconData の外で使う
     ]) {
       expect(moonIconsSubsetBlocker(js), contains('読み切れない'), reason: js);
@@ -195,4 +207,14 @@ void main() {
     final version = RegExp(r'^  moon_icons:\n(?:    .*\n)*?    version: "([^"]+)"', multiLine: true).firstMatch(lock)?[1];
     expect(version, '1.1.0');
   });
+}
+
+/// 失敗し、マニフェスト・フォント（MoonIcons を含む）・index.html のどれも変えていないこと
+void _expectFailsUnchanged(Directory web) {
+  final before = File('${web.path}/assets/FontManifest.json').readAsStringSync();
+  expect(() => postBuild(web, apiUrl: 'https://api.example.com'), throwsStateError);
+  expect(File('${web.path}/assets/FontManifest.json').readAsStringSync(), before);
+  expect(_assets(_manifest()).every((a) => File('${web.path}/assets/$a').existsSync()), isTrue);
+  expect(_moonIcons(web).readAsStringSync(), _originalMoonIcons);
+  expect(File('${web.path}/index.html').readAsStringSync(), File('web/index.html').readAsStringSync());
 }

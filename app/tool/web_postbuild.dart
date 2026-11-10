@@ -13,6 +13,9 @@ const lucideFamily = 'packages/lucide_icons_flutter/Lucide';
 /// MoonIcons は外さない。MoonTextInput に errorText を渡すと MoonIcons の字を描く（review_dialog.dart）
 final _lucideWeights = RegExp(r'^packages/lucide_icons_flutter/Lucide\d+$');
 
+/// main.dart.js の中で、Lucide の太さ違いの family を使っている所（IconData の fontFamily）
+final _lucideWeightInJs = RegExp(r'''["']Lucide\d+["']''');
+
 /// ビルドの MoonIcons（assets/ からの道）。マニフェストの family と道はそのままにし、中身だけ差し替える
 const moonIconsAsset = 'packages/moon_icons/lib/fonts/MoonIcons.ttf';
 
@@ -22,7 +25,8 @@ const moonIconsSubset = 'tool/moon_icons/MoonIcons.ttf';
 /// 絞ったフォントに入っている字。作り直すときは pyftsubset の --unicodes と揃える
 const moonIconsCodePoints = {0xED49};
 
-/// main.dart.js の MoonIcons の IconData。dart2js は `new A.de(60745,"MoonIcons","moon_icons",!1)` の形で出す
+/// main.dart.js の MoonIcons の IconData。dart2js は `new A.dg(60745,"MoonIcons","moon_icons",!1)` のように出す。
+/// `A.dg` は IconData の縮めた名前で、ビルドごとに変わるので見ない
 final _moonIconData = RegExp(r'\((\d+),"MoonIcons","moon_icons"');
 
 /// index.html の、API の URL を入れる所。空のままなら index.html は API を呼ばない
@@ -92,13 +96,21 @@ String withApiUrl(String html, String apiUrl) {
   final indexFile = File('${web.path}/index.html');
   final moonIconsFile = File('${web.path}/assets/$moonIconsAsset');
   final fonts = dropUnusedFonts(jsonDecode(manifestFile.readAsStringSync()) as List<Object?>);
-  final mainJs = File('${web.path}/main.dart.js').readAsStringSync();
+  final js = File('${web.path}/main.dart.js').readAsStringSync();
   // Flutter を上げてイベント名が変わると、読み込み中の画面が消えなくなる
-  if (!mainJs.contains(firstFrameEvent)) {
+  if (!js.contains(firstFrameEvent)) {
     throw StateError('main.dart.js に $firstFrameEvent が無い。web/index.html の読み込み中の画面を直す');
   }
+  // アプリが太さ違いを使っているのに外すと、そのアイコンが豆腐になる
+  if (_lucideWeightInJs.firstMatch(js) case final used?) {
+    throw StateError('main.dart.js が Lucide の太さ違い ${used[0]} を使っている。外せない');
+  }
+  final missing = fonts.dropped.where((asset) => !File('${web.path}/assets/$asset').existsSync()).toList();
+  if (missing.isNotEmpty) {
+    throw StateError('消すはずのフォントが無い: ${missing.join(', ')}');
+  }
   final html = apiUrl == null ? null : withApiUrl(indexFile.readAsStringSync(), apiUrl);
-  final moonIconsKept = moonIconsFile.existsSync() ? moonIconsSubsetBlocker(mainJs) : 'ビルドに $moonIconsAsset が無い';
+  final moonIconsKept = moonIconsFile.existsSync() ? moonIconsSubsetBlocker(js) : 'ビルドに $moonIconsAsset が無い';
   final subset = moonIconsKept == null ? File(moonIconsSubset).readAsBytesSync() : null;
 
   manifestFile.writeAsStringSync(jsonEncode(fonts.manifest));
