@@ -1,4 +1,5 @@
 project_id      = "your-project-id"
 billing_account = "XXXXXX-XXXXXX-XXXXXX"
+alert_email     = "you@example.com"
 # ローカルから本物の Gemini を呼べるようにするメンバー（Google アカウントのメールアドレス）
 # team_members = ["member1@gmail.com", "member2@gmail.com"]
