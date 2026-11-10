@@ -8,7 +8,8 @@
     "typecheck": "tsc",
     "test": "node --test \"test/**/*.test.ts\"",
     "eval": "node ../eval/run.mts",
-    "create-account": "node scripts/create-account.ts"
+    "create-account": "node scripts/create-account.ts",
+    "seed-preset": "node scripts/seed-preset.ts"
   },
   "engines": {
     "node": ">=24"

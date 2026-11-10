@@ -59,6 +59,20 @@ GOOGLE_CLOUD_PROJECT=<プロジェクト ID> pnpm create-account <ID> <パスワ
 - 同じ ID で回すとパスワードを置き換える。ログイン済みの人は、そのまま使え続ける
 - 使えなくするときは、Firestore のコンソールで `accounts/<ID>` と、`sessions` のうち `userId` がその ID のものを消す
 
+### 審査用の見本を入れたアカウントを作る
+
+[docs/mock-data/restaurant.md](../docs/mock-data/restaurant.md) の見本（ノート3冊・資料・共有・通知・未整理メモ）を入れた、新人と教える人のアカウントを2つまとめて作る。
+
+```sh
+cd api
+GOOGLE_CLOUD_PROJECT=<プロジェクト ID> pnpm seed-preset <新人の ID> <教える人の ID> '<パスワード>'
+```
+
+- どちらの ID も、まだ使っていないものにする（使っている ID は断る）。パスワードは2つとも同じになる
+- 何度回しても、ID 以外は同じ状態のアカウントができる。デモ動画用と審査員用のように、同じ見本を別の組に入れられる
+- 入れたあとで操作すると状態が変わり、元には戻せない。やり直すときは別の ID で作る
+- 資料のトークン数を Gemini に数えてもらうので、Vertex AI を呼ぶ権限も要る
+
 ## メンバーがローカルで本物の Gemini と Speech-to-Text を使えるようにする
 
 `terraform.tfvars` の `team_members` にメンバーの Google アカウントのメールアドレスを足して `terraform apply` する。Vertex AI を呼ぶ権限（`roles/aiplatform.user`）、Speech-to-Text を呼ぶ権限（`roles/speech.client`）と、ADC のクォータ用プロジェクトにこのプロジェクトを指定する権限（`roles/serviceusage.serviceUsageConsumer`）、Firestore を読むだけの権限（`roles/datastore.viewer`）が付く。Firestore は読むだけで、本番のデータは書き換えられない。外すときは一覧から消して `terraform apply` する。
