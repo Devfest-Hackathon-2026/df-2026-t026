@@ -661,7 +661,7 @@ class _ManualScreenState extends State<ManualScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Speaker(name: u.speaker, day: u.saidAt),
               SizedBox(height: k.space.md),
-              Text('「${u.text}」', style: k.text.body),
+              Text('「${u.words}」', style: k.text.body),
               if (recordedByText(u) case final by?) ...[SizedBox(height: k.space.sm), Text(by, style: k.text.small)],
               SizedBox(height: k.space.xl),
               MoonOutlinedButton(label: const Text('閉じる'), onTap: () => Navigator.pop(ctx)),
@@ -715,7 +715,7 @@ class _ManualScreenState extends State<ManualScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Speaker(name: u.speaker, day: u.saidAt),
         SizedBox(height: k.space.sm),
-        Text(u.text, style: k.text.body),
+        Text(u.words, style: k.text.body),
         SizedBox(height: k.space.sm),
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
           for (final st in _statuses(s, u)) _statusTag(st),

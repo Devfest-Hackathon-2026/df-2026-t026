@@ -432,7 +432,7 @@ String _message(Commit x) => switch (x) {
       Commit(said: null) => 'ノートを作った',
       Commit(onBranch: false, check: Check(resolution: final r?)) when r.shown == null => r.note,
       // 直接編集の記録は書いた行そのもの（「- 」付き）なので、人に見せる形にする
-      Commit(said: final u?) => plain(u.text),
+      Commit(said: final u?) => plain(u.words),
     };
 
 /// 枝の行の見出し。確認リストの比較と同じ「ノートの行 ／ 言われた行」の形

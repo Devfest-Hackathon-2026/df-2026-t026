@@ -66,7 +66,7 @@ const insert = (line: string | null, text: string): PatchDraft => ({ op: 'insert
 
 /** キッチンのノートに、決めた差分を記録する */
 async function recordKitchen(items: AssessResult['items'], { speaker = '田中さん' as string | null, write = true, memoIds = [] as string[] } = {}) {
-  assessed = async () => ({ speaker, saidAt: '2026-11-10', items });
+  assessed = async () => ({ speaker, saidAt: '2026-11-10', said: '言われたこと', items });
   const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen'], today: '2026-11-10', write, memoIds });
   assert.equal(res.status, 201);
   const [r] = res.json.results;
@@ -132,7 +132,7 @@ test('write を付けなければ、今まで通り何も書き込まない', as
 async function recordWhileChanging(change: () => Promise<unknown>, items: AssessResult['items']) {
   assessed = async () => {
     await change();
-    return { speaker: '田中さん', saidAt: '2026-11-10', items };
+    return { speaker: '田中さん', saidAt: '2026-11-10', said: '言われたこと', items };
   };
   const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen'], write: true });
   assert.equal(res.status, 201);
@@ -188,6 +188,7 @@ test('記録先に同じノートが2回入っていても、1回だけ記録し
     return {
       speaker: '田中さん',
       saidAt: '2026-11-10',
+      said: '言われたこと',
       items: [item('qualification', { op: 'replace', line: '- 大盛りは250gまで', text: '- 大盛りは250gまで（ランチは300g）', summary: '補足' })],
     };
   };
@@ -206,6 +207,7 @@ test('記録を保存したあとの書き込みが失敗しても、記録は�
   assessed = async () => ({
     speaker: '田中さん',
     saidAt: '2026-11-10',
+    said: '言われたこと',
     items: [item('addition', insert('- 炊けたら10分蒸らす', '- ご飯はおかわり1回まで無料'))],
   });
   const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen'], write: true, memoIds: [memo.id] });

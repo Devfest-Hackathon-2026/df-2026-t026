@@ -37,6 +37,8 @@ export interface AssessResult {
   /** 文中に発言者が書かれていなければ null。推測では埋めない */
   speaker: string | null;
   saidAt: string | null;
+  /** 言った人や「〜と言われた」を除いた、言われた言葉。画面の付箋に出す */
+  said: string;
   /** パッチと、その分類。manual はマニュアルの添字（0始まり）。指示がなければ空 */
   items: { manual: number; patch: PatchDraft; check: CheckResult }[];
 }
@@ -82,6 +84,7 @@ function schema(manuals: string[][], mats: Mats) {
   return z.object({
     speaker: z.string().min(1).nullable(),
     saidAt: isoDate.nullable(),
+    said: z.string().min(1),
     patches: z.array(
       z
         .object({
@@ -157,6 +160,7 @@ ${input.text}`;
   return {
     speaker: out.speaker,
     saidAt: out.saidAt,
+    said: out.said,
     items: out.patches.map((p) => {
       const lines = manuals[p.manualNo - 1];
       const line = (n: number | null) => (n === null ? null : lines[n - 1]);

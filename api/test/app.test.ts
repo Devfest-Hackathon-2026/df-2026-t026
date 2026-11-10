@@ -49,6 +49,9 @@ test('矛盾は確認待ちになり、確認した人と日付付きで確定�
   const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
   assert.equal(r.utterance.speaker, '田中さん');
   assert.equal(r.utterance.saidAt, '2026-11-03');
+  // 付箋には言われた言葉だけを出す。入力はそのまま残す
+  assert.equal(r.utterance.said, '塩は小さじ1/2でいい');
+  assert.equal(r.utterance.text, '田中さんから塩は小さじ1/2でいいと言われた');
   assert.equal(r.check.kind, 'contradiction');
   assert.equal(r.check.conflictLine, '- 塩 小さじ1');
   assert.ok(r.check.ask.candidates.some((x: any) => x.who === '店長'));
@@ -1406,6 +1409,7 @@ test('資料と食い違った確定：同じ資料から作ったノートに�
     return {
       speaker: '田中さん',
       saidAt: null,
+      said: '塩は小さじ1/2',
       items: [
         {
           manual: 0,
@@ -1611,7 +1615,7 @@ test('記録を見せて済ませる：見せた確定は判定に重ねて載�
     let req: unknown;
     await assessWithGemini(input, async (r) => {
       req = { system: r.system, prompt: r.prompt, schema: toGeminiSchema(r.schema) };
-      return r.schema.parse({ speaker: null, saidAt: null, patches: [] });
+      return r.schema.parse({ speaker: null, saidAt: null, said: 'x', patches: [] });
     });
     return req;
   };
@@ -1664,7 +1668,7 @@ test('記録を見せて済ませる：資料と違う内容に決まった確�
   await withDeps({
     assess: async (i) =>
       i.text.includes('4時間')
-        ? { speaker: '佐藤さん', saidAt: null, items: [{ manual: 0, patch: four, check: toMaterial(i.manuals[0].materials[0]) }] }
+        ? { speaker: '佐藤さん', saidAt: null, said: 'ご飯は保温4時間まで', items: [{ manual: 0, patch: four, check: toMaterial(i.manuals[0].materials[0]) }] }
         : fakeAssess(i),
     check: async (i) => (i.patch.text.includes('4時間') ? toMaterial(i.materials[0]) : fakeCheckPatch(i)),
   });

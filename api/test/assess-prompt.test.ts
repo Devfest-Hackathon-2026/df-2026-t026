@@ -45,7 +45,7 @@ async function sent(run: (generate: GenerateJson) => Promise<unknown>, response:
 }
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
-const noPatches = { speaker: null, saidAt: null, patches: [] };
+const noPatches = { speaker: null, saidAt: null, said: 'x', patches: [] };
 const addition = { kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null };
 
 test('資料が0冊なら、記録（assess）に渡す指示文・プロンプト・スキーマは書き出したものと同じ：ノート1冊', async () => {
