@@ -209,7 +209,7 @@ export const lineNo = (lines: string[]) => (lines.length ? z.number().int().min(
 /** 中身のある行か。空行は同じ文字列が他にもあり、行の特定に使えない */
 export const hasText = (line: string | undefined) => !!line?.trim();
 
-/** マークダウンの見出し（「# 」〜「###### 」）の行か。ノートは1行を1まとまりとするマークダウン（ADR 0009） */
+/** マークダウンの見出し（「# 」〜「###### 」）の行か。ノートは1行を1まとまりとするマークダウン（ADR 0022） */
 export const isHeading = (line: string) => /^#{1,6}[ \t]/.test(line);
 
 /** マークダウンの区切り線（「---」など）の行か */
