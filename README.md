@@ -1,6 +1,43 @@
+<div align="center">
+
+<img src="app/web/icons/mark-dark-rounded.svg" width="112" alt="DiffNote のロゴ">
+
 # DiffNote（仮）
 
-新人が、口頭で教わったことをマニュアルへの差分として記録し、矛盾に気づいて確認できる道具。仕様は [docs/spec/spec.md](docs/spec/spec.md)、開発のルールは [AGENTS.md](AGENTS.md)。
+**教わったことを、ノートへの差分として残す。食い違いに気づいて、確かめられる。**
+
+<img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white">
+<img alt="Hono" src="https://img.shields.io/badge/Hono-E36002?style=flat-square&logo=hono&logoColor=white">
+<img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white">
+<img alt="Cloud Run" src="https://img.shields.io/badge/Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white">
+<img alt="Firestore" src="https://img.shields.io/badge/Firestore-DD2C00?style=flat-square&logo=firebase&logoColor=white">
+<img alt="Gemini on Vertex AI" src="https://img.shields.io/badge/Gemini_on_Vertex_AI-8E75B2?style=flat-square&logo=googlegemini&logoColor=white">
+<img alt="Terraform" src="https://img.shields.io/badge/Terraform-844FBA?style=flat-square&logo=terraform&logoColor=white">
+<a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-17173D?style=flat-square"></a>
+
+[デモ（ログインが必要）](https://diff-note-514023.web.app) ・ [できること](#できること) ・ [アーキテクチャ](#アーキテクチャ) ・ [ローカルで動かす](#ローカルで動かす) ・ [仕様](docs/spec/spec.md)
+
+<img src="app/assets/help/wide/check.png" width="820" alt="確認リストの画面。ノートの行と言われたことの食い違い、確認する相手の候補、聞き方の例が並ぶ">
+
+</div>
+
+新人が、口頭で教わったことや自分で書いたことをノート（職場のマニュアルや自分用のメモ）への差分として記録し、矛盾に気づいて確認できる道具。仕様は [docs/spec/spec.md](docs/spec/spec.md)、開発のルールは [AGENTS.md](AGENTS.md)。
+
+## できること
+
+- **言われたことをそのまま入れる**：テキスト、音声入力、直前60秒をさかのぼる録音、PDF・画像から記録できる
+- **ノートへの差分にする**：どのノートのどの行が変わるかを Gemini が案にし、誰がいつ言ったかと一緒に積む。本文は上書きしない
+- **食い違いに気づく**：ノートや確定済みの記録と比べ、同じ内容・追記・条件付きの補足・矛盾に分ける
+- **聞いて確かめる**：矛盾には確認する相手の候補と聞き方の例が出る。確かめた結果は「誰に・いつ・どう決まったか」としてノートに残る
+- **一緒に使う**：ノートを共有し、教える側が確認に直接答えられる
+
+## アーキテクチャ
+
+<div align="center">
+<img src="docs/architecture.png" width="900" alt="アーキテクチャ図。端末の Flutter Web アプリが Firebase Hosting から読み込まれ、Cloud Run の API が Firestore・Vertex AI の Gemini・Speech-to-Text を呼ぶ">
+</div>
+
+## リポジトリの構成
 
 | ディレクトリ | 中身 |
 |---|---|
