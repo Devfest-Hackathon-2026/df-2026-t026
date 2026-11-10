@@ -6,6 +6,7 @@ import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/history_screen.dart';
+import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
@@ -14,6 +15,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'home.dart';
 
 /// 塩の量が食い違い、あとで確認が1件ある
 Map<String, dynamic> _note() => {
@@ -84,8 +88,10 @@ Map<String, dynamic> _confirmed() {
   return n;
 }
 
-Api _api([Map<String, dynamic> Function() data = _note]) =>
-    Api(client: MockClient((_) async => http.Response.bytes(utf8.encode(jsonEncode(data())), 200)), baseUrl: 'http://api');
+Api _api([Map<String, dynamic> Function() data = _note]) => Api(
+    client: MockClient((req) async => http.Response.bytes(
+        utf8.encode(jsonEncode(req.url.path == '/home' ? homeJson([data()]) : data())), 200)),
+    baseUrl: 'http://api');
 
 void _size(WidgetTester tester, Size size) {
   tester.view.physicalSize = size;
@@ -130,6 +136,40 @@ void main() {
     expect(find.byType(ManualScreen), findsOneWidget);
     expect(find.byType(HistoryScreen, skipOffstage: false), findsNothing);
   });
+
+  // #120：幅 390 の iframe で、ノートから履歴と確認リストに入れなかった（疑い）。審査員と同じく入力ページのメニューから開く
+  for (final size in const [Size(390, 844), Size(390, 600)]) {
+    testWidgets('幅 390（$size）：入力ページのメニューから開いたノートでも、下のタブの確認リスト・履歴が画面の中にあり、押せる', (tester) async {
+      _size(tester, size);
+      SharedPreferences.setMockInitialValues({});
+      final api = Api(
+          client: MockClient((req) async => http.Response.bytes(
+              utf8.encode(jsonEncode(switch (req.url.path) {
+                '/home' => homeJson([_note()], me: {'id': 'demo', 'name': 'デモ', 'icon': null}),
+                _ => _note(),
+              })),
+              200)),
+          baseUrl: 'http://api');
+      await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: api)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(of: find.byType(MoonDrawer), matching: find.widgetWithText(MoonMenuItem, 'キッチン')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ManualScreen), findsOneWidget);
+
+      for (final label in ['確認リスト', '履歴']) {
+        final tab = tester.getRect(_tab(label));
+        expect(tab.top >= 0 && tab.bottom <= size.height, isTrue, reason: '$label のタブが画面の外にある');
+      }
+      await tester.tap(_tab('確認リスト'));
+      await tester.pump();
+      expect(find.byType(CheckListScreen), findsOneWidget);
+      await tester.tap(_tab('履歴'));
+      await tester.pump();
+      expect(find.byType(HistoryScreen), findsOneWidget);
+    });
+  }
 
   testWidgets('後ろのぼかしは TABBAR_BLUR で切り替えられる（既定はぼかす）', (tester) async {
     _size(tester, const Size(390, 844));

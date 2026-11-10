@@ -17,7 +17,7 @@ void main() {
   test('失敗（5xx）で本文が HTML のときは、ApiException「エラーが起きました（状態）」', () async {
     final api = _api(() => http.Response('<html><body>503 Service Unavailable</body></html>', 503));
     await expectLater(
-      api.listManuals(),
+      api.getManual('m1'),
       throwsA(isA<ApiException>().having((e) => e.message, 'message', 'エラーが起きました（503）').having((e) => e.status, 'status', 503)),
     );
   });
@@ -25,7 +25,7 @@ void main() {
   test('成功（2xx）なのに本文が JSON でないときも、ApiException', () async {
     final api = _api(() => http.Response('ok', 200));
     await expectLater(
-      api.listManuals(),
+      api.getManual('m1'),
       throwsA(isA<ApiException>().having((e) => e.message, 'message', 'エラーが起きました（200）')),
     );
   });
@@ -33,7 +33,7 @@ void main() {
   test('失敗の本文が JSON で error があれば、今までどおりその文を出す', () async {
     final api = _api(() => http.Response.bytes(utf8.encode('{"error":"見つかりません"}'), 404));
     await expectLater(
-      api.listManuals(),
+      api.getManual('m1'),
       throwsA(isA<ApiException>().having((e) => e.message, 'message', '見つかりません').having((e) => e.status, 'status', 404)),
     );
   });
@@ -43,7 +43,9 @@ void main() {
     final api = Api(
       client: MockClient((req) async {
         calls++;
-        return calls == 1 ? http.Response('<html>502 Bad Gateway</html>', 502) : http.Response('[]', 200);
+        return calls == 1
+            ? http.Response('<html>502 Bad Gateway</html>', 502)
+            : http.Response('{"me":{"id":"demo","name":"demo","icon":null},"notes":[],"memos":[],"notices":{"seenAt":null,"items":[]}}', 200);
       }),
       baseUrl: 'http://api',
     );

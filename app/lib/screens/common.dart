@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -30,6 +31,13 @@ bool isHeading(String line) => _heading.hasMatch(line);
 
 /// 区切り線の行か（「---」など）
 bool isRule(String line) => _rule.hasMatch(line);
+
+/// 直接の編集が何をしたかを1文にする。通知と、記録した発言の細い札で使う（ADR 0020）
+String editSummary(String op, String? line, String text) => switch (op) {
+      'replace' => '「${plain(line ?? '')}」→「${plain(text)}」',
+      'delete' => '「${plain(line ?? '')}」を消した',
+      _ => '「${plain(text)}」を足した',
+    };
 
 /// 行頭と行の中のマークダウンの印を外した、文の中に出す形。パッチは複数行のこともあるので1行ずつ外す
 String plain(String text) => text.split('\n').map((line) {
@@ -496,6 +504,29 @@ String showRecordText(Resolution r) {
   return '${fmtDay(r.decidedAt)} に${r.decidedBy}$how、「$decided」に決まっています$note。';
 }
 
+/// 記録を見せて済ませた確定の「11/10 自分が記録を見せた」。見せた確定でなければ null（#118）
+String? shownByText(ManualState s, Resolution r) => switch (r.shown) {
+      (:final by, :final at) => '${fmtDay(at)} ${by.id == s.me ? '自分' : by.name}が記録を見せた',
+      null => null,
+    };
+
+/// 相手の行が書き換えられてもうノートに無いか。そのときは「ノートのまま」だと今のノートの行と読めてしまう（#86）。
+/// 資料の行はもともとノートに無いので見ない
+bool counterpartGone(ManualState s, Check c) => c.materialRef == null && !s.lines.any((l) => l.text == c.conflictLine);
+
+/// 確定済みの記録 r を見せて済ませるボタンの名前。確認のページと結果のカードで同じにする（#121・#124）
+String keepByRecordLabel(ManualState s, Check c, Resolution r) {
+  if (c.materialRef != null) return r.text == c.conflictLine ? '記録を見せて、資料のままにする' : '記録を見せて、確定した内容にする';
+  return counterpartGone(s, c) ? '記録を見せて、書き換える前に戻す' : '記録を見せて、ノートのままにする';
+}
+
+/// 食い違い・同じ内容の相手の見出し。資料なら「資料「店舗マニュアル」p.3」、ノートなら「ノート」（ADR 0019）
+String counterpartLabel(Check c) => c.materialRef?.label ?? 'ノート';
+
+/// 一覧の1行に出す相手の行。資料なら見出しを前に付ける
+String counterpartLine(Check c, String line) =>
+    c.materialRef == null ? plain(line) : '${c.materialRef!.label}：${plain(line)}';
+
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
 /// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
 class ConflictPair extends StatelessWidget {
@@ -523,26 +554,30 @@ class ConflictPair extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    Widget side(String label, String text, TextStyle style) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Container(
-            color: c.shell,
-            padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
-            child: Text(label, style: k.text.small),
-          ),
-          Padding(
-            padding: EdgeInsets.all(k.space.lg),
-            child: Text(plain(text), style: style),
-          ),
-        ]);
-    final band = Container(
-      width: stacked ? null : k.space.xl + k.space.sm,
-      height: stacked ? k.space.xl : null,
-      color: settled ? c.shell : c.pendingBg,
-      alignment: Alignment.center,
-      child: Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)),
-    );
-    final l = side(leftLabel, left, k.text.title);
-    final r = side(rightLabel, right, k.text.title);
+    Widget head(String label) => Container(
+          color: c.shell,
+          padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+          child: Text(label, style: k.text.small),
+        );
+    Widget body(String text) => Padding(
+          padding: EdgeInsets.all(k.space.lg),
+          child: Text(plain(text), style: k.text.title),
+        );
+    Widget band({bool slash = true}) => Container(
+          width: stacked ? null : k.space.xl + k.space.sm,
+          height: stacked ? k.space.xl : null,
+          color: settled ? c.shell : c.pendingBg,
+          alignment: Alignment.center,
+          child: slash ? Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)) : null,
+        );
+    // 左右に並べるときは、見出しと本文を別の行にする。片方の見出しだけが2行に折れても、左右の段がずれない（#120）
+    Widget row(Widget l, Widget m, Widget r) => IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: l),
+            m,
+            Expanded(child: r),
+          ]),
+        );
     return Container(
       decoration: BoxDecoration(
         color: c.canvas,
@@ -550,32 +585,77 @@ class ConflictPair extends StatelessWidget {
         borderRadius: k.radius.surface,
       ),
       clipBehavior: Clip.antiAlias,
-      child: stacked
-          ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [l, band, r])
-          : IntrinsicHeight(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Expanded(child: l),
-                band,
-                Expanded(child: r),
-              ]),
-            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: stacked
+            ? [head(leftLabel), body(left), band(), head(rightLabel), body(right)]
+            : [row(head(leftLabel), band(slash: false), head(rightLabel)), row(body(left), band(), body(right))],
+      ),
     );
   }
 }
 
-/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く
+/// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く。
+/// outline を渡すと、白いままその状態の色の線で囲む（記録した結果のカードの食い違いだけ。黄は面を塗らない）
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding});
+  const PaperSheet({super.key, required this.child, required this.padding, this.outline});
   final Widget child;
   final EdgeInsets padding;
+  final Color? outline;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     return Container(
       padding: padding,
-      decoration: BoxDecoration(color: k.colors.canvas, borderRadius: k.radius.paper),
+      decoration: BoxDecoration(
+        color: k.colors.canvas,
+        border: outline == null ? null : Border.all(color: outline!, width: k.hairline * 2),
+        borderRadius: k.radius.paper,
+      ),
       child: child,
+    );
+  }
+}
+
+/// 確定済みの記録。「11/7 店長に確認：…」と確定した内容に確認印を添えて、証拠として見せる。
+/// 確認のページと書き込む前の確認で同じ見せ方にする。shown は記録を見せて済ませた確定の「11/10 自分が記録を見せた」（#118）
+class ConfirmedRecord extends StatelessWidget {
+  const ConfirmedRecord({super.key, required this.resolution, this.shown, this.onTap});
+  final Resolution resolution;
+  final String? shown;
+
+  /// 押すとその確認の記録を開く
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    final r = resolution;
+    final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (shown case final shown?) ...[
+        Text(shown, style: k.text.small),
+        SizedBox(height: k.space.xs),
+      ],
+      Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
+      SizedBox(height: k.space.sm),
+      Text('確定した内容：${plain(r.text)}', style: k.text.body),
+    ]);
+    final stamp = ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null);
+    // スマホの幅で印を文の横に置くと、印に幅を取られて文が細切れに折れるので、印を文の上に置く（#126）
+    final box = LayoutBuilder(
+      builder: (context, size) => Container(
+        padding: EdgeInsets.all(k.space.xl),
+        decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
+        child: size.maxWidth < k.stackBelow
+            ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, SizedBox(height: k.space.lg), text])
+            : Row(children: [Expanded(child: text), SizedBox(width: k.space.lg), stamp]),
+      ),
+    );
+    if (onTap == null) return box;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box),
     );
   }
 }
@@ -716,3 +796,28 @@ void showToast(BuildContext context, String message,
 }
 
 void showError(BuildContext context, Object e) => showToast(context, e.toString(), error: true);
+
+/// 中で書いている欄の外を押したら onTapOutside を呼ぶ。スクロールの指で書きかけを閉じないよう、ほぼ動かさずに離したときだけ
+class TapOutside extends StatefulWidget {
+  const TapOutside({super.key, required this.onTapOutside, required this.child});
+  final VoidCallback onTapOutside;
+  final Widget child;
+
+  @override
+  State<TapOutside> createState() => _TapOutsideState();
+}
+
+class _TapOutsideState extends State<TapOutside> {
+  Offset? _down;
+
+  @override
+  Widget build(BuildContext context) => TapRegion(
+        onTapOutside: (e) => _down = e.position,
+        onTapUpOutside: (e) {
+          final down = _down;
+          _down = null;
+          if (down != null && (e.position - down).distance <= kTouchSlop) widget.onTapOutside();
+        },
+        child: widget.child,
+      );
+}

@@ -10,6 +10,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'check_list_screen.dart';
 import 'common.dart';
+import 'material_screen.dart';
 import 'sidebar.dart';
 import 'tab_bar.dart';
 
@@ -61,11 +62,23 @@ class CheckDetail extends StatefulWidget {
 class _CheckDetailState extends State<CheckDetail> {
   late final Check _initial = widget.c.state!.checks.firstWhere((x) => x.id == widget.checkId);
   late final _decidedBy = TextEditingController(text: _initial.candidates.firstOrNull?.who ?? '');
-  late final _custom = TextEditingController(text: widget.c.state!.patch(_initial.patchId).text);
+
+  /// 相手の資料の行が、前に資料と違う内容に確定していれば、その内容（ADR 0019）
+  late final _settledOtherwise = switch (widget.c.state!.confirmedRecordFor(_initial)?.resolution) {
+    final r? when _initial.materialRef != null && r.text != _initial.conflictLine => r.text,
+    _ => null,
+  };
+  late final _custom = TextEditingController(text: _settledOtherwise ?? widget.c.state!.patch(_initial.patchId).text);
   final _note = TextEditingController();
   String _decidedAt = today();
-  // 相手が確定済みの記録なら、そのまま押しても前の確定を覆さないよう「ノートのまま」から始める
-  late var _outcome = widget.c.state!.confirmedRecordFor(_initial) != null ? _Outcome.keep : _Outcome.adopt;
+  // 相手が確定済みの記録なら、そのまま押しても前の確定を覆さないよう「ノートのまま」から始める。
+  // 資料の行が資料と違う内容に確定していたら、その内容を入れた「別の内容」から始める。
+  // 相手が資料の行なら、まだ確定が無くても「資料のまま」から始める（資料は職場で決めた文書なので、口頭の側を既定にしない）
+  late var _outcome = _settledOtherwise != null
+      ? _Outcome.custom
+      : widget.c.state!.confirmedRecordFor(_initial) != null || _initial.materialRef != null
+          ? _Outcome.keep
+          : _Outcome.adopt;
   var _busy = false;
 
   /// 「記録を見せて、ノートのままにする」を送っている間。送っている間は、どちらの確定も押せない
@@ -94,10 +107,11 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 確認した相手に選べる人（名前 → ログイン ID）。共有している人を先に、そのあとにこのノートで言ったことのある人を最近の順に。
   /// 共有していなくても、言ったことのある人から選べるようにする
   Map<String, String?> get _people {
+    final s = widget.c.state!;
     final all = <String, String?>{for (final p in _members) p.name: p.id};
-    final recent = [...widget.c.state!.utterances]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final recent = [...s.utterances]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     for (final u in recent) {
-      if (u.speaker case final name?) all.putIfAbsent(name, () => null);
+      if (s.speakerCandidate(u) case (:final name, :final id)?) all.putIfAbsent(name, () => id);
     }
     return all;
   }
@@ -161,18 +175,13 @@ class _CheckDetailState extends State<CheckDetail> {
     }
   }
 
-  /// 聞き直さず、確定済みの記録を見せて済ませる。前の確定と同じ相手・日付で「ノートのまま」に確定する。
-  /// 共有された人は、今までどおりサーバーがその人と今日を決めた人と日付にする（ADR 0017）
-  Future<void> _keepByRecord(Check chk, Resolution r) async {
-    final answering = widget.c.state!.sharedBy != null;
+  /// 聞き直さず、確定済みの記録を見せて済ませる。決めた人・日付・内容はサーバーが前の確定から引き継ぎ、
+  /// 見せたことは押した人の行いとして残す（#118）。共有された人が押しても、その人の決定にはしない
+  Future<void> _keepByRecord(Check chk, Check confirmed) async {
     setState(() => _keeping = true);
     try {
-      await widget.c.resolve(chk.id,
-          decidedBy: answering ? null : r.decidedBy,
-          decidedAt: answering ? today() : r.decidedAt,
-          text: chk.conflictLine!,
-          note: '${fmtDay(today())} に、${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}した記録を見せた');
-      if (mounted) showToast(context, answering ? '確定しました。あなたが決めた記録に残しています' : '確定しました。確認の記録に残しています');
+      await widget.c.resolveByRecord(chk.id, shownFrom: confirmed.id);
+      if (mounted) showToast(context, '確定しました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -215,20 +224,33 @@ class _CheckDetailState extends State<CheckDetail> {
               ],
             ),
             SizedBox(height: k.space.xl),
-            if (chk.resolution != null) ...[_evidence(chk.resolution!), SizedBox(height: k.space.xxl)],
+            // 後で別の人に聞かれたときに見せる記録。記録を見せて済ませた確定は、見せた人と日を上に添える（#118）
+            if (chk.resolution case final r?) ...[
+              ConfirmedRecord(resolution: r, shown: shownByText(s, r)),
+              SizedBox(height: k.space.xxl),
+            ],
             _step(chk.isOpen ? '1' : null, chk.isOpen ? '食い違っていること' : '食い違っていたこと'),
             ConflictPair(
-              leftLabel: 'ノート',
+              leftLabel: counterpartLabel(chk),
               left: chk.conflictLine ?? '',
               rightLabel: who,
               right: p.text,
               settled: !chk.isOpen,
             ),
+            // 資料は書き換えないので、前後を読んで確かめられるようにする。消した資料でも出し、開いた先で消されていると出す
+            if (chk.materialRef case final m?) ...[
+              SizedBox(height: k.space.xs),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: MoonTextButton(onTap: () => _openMaterial(s, m), label: const Text('資料で前後を見る')),
+              ),
+            ],
             // 相手が確定済みの記録なら、その記録を証拠として比較のすぐ下に出す
             if (confirmed != null) ...[
               SizedBox(height: k.space.md),
-              _evidence(
-                confirmed.resolution!,
+              ConfirmedRecord(
+                resolution: confirmed.resolution!,
+                shown: shownByText(s, confirmed.resolution!),
                 onTap: () =>
                     openCheckViaList(Navigator.of(context), widget.c, confirmed.id, settings: aboveNote(context)),
               ),
@@ -243,13 +265,13 @@ class _CheckDetailState extends State<CheckDetail> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: MoonFilledButton(
-                  onTap: _busy || _keeping ? null : () => _keepByRecord(chk, confirmed.resolution!),
+                  onTap: _busy || _keeping ? null : () => _keepByRecord(chk, confirmed),
                   leading: _keeping ? const ButtonLoader() : null,
                   // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
                   label: Flexible(
                     child: FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: Text(_gone(chk) ? '記録を見せて、書き換える前に戻す' : '記録を見せて、ノートのままにする'),
+                      child: Text(keepByRecordLabel(s, chk, confirmed.resolution!)),
                     ),
                   ),
                 ),
@@ -372,9 +394,7 @@ class _CheckDetailState extends State<CheckDetail> {
   Widget _form(Check chk, Patch p, Utterance u, {required bool answering}) {
     final k = context.tokens;
     final ready = (answering || _decidedBy.text.trim().isNotEmpty) && (_outcome != _Outcome.custom || _custom.text.trim().isNotEmpty);
-    final gone = _gone(chk);
-    final keep = _choice(
-        _Outcome.keep, gone ? '書き換える前の内容' : 'ノートのまま', Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
+    final keep = _choice(_Outcome.keep, _keepLabel(chk), Text(plain(chk.conflictLine ?? ''), style: k.text.heading));
     final adopt =
         _choice(_Outcome.adopt, '${u.speaker ?? '新しく聞いた方'}の言う通り', Text(plain(p.text), style: k.text.body));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -430,8 +450,28 @@ class _CheckDetailState extends State<CheckDetail> {
     ]);
   }
 
-  /// 相手の行が書き換えられてもうノートに無いか。そのときは「ノートのまま」だと今のノートの行と読めてしまう（#86）
-  bool _gone(Check chk) => !widget.c.state!.lines.any((l) => l.text == chk.conflictLine);
+  /// 相手の行を残す選択肢の名前
+  String _keepLabel(Check chk) => chk.materialRef != null
+      ? '資料のまま'
+      : (counterpartGone(widget.c.state!, chk) ? '書き換える前の内容' : 'ノートのまま');
+
+  /// 資料の中を、相手の行まで送って開く。戻る矢印で確認に戻る。パンくずは確認リストの上に積んだ形にする
+  /// （広い画面では確認リストの右にこの詳細があり、狭い画面ではパンくずを出さない）
+  void _openMaterial(ManualState s, MaterialRef m) {
+    final above = aboveNote(context);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        settings: above,
+        builder: (_) => MaterialScreen(
+          c: widget.c,
+          materialId: m.materialId,
+          lineNo: m.lineNo,
+          parentCrumbs: [if (above != null) s.title, '確認リスト'],
+        ),
+      ),
+    );
+  }
 
   /// 結果の選択肢。選ぶと枠が濃くなる
   Widget _choice(_Outcome value, String title, Widget? detail) {
@@ -466,31 +506,6 @@ class _CheckDetailState extends State<CheckDetail> {
           ]),
         ),
       ),
-    );
-  }
-
-  /// 後で別の人に聞かれたときに見せる記録。確認印を押した形で見せる。onTap があれば押すとその確認の記録を開く
-  Widget _evidence(Resolution r, {VoidCallback? onTap}) {
-    final k = context.tokens;
-    final box = Container(
-      padding: EdgeInsets.all(k.space.xl),
-      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${fmtDay(r.decidedAt)} ${r.decidedBy}${r.verb}：${r.note}', style: k.text.title),
-            SizedBox(height: k.space.sm),
-            Text('確定した内容：${plain(r.text)}', style: k.text.body),
-          ]),
-        ),
-        SizedBox(width: k.space.lg),
-        ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null),
-      ]),
-    );
-    if (onTap == null) return box;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: onTap, child: box),
     );
   }
 

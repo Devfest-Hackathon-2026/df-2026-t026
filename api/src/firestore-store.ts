@@ -8,6 +8,7 @@ import type { Memo, Profile, Shared, Store } from './store.ts';
  * users/{userId}/manuals/{manualId}/{collection}/{id} に保存する。名前とアイコンは users/{userId} そのもの。
  * ノートに付けた資料は users/{userId}/manuals/{manualId}/materials/{id}（ADR 0019）。
  * 共有されたノートの索引は users/{userId}/shared/{manualId}（ADR 0013）。未整理メモは users/{userId}/memos/{id}（ADR 0015）。
+ * 通知を最後に見た時刻は users/{userId}/notices/seen（ADR 0020）。
  * アカウントは accounts/{ログイン ID}、ログイン中のトークンは sessions/{トークンの SHA-256}
  */
 export class FirestoreStore implements Store {
@@ -70,6 +71,10 @@ export class FirestoreStore implements Store {
     await this.db.collection('sessions').doc(session.id).set(session);
   }
 
+  async removeSession(id: string) {
+    await this.db.collection('sessions').doc(id).delete();
+  }
+
   async getProfile(userId: string) {
     const doc = await this.db.collection('users').doc(userId).get();
     return doc.exists ? (doc.data() as Profile) : null;
@@ -121,5 +126,19 @@ export class FirestoreStore implements Store {
 
   async removeMemo(userId: string, id: string) {
     await this.memos(userId).doc(id).delete();
+  }
+
+  // users/{userId} は名前とアイコンを set で丸ごと書くので、そこに混ぜず別のドキュメントにする
+  private noticesSeen(userId: string) {
+    return this.db.collection('users').doc(userId).collection('notices').doc('seen');
+  }
+
+  async getNoticesSeenAt(userId: string) {
+    const doc = await this.noticesSeen(userId).get();
+    return doc.exists ? (doc.data() as { at: string }).at : null;
+  }
+
+  async putNoticesSeenAt(userId: string, at: string) {
+    await this.noticesSeen(userId).set({ at });
   }
 }

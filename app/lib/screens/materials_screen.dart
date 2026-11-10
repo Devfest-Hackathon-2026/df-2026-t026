@@ -13,14 +13,16 @@ import 'material_screen.dart';
 import 'sidebar.dart';
 import 'tab_bar.dart';
 
-/// 資料の題名の下に並べるもの：ページ数（貼り付けた文ならそう出す）と、誰がいつ足したか。一覧と資料の中でそろえる
-List<Widget> materialMeta(BuildContext context, MaterialSummary m) {
+/// 資料の題名の下に並べるもの：ページ数（貼り付けた文ならそう出す）と、誰がいつ足したか、
+/// この資料と食い違った「あとで確認」の数（open）。一覧と資料の中でそろえる
+List<Widget> materialMeta(BuildContext context, MaterialSummary m, {int open = 0}) {
   final k = context.tokens;
   final day = fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(m.createdAt).toLocal()));
   return [
     Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount}ページ', style: k.text.small),
     // 前からある資料には足した人が無い
     Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name} が $day に足した', style: k.text.small),
+    if (open > 0) StatusTag('あとで確認 $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
   ];
 }
 
@@ -40,20 +42,8 @@ class MaterialsScreen extends StatefulWidget {
 class _MaterialsScreenState extends State<MaterialsScreen> {
   ManualController get c => widget.c;
 
+  /// 資料は store に持たず、足したあとと、資料の中（そこで消せる）から戻ったときにだけ読み直す（ADR 0021）
   late Future<List<MaterialSummary>> _materials = c.api.listMaterials(c.manualId);
-
-  @override
-  void initState() {
-    super.initState();
-    // 足す・消すのあと（資料の中で消したときも）に読み直す
-    c.api.changes.addListener(_reload);
-  }
-
-  @override
-  void dispose() {
-    c.api.changes.removeListener(_reload);
-    super.dispose();
-  }
 
   void _reload() => setState(() {
         _materials = c.api.listMaterials(c.manualId);
@@ -65,13 +55,17 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
       builder: (_) => _AddDialog(api: c.api, manualId: c.manualId, pickFiles: widget.pickFiles),
     );
     if (added == null || !mounted) return;
+    _reload();
     showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount}ページ）'}');
   }
 
-  void _open(MaterialSummary m) => Navigator.push(
-        context,
-        MaterialPageRoute(settings: aboveNote(context), builder: (_) => MaterialScreen(c: c, materialId: m.id)),
-      );
+  Future<void> _open(MaterialSummary m) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(settings: aboveNote(context), builder: (_) => MaterialScreen(c: c, materialId: m.id)),
+    );
+    if (mounted) _reload();
+  }
 
   Widget _addButton() => MoonFilledButton(label: const Text('資料を足す'), onTap: _add);
 
@@ -80,7 +74,13 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     return Scaffold(
       body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(crumbs: [c.state!.title, '資料']),
-        Expanded(child: FutureBuilder(future: _materials, builder: (context, snap) => _body(snap))),
+        // 確認リストで確定すると「あとで確認」の数が変わるので、ノートの状態も聞く
+        Expanded(
+          child: FutureBuilder(
+            future: _materials,
+            builder: (context, snap) => ListenableBuilder(listenable: c, builder: (context, _) => _body(snap)),
+          ),
+        ),
       ]))),
     );
   }
@@ -128,7 +128,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
                   spacing: k.space.md,
                   runSpacing: k.space.xs,
                   crossAxisAlignment: WrapCrossAlignment.center,
-                  children: materialMeta(context, m),
+                  children: materialMeta(context, m, open: c.state!.openChecksIn(m.id).length),
                 ),
               ]),
             ),

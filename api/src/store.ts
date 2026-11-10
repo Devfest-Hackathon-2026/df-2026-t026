@@ -48,6 +48,7 @@ export interface Store {
   putAccount(account: Account): Promise<void>;
   getSession(id: string): Promise<Session | null>;
   putSession(session: Session): Promise<void>;
+  removeSession(id: string): Promise<void>;
   getProfile(userId: string): Promise<Profile | null>;
   putProfile(userId: string, profile: Profile): Promise<void>;
   listShared(userId: string): Promise<Shared[]>;
@@ -58,6 +59,9 @@ export interface Store {
   getMemo(userId: string, id: string): Promise<Memo | null>;
   putMemo(userId: string, memo: Memo): Promise<void>;
   removeMemo(userId: string, id: string): Promise<void>;
+  /** 通知を最後に見た時刻（ADR 0020）。見たことが無ければ null */
+  getNoticesSeenAt(userId: string): Promise<string | null>;
+  putNoticesSeenAt(userId: string, at: string): Promise<void>;
 }
 
 /** テストと、GCP なしでのローカル開発用 */
@@ -69,6 +73,7 @@ export class MemoryStore implements Store {
   private profiles = new Map<string, Profile>();
   private shared = new Map<string, Map<string, Shared>>();
   private memos = new Map<string, Map<string, Memo>>();
+  private noticesSeenAt = new Map<string, string>();
 
   async listManuals(userId: string) {
     return [...(this.manuals.get(userId)?.values() ?? [])];
@@ -119,6 +124,10 @@ export class MemoryStore implements Store {
     this.sessions.set(session.id, structuredClone(session));
   }
 
+  async removeSession(id: string) {
+    this.sessions.delete(id);
+  }
+
   async getProfile(userId: string) {
     return structuredClone(this.profiles.get(userId) ?? null);
   }
@@ -159,5 +168,13 @@ export class MemoryStore implements Store {
 
   async removeMemo(userId: string, id: string) {
     this.memos.get(userId)?.delete(id);
+  }
+
+  async getNoticesSeenAt(userId: string) {
+    return this.noticesSeenAt.get(userId) ?? null;
+  }
+
+  async putNoticesSeenAt(userId: string, at: string) {
+    this.noticesSeenAt.set(userId, at);
   }
 }

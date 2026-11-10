@@ -8,6 +8,7 @@ import 'package:diff_note/screens/check_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -22,8 +23,8 @@ const _record = '11/7 店長に確認：1/2で統一';
 const _showText = '11/7 に店長に確認して、「塩 小さじ1/2」に決まっています（1/2で統一）。';
 const _keepLabel = '記録を見せて、ノートのままにする';
 
-/// 記録を見せて済ませたときに自動で入るメモ。日付は押した日
-String get _shownNote => '${fmtDay(today())} に、11/7 店長に確認した記録を見せた';
+/// 記録を見せて済ませた日の「11/10 自分が記録を見せた」
+String get _shownByMe => '${fmtDay(today())} 自分が記録を見せた';
 
 Map<String, dynamic> _said(String id, String speaker, String day, String text, {bool fromEdit = false}) =>
     {'id': id, 'text': text, 'speaker': speaker, 'saidAt': day, 'fromEdit': fromEdit, 'createdAt': '${day}T10:00:00Z'};
@@ -122,19 +123,18 @@ Map<String, dynamic> _shared(Map<String, dynamic> j) => j
   ..['me'] = 'sato'
   ..['sharedBy'] = {'id': 'demo', 'name': 'かなで'};
 
-/// 送られた内容で最後の確認（c2）を確定した状態。answeredBy があれば、決めた人をその人、日付を今日にする（ADR 0017 のサーバー）
-Map<String, dynamic> _resolvedWith(Map<String, dynamic> j, Map<String, dynamic> body, {String? answeredBy, String? name}) {
-  final by = name ?? body['decidedBy'] as String;
-  final at = answeredBy != null ? today() : body['decidedAt'] as String;
-  (j['utterances'] as List).add(_said('a2', by, at, body['note']));
+/// 記録を見せて最後の確認（c2）を確定した状態。サーバーと同じく、前の確定（shownFrom）の中身を写し、
+/// 見せた人（by）と今日を付け、見せた人の発言を足す（#118）
+Map<String, dynamic> _shownWith(Map<String, dynamic> j, Map<String, dynamic> body,
+    {Map<String, dynamic> by = const {'id': 'demo', 'name': 'かなで'}}) {
+  final prev = (j['checks'] as List).firstWhere((c) => c['id'] == body['shownFrom'])['resolution'] as Map<String, dynamic>;
+  final how = prev['answeredBy'] == null ? 'に確認' : 'が決定';
+  (j['utterances'] as List).add(_said('a2', by['name'], today(), '11/7 ${prev['decidedBy']}$howした記録（${prev['note']}）を見せた'));
   (j['checks'] as List).last['resolution'] = {
+    ...prev,
     'utteranceId': 'a2',
     'patchId': null,
-    'decidedBy': by,
-    'answeredBy': ?answeredBy,
-    'decidedAt': at,
-    'text': body['text'],
-    'note': body['note'],
+    'shown': {'by': by, 'at': today()},
   };
   return j;
 }
@@ -262,6 +262,25 @@ void main() {
     });
   }
 
+  // #126：幅 390 では確認印が文の横に並び、文が印の横の狭い幅（146）に押し込まれて「11/7 店長に確」「認：1/2で統一」と折れていた
+  for (final size in const [Size(390, 844), Size(1440, 900)]) {
+    testWidgets('確認の記録の文は確認印に横幅を取られない。狭い画面では印を文の上に、広い画面では右に置く（$size）', (tester) async {
+      await _pumpCheck(tester, _confirmed(), 'c1', size: size);
+      final title = find.text(_record);
+      final stamp = tester.getRect(find.byWidgetPredicate((w) => w is ConfirmStamp && !w.compact));
+      final text = tester.getRect(title);
+      if (size.width < 900) {
+        expect(stamp.bottom, lessThanOrEqualTo(text.top));
+        // 文は記録の枠の内側の幅いっぱいで折れる
+        final box = find.ancestor(of: title, matching: find.byType(Container)).first;
+        final k = appTheme().extension<AppTokens>()!;
+        expect(tester.renderObject<RenderParagraph>(title).constraints.maxWidth, tester.getSize(box).width - 2 * k.space.xl);
+      } else {
+        expect(stamp.left, greaterThanOrEqualTo(text.right));
+      }
+    });
+  }
+
   testWidgets('相手の行が書き換えられて無いときも記録を出し、最初の選択は「書き換える前の内容」', (tester) async {
     final server = await _pumpCheck(tester, _rewritten(), 'c2');
 
@@ -295,9 +314,9 @@ void main() {
   // 審査員の指摘（11/10）：確定済みの決定と食い違ったのに、また誰に確認するかへ誘導され、記録を見せて済ませる終わらせ方が無かった
   group('記録を見せて、ノートのままにする', () {
     for (final size in const [Size(390, 844), Size(1440, 900)]) {
-      testWidgets('見せる文のすぐ下の主のボタンで、前の確定の相手・日付と自動のメモで「ノートのまま」に確定する（$size）', (tester) async {
+      testWidgets('見せる文のすぐ下の主のボタンで、前の確認を指して確定する。確認印と中身は前の確定のまま、見せたのは自分（$size）', (tester) async {
         final server =
-            await _pumpCheck(tester, _confirmed(), 'c2', size: size, afterResolve: (body) => _resolvedWith(_confirmed(), body));
+            await _pumpCheck(tester, _confirmed(), 'c2', size: size, afterResolve: (body) => _shownWith(_confirmed(), body));
         final detail = find.byType(CheckDetail);
         final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
         expect(keep, findsOneWidget);
@@ -313,9 +332,14 @@ void main() {
         await tester.ensureVisible(keep);
         await tester.tap(keep);
         await tester.pumpAndSettle();
-        expect(server.resolved, {'decidedBy': '店長', 'decidedAt': '2026-11-07', 'text': _half, 'note': _shownNote});
-        // 確認済みになり、前と同じ「11/7 店長」の確認の記録として出る
-        expect(find.text('11/7 店長に確認：$_shownNote'), findsOneWidget);
+        // 決めた人・日付・内容はサーバーが前の確定から引き継ぐので、どの確定を見せたかだけを送る（#118）
+        expect(server.resolved, {'shownFrom': 'c1'});
+        // 確認済みになり、確認印と中身は前の「11/7 店長」の確定のまま、その上に見せたのは自分だと添える
+        expect(find.text(_shownByMe), findsOneWidget);
+        expect(find.text(_record), findsOneWidget);
+        expect(tester.getTopLeft(find.text(_shownByMe)).dy, lessThan(tester.getTopLeft(find.text(_record)).dy));
+        final stamp = _bigStamps(tester).single;
+        expect([stamp.who, stamp.day, stamp.decided], ['店長', '2026-11-07', false]);
         expect(find.text(_keepLabel), findsNothing);
         expect(find.text('もう一度聞くなら'), findsNothing);
         expect(tester.takeException(), isNull);
@@ -361,26 +385,33 @@ void main() {
       await tester.ensureVisible(back);
       await tester.tap(back);
       await tester.pumpAndSettle();
-      expect(server.resolved, {'decidedBy': '店長', 'decidedAt': '2026-11-07', 'text': _half, 'note': _shownNote});
+      expect(server.resolved, {'shownFrom': 'c1'});
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 10));
     });
 
-    testWidgets('前の確定が本人の決定なら、メモは「店長が決定した記録を見せた」', (tester) async {
-      final j = _confirmed();
-      ((j['checks'] as List).first['resolution'] as Map<String, dynamic>)['answeredBy'] = 'tencho';
-      final server = await _pumpCheck(tester, j, 'c2');
+    testWidgets('前の確定が本人の決定なら、確認リストでは「自分が記録を見せた（11/7 店長が決定：…）」、確認印は「決定」のまま', (tester) async {
+      Map<String, dynamic> decided() {
+        final j = _confirmed();
+        ((j['checks'] as List).first['resolution'] as Map<String, dynamic>)['answeredBy'] = 'tencho';
+        return j;
+      }
+
+      final server = await _pumpCheck(tester, decided(), 'c2',
+          size: const Size(1440, 900), afterResolve: (body) => _shownWith(decided(), body));
       final keep = find.widgetWithText(MoonFilledButton, _keepLabel);
       await tester.ensureVisible(keep);
       await tester.tap(keep);
       await tester.pumpAndSettle();
-      expect(server.resolved, containsPair('note', '${fmtDay(today())} に、11/7 店長が決定した記録を見せた'));
+      expect(server.resolved, {'shownFrom': 'c1'});
+      expect(find.text('$_shownByMe（11/7 店長が決定：1/2で統一）'), findsOneWidget);
+      expect(_bigStamps(tester).single.decided, isTrue);
       await tester.pump(const Duration(seconds: 10));
     });
 
-    testWidgets('共有された人が押すと、決めた人と日付はサーバーに任せ、画面はその人が決めた記録になる', (tester) async {
+    testWidgets('共有された人が押しても、決めた人は前の店長のままで、その人の決定にはならない', (tester) async {
       final server = await _pumpCheck(tester, _shared(_confirmed()), 'c2',
-          afterResolve: (body) => _resolvedWith(_shared(_confirmed()), body, answeredBy: 'sato', name: '佐藤店長'));
+          afterResolve: (body) => _shownWith(_shared(_confirmed()), body, by: {'id': 'sato', 'name': '佐藤店長'}));
       // 共有された人には「誰に確認する？」を出さず、区切りの下は答える欄
       expect(find.text('誰に確認する？'), findsNothing);
       expect(find.text('もう一度聞くなら'), findsNothing);
@@ -393,13 +424,14 @@ void main() {
       await tester.ensureVisible(keep);
       await tester.tap(keep);
       await tester.pumpAndSettle();
-      expect(server.resolved!.containsKey('decidedBy'), isFalse);
-      expect(server.resolved, containsPair('text', _half));
-      expect(server.resolved, containsPair('note', _shownNote));
+      expect(server.resolved, {'shownFrom': 'c1'});
       expect(tester.takeException(), isNull);
       expect(find.text('確認の記録'), findsWidgets);
-      expect(find.text('${fmtDay(today())} 佐藤店長が決定：$_shownNote'), findsOneWidget);
-      expect(_bigStamps(tester).single.decided, isTrue);
+      // 見せたのは自分（佐藤店長）、決めたのは 11/7 の店長
+      expect(find.text(_shownByMe), findsOneWidget);
+      expect(find.text(_record), findsOneWidget);
+      final stamp = _bigStamps(tester).single;
+      expect([stamp.who, stamp.day, stamp.decided], ['店長', '2026-11-07', false]);
       expect(find.text('答えて確定する'), findsNothing);
       await tester.pump(const Duration(seconds: 10));
     });

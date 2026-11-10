@@ -220,6 +220,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampTilt = -0.08;
   final double stampDiameter = 84;
 
+  /// 記録した直後の結果のカードで、見出しの横に置く確認印。カードの見せ場なので、ほかより大きく押す
+  final double stampDiameterLarge = 116;
+
   /// 履歴のグラフで、幹と枝を並べる1本分の幅と、版の点の直径
   final double graphLane = 24;
   final double graphDot = 14;
@@ -257,6 +260,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// 選んでいるタブの後ろに敷くカプセル（action の青を薄く）と、横に動く時間
   final Color tabBarPill = const Color(0x262459F5);
   final Duration tabBarPillMove = const Duration(milliseconds: 220);
+
+  /// 記録したあと、結果のカードが見える所まで送る時間
+  final Duration scrollToResult = const Duration(milliseconds: 300);
 
   @override
   AppTokens copyWith() => this;
