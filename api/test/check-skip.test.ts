@@ -74,7 +74,7 @@ test('白紙のノートの最初の行は確かめず、確認を残さずに�
   assert.equal(inputs.length, 0);
   assert.equal(first.status, 200);
   assert.equal(first.check, undefined);
-  assert.deepEqual(first.state, (await call('GET', `/manuals/${id}`)).json);
+  assert.deepEqual({ ...(await call('GET', `/manuals/${id}`)).json, asOf: first.state.asOf }, first.state);
 
   // 同じ差分にもう一度呼んでも、確かめずに今の状態を返す
   const again = await call('POST', `/manuals/${id}/patches/${first.patch.id}/check`);

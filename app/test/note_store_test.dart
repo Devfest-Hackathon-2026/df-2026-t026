@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/manual_controller.dart';
+import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
@@ -50,6 +51,9 @@ class _Server {
   /// あれば、直接編集はこれが済むまで書き込まず、返さない
   Completer<void>? editGate;
 
+  /// あれば、直接編集は書き込んでから、これが済むまで返さない。返す状態は書き込んだ時点のもの
+  Completer<void>? replyGate;
+
   /// 消された（GET /manuals/:id が 404 になる）ノート
   final gone = <String>{};
 
@@ -71,8 +75,10 @@ class _Server {
     (n['lines'] as List).insert(0, {'text': text, 'patchId': 'po$at'});
   }
 
-  /// 応答ごとに写しを返す。返した後にサーバーの中身が変わっても、前の応答は変わらない
-  Map<String, dynamic> _copy(String id) => jsonDecode(jsonEncode(notes[id]));
+  /// 応答ごとに写しを返す。返した後にサーバーの中身が変わっても、前の応答は変わらない。読んだ順に asOf を付ける
+  Map<String, dynamic> _copy(String id) =>
+      {...jsonDecode(jsonEncode(notes[id])), 'asOf': '2026-11-10T01:00:00.${(_reads++).toString().padLeft(3, '0')}Z'};
+  var _reads = 0;
 
   Future<http.Response> _handle(http.Request req) async {
     final path = req.url.path;
@@ -104,7 +110,9 @@ class _Server {
         case 'delete':
           lines.removeAt(i);
       }
-      return _json(_copy(id), 201);
+      final read = _copy(id);
+      await replyGate?.future;
+      return _json(read, 201);
     }
     if (path.endsWith('/check')) {
       final pid = req.url.pathSegments[3];
@@ -365,6 +373,44 @@ void main() {
     expect(await edit.saved, isTrue);
     expect(c.state!.checks.single.resolution?.decidedBy, '店長');
     expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
+  });
+
+  test('サーバーが編集→確定の順に済ませたのに、編集の応答が後から届いても、確定を古い状態で戻さない', () async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    final c = ManualController(server.api, 'm1');
+    await c.load();
+    server.replyGate = Completer();
+    final edit = c.edit('insert', text: '- 醤油 大さじ1');
+    await Future<void>.delayed(Duration.zero);
+    expect(server.notes['m1']!['lines'], hasLength(2), reason: 'サーバーは編集を書き込んだ');
+
+    await c.resolve('m1-c0', decidedBy: '店長', decidedAt: '2026-11-10', text: _salt, note: 'そのまま');
+    server.replyGate!.complete();
+    expect(await edit.saved, isTrue);
+    expect(server.api.store.note('m1')!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
+  });
+
+  test('確かめの確認を足した写しにも読んだ時刻を引き継ぎ、それより前に読んだ状態は入れない。読んだ時刻の無い状態は入れる', () {
+    final store = _Server().api.store;
+    ManualState read(String? asOf, List<String> lines) =>
+        ManualState.fromJson({...noteJson('m1', 'キッチン', lines: lines, open: 1), 'asOf': asOf});
+    store.put(read('2026-11-10T00:00:00.002Z', [_salt]));
+    store.addCheck('m1', Check.fromJson({'id': 'c-new', 'patchId': 'm1-p0', 'utteranceId': 'm1-e0', 'kind': 'addition', 'conflictLine': null, 'reason': '追記', 'resolution': null}));
+    expect(store.note('m1')!.asOf, '2026-11-10T00:00:00.002Z');
+
+    store.put(read('2026-11-10T00:00:00.001Z', [_salt, '- 古い行']));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_salt]);
+    expect(store.note('m1')!.checks.map((x) => x.id), ['m1-c0', 'c-new']);
+
+    // 同じ時刻なら入れる
+    store.put(read('2026-11-10T00:00:00.002Z', [_salt, _pepper]));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_salt, _pepper]);
+    // 古いサーバーの応答は今までどおり入れる
+    store.put(read(null, [_pepper]));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_pepper]);
   });
 
   testWidgets('開いたノートが消されていたら、古い内容を出さずに「見つかりません」を出し、サイドバーからも外す', (tester) async {

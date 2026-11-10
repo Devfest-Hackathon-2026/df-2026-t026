@@ -65,7 +65,7 @@ class NoteStore extends ChangeNotifier {
       final h = await _api.home();
       final next = [
         for (final s in h.notes)
-          if ((_noteWrittenAt[s.id] ?? 0) <= since) _withChecked(s) else ?note(s.id),
+          if ((_noteWrittenAt[s.id] ?? 0) <= since && !_older(s)) _withChecked(s) else ?note(s.id),
       ];
       // 読んでいる間に作ったノートは残す
       for (final s in _notes) {
@@ -98,13 +98,14 @@ class NoteStore extends ChangeNotifier {
       if (e.status == 404) remove(id);
       rethrow;
     }
-    if ((_noteWrittenAt[id] ?? 0) > since) return;
+    if ((_noteWrittenAt[id] ?? 0) > since || _older(s)) return;
     _replace(_withChecked(s));
     notifyListeners();
   }
 
-  /// 書き込みの応答の状態を入れる。Api が呼ぶ
+  /// 書き込みの応答の状態を入れる。Api が呼ぶ。応答の届く順は入れ替わるので、今持っている状態より前に読んだものは入れない
   ManualState put(ManualState s) {
+    if (_older(s)) return s;
     _noteWrittenAt[s.id] = ++_writes;
     _replace(_withChecked(s));
     notifyListeners();
@@ -157,6 +158,12 @@ class NoteStore extends ChangeNotifier {
       notices = (seenAt: newest, items: n.items);
     }
     notifyListeners();
+  }
+
+  /// s が、今持っているそのノートより前にサーバーが読んだ状態か。どちらかに asOf が無ければ（古いサーバー）比べない
+  bool _older(ManualState s) {
+    final at = s.asOf, current = note(s.id)?.asOf;
+    return at != null && current != null && at.compareTo(current) < 0;
   }
 
   void _replace(ManualState s) {

@@ -244,6 +244,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
    * 書き込むときは userId ではなく、返した owner の下に書く
    */
   async function load(userId: string, manualId: string) {
+    const asOf = now();
     let owner = userId;
     let manual = await store.getManual(userId, manualId);
     if (!manual) {
@@ -278,6 +279,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       me: userId,
       /** 共有されたノートなら持ち主。自分のノートなら null */
       sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
+      /**
+       * 読み始める前の時刻（ISO 8601）。これより前に済んだ書き込みはすべて入っている。
+       * 応答の届く順は入れ替わるので、アプリは今持っている状態より古い asOf の状態を入れない（ADR 0021）
+       */
+      asOf,
     };
   }
 
