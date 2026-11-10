@@ -18,11 +18,12 @@ import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
 // 既定は GCP なしで動く組み合わせ。Cloud Run では AI=gemini STORE=firestore にする
 const useGemini = process.env.AI === 'gemini';
 const store: Store = process.env.STORE === 'firestore' ? new FirestoreStore() : new MemoryStore();
-await seedWithHistory(store, 'demo');
 // ローカルで試すときのアカウント。本番に配ったのと同じ ID でも入れるようにするが、パスワードはどれもローカル専用の
 // demo にし、本番のパスワードはリポジトリに入れない。本番のアカウントは scripts/create-account.ts で作る（ADR 0009）
 const localIds = ['demo', 'kanade', 'haruto', 'hikaru', 'chinatsu'];
 if (store instanceof MemoryStore) {
+  // デモの中身はメモリ保存のときだけ入れる。本番に demo のアカウントは無く、Firestore を読むぶん起動が遅れるため
+  await seedWithHistory(store, 'demo');
   for (const id of localIds) {
     await store.putAccount({ id, ...(await hashPassword('demo')), createdAt: new Date().toISOString() });
   }
