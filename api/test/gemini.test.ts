@@ -504,23 +504,30 @@ function cacheFetch({ create = ['ok'], generate = [ok] }: { create?: ('ok' | num
   const ai = new GoogleGenAI({ vertexai: true, apiKey: 'test', httpOptions: { ...httpOptions, fetch } });
   // キャッシュはモジュールの Map に持つので、テストごとに prefix を変えてキーを分ける
   const req = { system: 's', prefix: `資料${Math.random()}\n`, prompt: 'p', schema: z.object({ text: z.string() }) };
-  const send = () => requestWithCache(ai, req, 1).then((r) => r.text, (e) => e);
-  return { send, req, creates, gens };
+  // キャッシュは裏で作るので、送ったあとに作り終わるのを待つ
+  const send = async () => {
+    const r = await requestWithCache(ai, req, 1).then((r) => r.text, (e) => e);
+    await new Promise((done) => setTimeout(done, 5));
+    return r;
+  };
+  /** キャッシュ無しで送ったときの [cachedContent, 指示文, 本文] */
+  const plain = [undefined, 's', `${req.prefix}p`];
+  return { send, req, creates, gens, plain };
 }
 
-test('明示のキャッシュ：指示文と prefix をキャッシュに入れ、生成では指示文を付けずに prompt だけを送る。2回目は作り直さない', async () => {
+const c1 = 'projects/p/locations/global/cachedContents/c1';
+
+test('明示のキャッシュ：1回目は作り始めてキャッシュ無しで送り、2回目から指示文を付けずに prompt だけを送る。作り直さない', async () => {
   const f = cacheFetch({});
+  assert.equal(await f.send(), 'ok');
   assert.equal(await f.send(), 'ok');
   assert.equal(await f.send(), 'ok');
   assert.equal(f.creates.length, 1);
   const created = f.creates[0] as { systemInstruction: { parts: { text: string }[] }; contents: { parts: { text: string }[] }[] };
   assert.deepEqual([created.systemInstruction.parts[0].text, created.contents[0].parts[0].text], ['s', f.req.prefix]);
   assert.deepEqual(
-    f.gens.map((g) => [g.cachedContent, g.systemInstruction, g.contents[0].parts[0].text]),
-    [
-      ['projects/p/locations/global/cachedContents/c1', undefined, 'p'],
-      ['projects/p/locations/global/cachedContents/c1', undefined, 'p'],
-    ],
+    f.gens.map((g) => [g.cachedContent, g.systemInstruction?.parts[0].text, g.contents[0].parts[0].text]),
+    [f.plain, [c1, undefined, 'p'], [c1, undefined, 'p']],
   );
 });
 
@@ -531,21 +538,18 @@ test('明示のキャッシュ：作れなければ、今まで通り指示文�
   assert.equal(f.creates.length, 1);
   assert.deepEqual(
     f.gens.map((g) => [g.cachedContent, g.systemInstruction?.parts[0].text, g.contents[0].parts[0].text]),
-    [
-      [undefined, 's', `${f.req.prefix}p`],
-      [undefined, 's', `${f.req.prefix}p`],
-    ],
+    [f.plain, f.plain],
   );
 });
 
 test('明示のキャッシュ：キャッシュが無い（404）と断られたら、今回はキャッシュ無しで送り、次の回に作り直す', async () => {
-  const f = cacheFetch({ generate: [404, ok] });
+  const f = cacheFetch({ generate: [ok, 404, ok] });
+  await f.send();
   assert.equal(await f.send(), 'ok');
   assert.deepEqual(
     f.gens.map((g) => g.cachedContent ?? null),
-    ['projects/p/locations/global/cachedContents/c1', null],
+    [null, c1, null],
   );
   await f.send();
   assert.equal(f.creates.length, 2);
-  assert.equal(f.gens.at(-1)!.cachedContent, 'projects/p/locations/global/cachedContents/c2');
 });

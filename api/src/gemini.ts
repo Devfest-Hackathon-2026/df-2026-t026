@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { setTimeout as sleep } from 'node:timers/promises';
 
 import { ApiError, GoogleGenAI, type HttpOptions, type GenerateContentResponseUsageMetadata as UsageMetadata, type ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
@@ -104,37 +103,44 @@ export const generateJson: GenerateJson = (req) => requestWithCache(gemini(), re
 /** 明示のキャッシュの期限。使うたびに延ばさず、期限の5分前を過ぎたら作り直す */
 const CACHE_TTL_MS = 3_600_000;
 const CACHE_RENEW_MS = 5 * 60_000;
-/** キャッシュを作るのはふだん3〜6秒。これを過ぎたら待たずにキャッシュ無しで送り、できたものは次の回から使う */
-const CACHE_WAIT_MS = 10_000;
 
 /**
  * 明示のキャッシュの名前。キーはモデル名・指示文・prefix の SHA-256 で、資料や指示文が変われば別のキャッシュになる。
  * 正は Firestore の資料なので、インスタンスのメモリにだけ持ち、無くなれば作り直す。古いものは期限で消えるのに任せる。
- * 作れなかったら null。4,096 トークン未満で断られた（400）ものは、期限まで作り直さない
+ * 作っている間・作れなかったときは null。4,096 トークン未満で断られた（400）ものは、期限まで作り直さない
  */
-const caches = new Map<string, { name: Promise<string | null>; expireAt: number }>();
+const caches = new Map<string, { name: string | null; expireAt: number }>();
 
-function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, label: string | undefined): Promise<string | null> {
+/**
+ * 使える明示のキャッシュの名前。無ければ作り始めて null を返す。
+ * 作るのに3〜6秒かかり、4,096 トークン未満なら断られるだけなので、待たずに今回はキャッシュ無しで送り、次の回から使う
+ */
+function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, label: string | undefined): string | null {
   const hit = caches.get(key);
   if (hit && hit.expireAt - CACHE_RENEW_MS > Date.now()) return hit.name;
+  // 作り直す間も、前のキャッシュは期限まで使える
+  const entry = { name: hit?.name ?? null, expireAt: Date.now() + CACHE_TTL_MS };
+  caches.set(key, entry);
   const started = performance.now();
   const log = (fields: object) =>
     console.log(JSON.stringify({ message: 'gemini cache', label: label ?? null, seconds: Math.round((performance.now() - started) / 100) / 10, ...fields }));
-  const name = ai.caches
+  void ai.caches
     .create({
       model: model(),
       config: { systemInstruction: system, contents: [{ role: 'user', parts: [{ text: prefix }] }], ttl: `${CACHE_TTL_MS / 1000}s` },
     })
     .then(
-      (c) => (log({ created: true, tokens: c.usageMetadata?.totalTokenCount ?? null }), c.name ?? null),
+      (c) => {
+        log({ created: true, tokens: c.usageMetadata?.totalTokenCount ?? null });
+        entry.name = c.name ?? null;
+      },
       (e: unknown) => {
         log({ created: false, error: String(e).slice(0, 200) });
-        if (!(e instanceof ApiError && e.status === 400)) caches.delete(key);
-        return null;
+        entry.name = null;
+        if (!(e instanceof ApiError && e.status === 400) && caches.get(key) === entry) caches.delete(key);
       },
     );
-  caches.set(key, { name, expireAt: Date.now() + CACHE_TTL_MS });
-  return name;
+  return hit?.name ?? null;
 }
 
 /**
@@ -149,7 +155,7 @@ function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, 
 export async function requestWithCache<T>(ai: GoogleGenAI, req: JsonRequest<T>, delayMs?: number): Promise<T> {
   if (!req.prefix) return requestJson(ai, req, delayMs);
   const key = createHash('sha256').update([model(), req.system, req.prefix].join('\0')).digest('hex');
-  const name = await Promise.race([cacheFor(ai, key, req.system, req.prefix, req.label), sleep(CACHE_WAIT_MS, null, { ref: false })]);
+  const name = cacheFor(ai, key, req.system, req.prefix, req.label);
   if (!name) return requestJson(ai, req, delayMs);
   try {
     return await requestJson(ai, req, delayMs, name);
