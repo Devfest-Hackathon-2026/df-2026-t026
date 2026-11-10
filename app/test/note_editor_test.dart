@@ -228,13 +228,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 胡椒 少々');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pump();
 
     expect(server.sent, hasLength(1));
     expect(find.text('・胡椒 少々'), findsOneWidget);
     expect(find.text('保存しています…'), findsOneWidget);
-    // 「保存する」は欄を閉じる
+    // 右端のチェック（保存する）は欄を閉じる
     expect(_editor, findsNothing);
     // 確かめは、編集が届いてから
     expect(find.text('食い違いがないか確かめています'), findsOneWidget);
@@ -257,11 +257,13 @@ void main() {
     await tester.pump();
 
     expect(server.sent.single, containsPair('op', 'replace'));
-    // 書き換えた行の下に、空の「下に足す」欄が開き、打つ所はその欄にある
+    // 書き換えた行の下に、空の「下に足す」欄が開き、打つ所はその欄にある。右端のチェックとバツはそのまま
     expect(_editor, findsOneWidget);
     expect(_draft(tester), '');
     expect(_focused(tester), isTrue);
-    expect(find.widgetWithText(MoonOutlinedButton, 'この行を消す'), findsNothing);
+    expect(find.widgetWithText(MoonTextButton, '下に行を足す'), findsNothing);
+    expect(find.bySemanticsLabel('保存する'), findsOneWidget);
+    expect(find.bySemanticsLabel('この行を消す'), findsOneWidget);
     expect(_shownLines(tester), ['・塩 小さじ1/2']);
     expect(tester.getTopLeft(_editor).dy, greaterThan(tester.getTopLeft(find.text('・塩 小さじ1/2')).dy));
 
@@ -422,18 +424,18 @@ void main() {
     await tester.tap(find.text('・塩 小さじ1'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.textContaining('保存できませんでした（サーバーにつながりません）。直した 1 行を元に戻しました'), findsOneWidget);
     expect(_shownLines(tester), isEmpty, reason: '書き換える欄が元の行の場所に開いている');
     expect(find.widgetWithText(MoonTextInput, '- 塩 小さじ2'), findsOneWidget);
-    expect(find.widgetWithText(MoonOutlinedButton, 'この行を消す'), findsOneWidget);
+    expect(find.widgetWithText(MoonTextButton, '下に行を足す'), findsOneWidget);
     expect(find.text('保存しています…'), findsNothing);
     expect(server.checked, isEmpty);
 
     // そのまま保存し直せる
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle(const Duration(seconds: 10));
     expect(server.sent.map((b) => (b['op'], b['line'], b['text'])), [
       ('replace', _salt, '- 塩 小さじ2'),
@@ -482,7 +484,7 @@ void main() {
     await tester.tap(find.text('・塩 小さじ1'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle();
 
     expect(find.text('ほかの人が先にこの行を直しました'), findsOneWidget);
@@ -552,5 +554,51 @@ void main() {
 
     expect(find.byType(MoonTextInput), findsNothing);
     expect(server.sent, isEmpty);
+  });
+
+  testWidgets('チェックで保存すると欄を閉じ、打ち始めは空なのでチェックは押せない', (tester) async {
+    final server = await _pump(tester);
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    MoonButton check() => tester.widget<MoonButton>(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '保存する'));
+    expect(check().onTap, isNull);
+    tester.testTextInput.enterText('- 胡椒 少々');
+    await tester.pump();
+    expect(check().onTap, isNotNull);
+
+    await tester.tap(find.bySemanticsLabel('保存する'));
+    await tester.pump();
+    expect(_editor, findsNothing);
+    expect(_shownLines(tester), ['・塩 小さじ1', '・胡椒 少々']);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(server.sent.single, allOf(containsPair('op', 'insert'), containsPair('text', '- 胡椒 少々')));
+  });
+
+  testWidgets('欄を開いたまま、ほかの人の編集で行がずれた応答を取っておいた所で別の行を押しても、押した行の欄を開く', (tester) async {
+    final server = await _pump(tester);
+    server.before = () => server.othersAddFirst('- 手を洗う');
+
+    await tester.tap(find.text('・塩 小さじ1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 塩 小さじ1/2');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    // 応答の先頭の行は、欄を開いている間は出さない
+    expect(_shownLines(tester), ['・塩 小さじ1/2']);
+
+    // 下に足す欄の外の、書き換えた行を押す。欄を閉じたその場で取っておいた状態を入れると、行が1つずれて「手を洗う」が開く
+    await tester.tap(find.text('・塩 小さじ1/2'));
+    await tester.pumpAndSettle();
+    expect(_editor, findsOneWidget);
+    expect(_draft(tester), '- 塩 小さじ1/2');
+    expect(find.widgetWithText(MoonTextButton, '下に行を足す'), findsOneWidget);
+
+    // 欄の外の余白を押すと閉じ、取っておいた最新の状態を出す。何も送らない
+    await tester.tapAt(const Offset(400, 800));
+    await tester.pumpAndSettle();
+    expect(_editor, findsNothing);
+    expect(_shownLines(tester), ['・手を洗う', '・塩 小さじ1/2']);
+    expect(server.sent, hasLength(1));
   });
 }

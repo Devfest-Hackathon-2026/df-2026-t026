@@ -229,7 +229,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 塩 小さじ2');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle(const Duration(seconds: 10));
 
     expect(server.requests, [
@@ -281,7 +281,7 @@ void main() {
 
     await tester.enterText(find.byType(EditableText), '- 胡椒 ひとつまみ');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle(const Duration(seconds: 10));
     expect(server.edits.single, allOf(containsPair('op', 'replace'), containsPair('line', _pepper)));
     expect(_shownLines(tester), ['・手を洗う', '・塩 小さじ1', '・胡椒 ひとつまみ']);
@@ -337,7 +337,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 醤油 大さじ1');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle(const Duration(seconds: 10));
     expect(_shownLines(tester), ['・塩 小さじ1', '・胡椒 少々', '・醤油 大さじ1']);
 

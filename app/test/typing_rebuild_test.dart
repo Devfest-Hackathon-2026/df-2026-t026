@@ -93,7 +93,7 @@ void _expectSameWidgets(List<Widget> before, List<Widget> after, String what) {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('長いノートの行の欄に打っても、ほかの行と記録した発言は作り直さず、「保存する」の押せる・押せないだけが変わる', (tester) async {
+  testWidgets('長いノートの行の欄に打っても、ほかの行と記録した発言は作り直さず、右端のチェック（保存する）の押せる・押せないだけが変わる', (tester) async {
     _setSize(tester, const Size(1400, 900));
     await tester.pumpWidget(MaterialApp(
       theme: appTheme(),
@@ -107,7 +107,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('・項目60'));
     await tester.pumpAndSettle();
-    MoonFilledButton save() => tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, '保存する'));
+    MoonButton save() => tester.widget<MoonButton>(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '保存する'));
     expect(save().onTap, isNotNull);
 
     final lines = _widgets<LineText>(tester);
