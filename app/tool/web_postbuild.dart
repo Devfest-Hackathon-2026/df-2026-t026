@@ -1,7 +1,7 @@
 // Web のリリースビルドのあと、デプロイの前に走らせる（.github/workflows/deploy.yml。設計書 0020 の A2）。
 //   dart run tool/web_postbuild.dart [API の URL]
 // Flutter Web は FontManifest.json のフォントを最初の画面の前に全部取りに行くので、
-// 依存のパッケージが宣言しているだけで使っていないフォントを外す。
+// 依存のパッケージが宣言しているだけで使っていないフォントを外し、1字しか使わない MoonIcons は絞ったものに差し替える。
 // dart run で動くよう、Flutter に依存するものは import しない。
 import 'dart:convert';
 import 'dart:io';
@@ -15,6 +15,19 @@ final _lucideWeights = RegExp(r'^packages/lucide_icons_flutter/Lucide\d+$');
 
 /// main.dart.js の中で、Lucide の太さ違いの family を使っている所（IconData の fontFamily）
 final _lucideWeightInJs = RegExp(r'''["']Lucide\d+["']''');
+
+/// ビルドの MoonIcons（assets/ からの道）。マニフェストの family と道はそのままにし、中身だけ差し替える
+const moonIconsAsset = 'packages/moon_icons/lib/fonts/MoonIcons.ttf';
+
+/// 使う字だけに絞った MoonIcons（tool/moon_icons/README.md）
+const moonIconsSubset = 'tool/moon_icons/MoonIcons.ttf';
+
+/// 絞ったフォントに入っている字。作り直すときは pyftsubset の --unicodes と揃える
+const moonIconsCodePoints = {0xED49};
+
+/// main.dart.js の MoonIcons の IconData。dart2js は `new A.dg(60745,"MoonIcons","moon_icons",!1)` のように出す。
+/// `A.dg` は IconData の縮めた名前で、ビルドごとに変わるので見ない
+final _moonIconData = RegExp(r'\((\d+),"MoonIcons","moon_icons"');
 
 /// index.html の、API の URL を入れる所。空のままなら index.html は API を呼ばない
 const apiUrlMarker = '<meta name="diffnote-api" content="">';
@@ -46,6 +59,23 @@ const firstFrameEvent = 'flutter-first-frame';
   return (manifest: kept, dropped: dropped);
 }
 
+/// main.dart.js が描く MoonIcons の字が、絞ったフォントに全部あるかを見る。差し替えてよければ null、だめなら理由を返す。
+/// 無い字を描くと豆腐（□）になるので、拾い漏らしたかもしれないとき（MoonIcons の出てくる回数が IconData の数と合わない、
+/// 1つも拾えない）も差し替えない
+String? moonIconsSubsetBlocker(String mainJs) {
+  final found = [for (final m in _moonIconData.allMatches(mainJs)) int.parse(m[1]!)];
+  final mentions = 'MoonIcons'.allMatches(mainJs).length;
+  if (found.isEmpty || found.length != mentions) {
+    return 'main.dart.js の MoonIcons を読み切れない（IconData ${found.length} 個、MoonIcons の文字列 $mentions 回）';
+  }
+  final missing = found.toSet().difference(moonIconsCodePoints);
+  if (missing.isNotEmpty) {
+    final names = missing.map((c) => 'U+${c.toRadixString(16).toUpperCase()}').join(', ');
+    return '絞ったフォントに無い字を使っている（$names）。tool/moon_icons/README.md の手順で作り直す';
+  }
+  return null;
+}
+
 /// index.html に API の URL を入れる
 String withApiUrl(String html, String apiUrl) {
   final uri = Uri.tryParse(apiUrl);
@@ -59,10 +89,12 @@ String withApiUrl(String html, String apiUrl) {
   return html.replaceFirst(apiUrlMarker, '<meta name="diffnote-api" content="$escaped">');
 }
 
-/// ビルドの成果物（build/web）を直し、消したフォントを返す。確かめ終えてから書き換えるので、失敗したときは何も変えない
-List<String> postBuild(Directory web, {String? apiUrl}) {
+/// ビルドの成果物（build/web）を直し、消したフォントと、MoonIcons を差し替えなかった理由（差し替えたら null）を返す。
+/// 確かめ終えてから書き換えるので、失敗したときは何も変えない
+({List<String> dropped, String? moonIconsKept}) postBuild(Directory web, {String? apiUrl}) {
   final manifestFile = File('${web.path}/assets/FontManifest.json');
   final indexFile = File('${web.path}/index.html');
+  final moonIconsFile = File('${web.path}/assets/$moonIconsAsset');
   final fonts = dropUnusedFonts(jsonDecode(manifestFile.readAsStringSync()) as List<Object?>);
   final js = File('${web.path}/main.dart.js').readAsStringSync();
   // Flutter を上げてイベント名が変わると、読み込み中の画面が消えなくなる
@@ -78,13 +110,16 @@ List<String> postBuild(Directory web, {String? apiUrl}) {
     throw StateError('消すはずのフォントが無い: ${missing.join(', ')}');
   }
   final html = apiUrl == null ? null : withApiUrl(indexFile.readAsStringSync(), apiUrl);
+  final moonIconsKept = moonIconsFile.existsSync() ? moonIconsSubsetBlocker(js) : 'ビルドに $moonIconsAsset が無い';
+  final subset = moonIconsKept == null ? File(moonIconsSubset).readAsBytesSync() : null;
 
   manifestFile.writeAsStringSync(jsonEncode(fonts.manifest));
   for (final asset in fonts.dropped) {
     File('${web.path}/assets/$asset').deleteSync();
   }
+  if (subset != null) moonIconsFile.writeAsBytesSync(subset);
   if (html != null) indexFile.writeAsStringSync(html);
-  return fonts.dropped;
+  return (dropped: fonts.dropped, moonIconsKept: moonIconsKept);
 }
 
 void main(List<String> args) {
@@ -92,7 +127,11 @@ void main(List<String> args) {
     stderr.writeln('使い方: dart run tool/web_postbuild.dart [API の URL]');
     exit(64);
   }
-  final dropped = postBuild(Directory('build/web'), apiUrl: args.firstOrNull);
-  stdout.writeln('外したフォント:\n  ${dropped.join('\n  ')}');
+  final r = postBuild(Directory('build/web'), apiUrl: args.firstOrNull);
+  stdout.writeln('外したフォント:\n  ${r.dropped.join('\n  ')}');
+  // 残したときもデプロイは止めない。元のフォントなら最初の表示が重いだけで、字は出る
+  stdout.writeln(r.moonIconsKept == null
+      ? 'MoonIcons.ttf を使う字だけに絞ったものに差し替えた'
+      : 'MoonIcons.ttf は差し替えずに元のまま残した: ${r.moonIconsKept}');
   stdout.writeln(args.isEmpty ? 'API の URL は入れていない' : 'index.html に API の URL を入れた');
 }
