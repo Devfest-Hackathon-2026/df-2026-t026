@@ -191,21 +191,10 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   const app = new Hono<Env>();
   // どの呼び出しにも Authorization が付いてプリフライトが走るので、ブラウザに結果を覚えさせる（上限はブラウザごとに切られる）
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*', maxAge: 86400 }));
-  // 音声入力の WebSocket（/dictation）には圧縮をかけない
+  // 音声入力の WebSocket（/dictation）には圧縮をかけない。
+  // c.json は Content-Length を付けないので下限（1024 バイト）は効かず、小さい応答も圧縮される（害は無い）
   const compressed = compress();
-  app.use((c, next) =>
-    c.req.path === '/dictation'
-      ? next()
-      : compressed(c, async () => {
-          await next();
-          // c.json は Content-Length を付けず、それが無いと compress の下限（1024 バイト）が効かないので付ける
-          if (c.res.body && !c.res.headers.has('Content-Length')) {
-            const body = await c.res.arrayBuffer();
-            c.res = new Response(body, c.res);
-            c.res.headers.set('Content-Length', String(body.byteLength));
-          }
-        }),
-  );
+  app.use((c, next) => (c.req.path === '/dictation' ? next() : compressed(c, next)));
   // 呼び出しのたびに Firestore を読まないよう、見つかったセッションだけを5分覚える。
   // 見つからなかった結果は覚えない（ほかのインスタンスで作られたばかりのセッションを弾かないため）
   const sessions = new Map<string, { userId: string; until: number }>();

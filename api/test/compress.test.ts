@@ -17,6 +17,12 @@ const origin = 'https://web.example';
 const auth = { Authorization: 'Bearer test-token', Origin: origin };
 const body = Array.from({ length: 300 }, (_, i) => `- 手順${i + 1}：棚の奥から順に並べ、賞味期限の近いものを手前に出す`).join('\n');
 
+/** gzip なら解凍して JSON を読む。app.request はブラウザと違って解凍しない */
+async function jsonOf(res: Response): Promise<unknown> {
+  const raw = Buffer.from(await res.arrayBuffer());
+  return JSON.parse((res.headers.get('Content-Encoding') === 'gzip' ? gunzipSync(raw) : raw).toString());
+}
+
 /** 本番と同じく許すオリジンを決めたアプリで、長い本文のノートを1冊作る */
 async function setup() {
   const store = new MemoryStore();
@@ -42,8 +48,7 @@ test('大きい応答は gzip で返し、解凍すると圧縮しないとき�
   const res = await app.request(path, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('Content-Encoding'), 'gzip');
-  assert.equal(res.headers.get('Content-Length'), null);
-  assert.deepEqual(JSON.parse(gunzipSync(Buffer.from(await res.arrayBuffer())).toString()), expected);
+  assert.deepEqual(await jsonOf(res), expected);
   // CORS のヘッダーが落ちない
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), origin);
   assert.match(res.headers.get('Vary') ?? '', /Origin/);
@@ -58,25 +63,15 @@ test('Accept-Encoding の無い依頼は圧縮しない', async () => {
   assert.ok(((await res.json()) as any).lines.length >= 300);
 });
 
-test('小さい応答は圧縮せず、Content-Length を付けて返す', async () => {
-  const { app } = await setup();
-  const res = await app.request('/me', { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
-  assert.equal(res.headers.get('Content-Encoding'), null);
-  const text = await res.text();
-  assert.equal(res.headers.get('Content-Length'), String(Buffer.byteLength(text)));
-  assert.equal(JSON.parse(text).id, 'demo');
-  assert.equal(res.headers.get('Access-Control-Allow-Origin'), origin);
-});
-
-test('ログインしていないときの 401 も、これまでどおり JSON で返す', async () => {
+test('ログインしていないときの 401 も、これまでどおり JSON で読める', async () => {
   const { app } = await setup();
   const res = await app.request('/me', { headers: { Origin: origin, 'Accept-Encoding': 'gzip' } });
   assert.equal(res.status, 401);
-  assert.equal(res.headers.get('Content-Encoding'), null);
-  assert.equal(((await res.json()) as any).error, 'ログインしてください');
+  assert.equal(res.headers.get('Access-Control-Allow-Origin'), origin);
+  assert.equal(((await jsonOf(res)) as any).error, 'ログインしてください');
 });
 
-test('本物のサーバー越しでも、大きい応答は gzip、小さい応答はそのまま読める', async (t) => {
+test('本物のサーバー越しでも、gzip の応答を解凍して読める', async (t) => {
   const { app, path } = await setup();
   const server = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' });
   await once(server, 'listening');
@@ -86,8 +81,4 @@ test('本物のサーバー越しでも、大きい応答は gzip、小さい応
   const big = await fetch(base + path, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
   assert.equal(big.headers.get('Content-Encoding'), 'gzip');
   assert.ok(((await big.json()) as any).lines.length >= 300);
-
-  const small = await fetch(`${base}/me`, { headers: { ...auth, 'Accept-Encoding': 'gzip' } });
-  assert.equal(small.headers.get('Content-Encoding'), null);
-  assert.equal(((await small.json()) as any).id, 'demo');
 });
