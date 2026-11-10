@@ -17,7 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'home.dart';
 
-// 記録を待たせない（設計書 0020 の C2）：押したらすぐ入力欄を空け、裏で押した順に1件ずつ照らし合わせる
+// 記録を待たせない（設計書 0021 の C2）：押したらすぐ入力欄を空け、裏で押した順に1件ずつ照らし合わせる
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 

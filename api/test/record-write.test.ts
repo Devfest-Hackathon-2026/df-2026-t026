@@ -10,7 +10,7 @@ import type { PatchDraft } from '../src/foundation/manual.ts';
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
-// 入力ページの記録で、迷う所の無い差分を同じ呼び出しの中で書き込む（POST /utterances の write。設計書 0020 の C2）
+// 入力ページの記録で、迷う所の無い差分を同じ呼び出しの中で書き込む（POST /utterances の write。設計書 0021 の C2）
 
 let app: ReturnType<typeof createApp>;
 

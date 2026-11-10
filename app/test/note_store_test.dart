@@ -19,7 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'home.dart';
 
-// アプリの状態を1か所（NoteStore）に持ち、書いたあとに取り直さない（ADR 0020・設計書 0020 の B1）
+// アプリの状態を1か所（NoteStore）に持ち、書いたあとに取り直さない（ADR 0021・設計書 0021 の B1）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 

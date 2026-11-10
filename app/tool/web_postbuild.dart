@@ -1,4 +1,4 @@
-// Web のリリースビルドのあと、デプロイの前に走らせる（.github/workflows/deploy.yml。設計書 0020 の A2）。
+// Web のリリースビルドのあと、デプロイの前に走らせる（.github/workflows/deploy.yml。設計書 0021 の A2）。
 //   dart run tool/web_postbuild.dart [API の URL]
 // Flutter Web は FontManifest.json のフォントを最初の画面の前に全部取りに行くので、
 // 依存のパッケージが宣言しているだけで使っていないフォントを外し、1字しか使わない MoonIcons は絞ったものに差し替える。

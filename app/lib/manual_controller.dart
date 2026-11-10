@@ -40,7 +40,7 @@ class LocalEdit {
 typedef EditFailure = ({LocalEdit edit, int count, ApiException error, List<ManualLine> shown});
 
 /// 1冊のマニュアルの状態。状態の正はバックエンドにあり、応答は Api が store（NoteStore）に入れ、ここは store から読む。
-/// 応答を受け取る道は store の1本だけで、ここへ直接は入れない（ADR 0020）。
+/// 応答を受け取る道は store の1本だけで、ここへ直接は入れない（ADR 0021）。
 /// 直接の編集だけは応答を待たずに先に出し、送信は裏でノートごとに1本ずつ、書いた順に送る（ADR 0007）
 class ManualController extends ChangeNotifier {
   /// initial は、store にまだこのノートが無いときの土台

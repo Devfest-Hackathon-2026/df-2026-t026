@@ -42,7 +42,7 @@ class MaterialsScreen extends StatefulWidget {
 class _MaterialsScreenState extends State<MaterialsScreen> {
   ManualController get c => widget.c;
 
-  /// 資料は store に持たず、足したあとと、資料の中（そこで消せる）から戻ったときにだけ読み直す（ADR 0020）
+  /// 資料は store に持たず、足したあとと、資料の中（そこで消せる）から戻ったときにだけ読み直す（ADR 0021）
   late Future<List<MaterialSummary>> _materials = c.api.listMaterials(c.manualId);
 
   void _reload() => setState(() {

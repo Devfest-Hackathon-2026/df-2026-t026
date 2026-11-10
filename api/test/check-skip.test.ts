@@ -8,7 +8,7 @@ import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, f
 import { seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
-// 直接書いた行の確かめで、Gemini を呼ばなくても結果が決まる編集では呼ばない（設計書 0020 §4.4、ADR 0007）
+// 直接書いた行の確かめで、Gemini を呼ばなくても結果が決まる編集では呼ばない（設計書 0021 §4.4、ADR 0007）
 
 let app: ReturnType<typeof createApp>;
 /** 確かめ（Gemini）に渡した入力。呼んだ回数を数える */

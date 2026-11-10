@@ -17,7 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'home.dart';
 
-// 入力欄に1文字打つたびに画面全体を作り直さない（設計書 0020 の B2）。
+// 入力欄に1文字打つたびに画面全体を作り直さない（設計書 0021 の B2）。
 // 打つ前後で、入力欄に関係しない部品が同じ物のままかで確かめる（時間には頼らない）
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);

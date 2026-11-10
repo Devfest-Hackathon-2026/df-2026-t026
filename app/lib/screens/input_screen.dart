@@ -155,7 +155,7 @@ class _InputScreenState extends State<InputScreen> {
     super.dispose();
   }
 
-  /// 入力ページを開いたとき・ログインしたとき・アプリに戻ってきたときに、GET /home で全部を読み直す（ADR 0020）。
+  /// 入力ページを開いたとき・ログインしたとき・アプリに戻ってきたときに、GET /home で全部を読み直す（ADR 0021）。
   /// 前の版がブラウザにためていた未整理メモがあれば、サーバーに移してからもう1度読む
   Future<void> _refresh() async {
     final store = widget.api.store;
@@ -442,7 +442,7 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   /// 待っている記録を、押した順に1件ずつ照らし合わせる。並べて送ると、続けて書いた2つが互いに照らされず、
-  /// 食い違いを取りこぼす（設計書 0020 §3）
+  /// 食い違いを取りこぼす（設計書 0021 §3）
   Future<void> _drain() async {
     if (_sending) return;
     _sending = true;
@@ -589,7 +589,7 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 戻ってきても読み直さない。ほかの画面で書いた応答は store に入っている（ADR 0020）
+  /// 戻ってきても読み直さない。ほかの画面で書いた応答は store に入っている（ADR 0021）
   Future<void> _push(Widget screen) => Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
   @override
