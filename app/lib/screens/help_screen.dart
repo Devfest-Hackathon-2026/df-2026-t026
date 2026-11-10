@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:moon_design/moon_design.dart';
 
 import '../theme.dart';
 import 'common.dart';
+import 'font_licenses_screen.dart';
 import 'sidebar.dart';
 
 /// 使い方。画面に説明文を並べる代わりに、ここにまとめる。
@@ -14,7 +16,10 @@ class HelpScreen extends StatelessWidget {
     final k = context.tokens;
     return Scaffold(
       body: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const TopBar(crumbs: ['使い方']),
+        TopBar(crumbs: const ['使い方'], trailing: MoonTextButton(
+          label: const Text('ライセンスを読む'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FontLicensesScreen())),
+        )),
         Expanded(
           child: Narrow(
             child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
