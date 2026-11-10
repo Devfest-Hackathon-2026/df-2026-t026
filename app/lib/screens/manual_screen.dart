@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
@@ -42,6 +43,9 @@ class _ManualScreenState extends State<ManualScreen> {
   ({int? at, bool insert})? _editing;
   final _draft = TextEditingController();
   var _saving = false;
+
+  /// 直接編集の欄の外を押し始めた所
+  Offset? _downOutside;
 
   /// 食い違いを確かめている編集（パッチの ID）
   final _checking = <String>{};
@@ -150,15 +154,17 @@ class _ManualScreenState extends State<ManualScreen> {
   // 広い画面でも「ノートの上」の印を付けておき、狭い幅に変わっても「ノート」タブで1枚のノートに戻れるようにする
   void _openList() => _open(NoteTab.checks, CheckListScreen(c: c));
 
-  void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
+  /// utteranceId を渡すと、その記録で作った版を選んで開く
+  void _openHistory({String? utteranceId}) =>
+      _open(NoteTab.history, HistoryScreen(c: c, utteranceId: utteranceId), utteranceId: utteranceId);
 
   /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（ADR 0019）
   void _openMaterials() => Navigator.push(
       context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => MaterialsScreen(c: c)));
 
-  void _open(NoteTab tab, Widget screen) => showsSidebar(context)
+  void _open(NoteTab tab, Widget screen, {String? utteranceId}) => showsSidebar(context)
       ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
-      : openNoteTab(context, c, from: NoteTab.note, to: tab);
+      : openNoteTab(context, c, from: NoteTab.note, to: tab, utteranceId: utteranceId);
 
   @override
   Widget build(BuildContext context) {
@@ -334,43 +340,56 @@ class _ManualScreenState extends State<ManualScreen> {
   bool _fromEdit(ManualState s, ManualLine line) =>
       line.patchId != null && s.utterance(s.patch(line.patchId!).utteranceId).fromEdit;
 
-  /// 直接編集の欄。行の場所に開く
+  /// 直接編集の欄。行の場所に開く。欄の外を押すと閉じる
   Widget _editor(ManualState s) {
     final k = context.tokens;
     final e = _editing!;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MoonTextInput(
-          controller: _draft,
-          autofocus: true,
-          hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (_) => _save(s),
-        ),
-        SizedBox(height: k.space.sm),
-        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: _saving || _draft.text.trim().isEmpty ? null : () => _save(s),
-            leading: _saving ? const ButtonLoader() : null,
-            label: const Text('保存する'),
+    return TapRegion(
+      onTapOutside: (down) => _downOutside = down.position,
+      onTapUpOutside: (up) {
+        // スクロールの指で書きかけを消さないよう、ほぼ動かさずに離したときだけ閉じる
+        final down = _downOutside;
+        _downOutside = null;
+        if (_saving || down == null || (up.position - down).distance > kTouchSlop) return;
+        _cancelEdit();
+      },
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          MoonTextInput(
+            controller: _draft,
+            autofocus: true,
+            hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _save(s),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              MoonButton.icon(
+                buttonSize: MoonButtonSize.sm,
+                semanticLabel: '保存する',
+                onTap: _saving || _draft.text.trim().isEmpty ? null : () => _save(s),
+                icon: _saving
+                    ? MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s)
+                    : Icon(LucideIcons.check, color: k.colors.action),
+              ),
+              MoonButton.icon(
+                buttonSize: MoonButtonSize.sm,
+                semanticLabel: 'この行を消す',
+                // まだ無い行は、閉じれば消えたのと同じ
+                onTap: _saving ? null : (e.insert ? _cancelEdit : () => _save(s, delete: true)),
+                icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+              ),
+            ]),
           ),
           if (!e.insert) ...[
-            MoonOutlinedButton(
-              buttonSize: MoonButtonSize.sm,
-              onTap: _saving ? null : () => _save(s, delete: true),
-              label: const Text('この行を消す'),
-            ),
+            SizedBox(height: k.space.sm),
             MoonTextButton(
               buttonSize: MoonButtonSize.sm,
               onTap: _saving ? null : () => _startEdit(s, e.at, insert: true),
               label: const Text('下に行を足す'),
             ),
           ],
-          MoonTextButton(buttonSize: MoonButtonSize.sm, onTap: _saving ? null : _cancelEdit, label: const Text('やめる')),
         ]),
-      ]),
+      ),
     );
   }
 
@@ -562,6 +581,8 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
+    // 共有した相手が行を直した記録も、細い札で時刻の順に混ぜる。持ち主の直しは本人の文なので出さない（ADR 0020）
+    final entries = s.utterances.where((u) => !u.fromEdit || u.editedBy != null).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (withHeader)
         Padding(
@@ -569,7 +590,7 @@ class _ManualScreenState extends State<ManualScreen> {
           child: Text('記録した発言（${s.said.length}）', style: k.text.title),
         ),
       Expanded(
-        child: s.said.isEmpty
+        child: entries.isEmpty
             ? Padding(
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
@@ -577,8 +598,8 @@ class _ManualScreenState extends State<ManualScreen> {
             : Builder(builder: (context) => ListView(
                 padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
                 children: [
-                  for (final u in s.said.reversed) ...[
-                    _utteranceEntry(s, u),
+                  for (final u in entries.reversed) ...[
+                    u.fromEdit ? _editEntry(s, u) : _utteranceEntry(s, u),
                     SizedBox(height: k.space.lg),
                   ],
                 ],
@@ -602,6 +623,25 @@ class _ManualScreenState extends State<ManualScreen> {
           for (final st in _statuses(s, u)) _statusTag(st),
         ]),
       ]),
+    );
+  }
+
+  /// 共有した相手が行を直した記録。付箋より細い白い札にし、押すと履歴でその版を開く（ADR 0020）
+  Widget _editEntry(ManualState s, Utterance u) {
+    final k = context.tokens;
+    final p = s.patchesOf(u.id).firstOrNull;
+    return MoonMenuItem(
+      onTap: () => _openHistory(utteranceId: u.id),
+      backgroundColor: k.colors.canvas,
+      borderRadius: k.radius.paper,
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
+      label: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Speaker(name: u.speaker, day: u.saidAt, after: 'が行を直した'),
+        SizedBox(height: k.space.xs),
+        Text(p == null ? u.text : editSummary(p.op, p.line, p.text),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.small),
+      ]),
+      trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
     );
   }
 

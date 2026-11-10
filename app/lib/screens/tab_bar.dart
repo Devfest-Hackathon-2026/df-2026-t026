@@ -42,8 +42,10 @@ RouteSettings? aboveNote(BuildContext context, {bool fromNote = false}) {
 
 /// タブを替える。替えたことが分かれば十分なので、横から出てくる動きは付けない。
 /// ノートの上に積んだ画面からは、ノートまで外して戻る（画面を積み重ねない）。
-/// 確認リスト・履歴は入力ページなどノートの外からも開くので、そのときはノートに入れ替える
-void openNoteTab(BuildContext context, ManualController c, {required NoteTab from, required NoteTab to}) {
+/// 確認リスト・履歴は入力ページなどノートの外からも開くので、そのときはノートに入れ替える。
+/// utteranceId を渡すと、履歴ではその記録で作った版を選んで開く
+void openNoteTab(BuildContext context, ManualController c,
+    {required NoteTab from, required NoteTab to, String? utteranceId}) {
   if (from == to) return;
   final nav = Navigator.of(context);
   final d = from == NoteTab.note ? 0 : _depth(context);
@@ -57,7 +59,7 @@ void openNoteTab(BuildContext context, ManualController c, {required NoteTab fro
     }
     return;
   }
-  final screen = to == NoteTab.checks ? CheckListScreen(c: c) : HistoryScreen(c: c);
+  final screen = to == NoteTab.checks ? CheckListScreen(c: c) : HistoryScreen(c: c, utteranceId: utteranceId);
   if (from == NoteTab.note) {
     nav.push(_instant(screen, RouteSettings(name: '${_aboveNote}1')));
     return;

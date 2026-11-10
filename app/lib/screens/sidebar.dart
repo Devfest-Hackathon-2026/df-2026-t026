@@ -12,12 +12,13 @@ import 'help_screen.dart';
 import 'home_screen.dart';
 import 'manual_screen.dart';
 import 'new_manual_screen.dart';
+import 'notices_screen.dart';
 import 'open_checks_screen.dart';
-import 'profile_screen.dart';
+import 'profile_screen.dart' show MeBuilder;
 import 'search_screen.dart';
 
 /// サイドバーで、いまいる画面
-enum Place { input, checks, search, manuals, profile }
+enum Place { input, checks, search, manuals, notices, profile }
 
 /// サイドバーを出す幅か。サイドバーを出しても、中身が広い画面の並べ方（文書と右パネル、一覧と詳細）を保てる幅からにする
 bool showsSidebar(BuildContext context) {
@@ -86,8 +87,8 @@ class _Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<_Sidebar> {
-  /// 自分のノートと、共有されたノート。あとで確認の合計に両方を数えるので一緒に読む（ADR 0016）
-  late Future<(List<ManualSummary>, List<SharedManual>)> _notes = _load();
+  /// 自分のノートと、共有されたノート（あとで確認の合計に両方を数える。ADR 0016）と、新しい通知の数（ADR 0020）
+  late Future<(List<ManualSummary>, List<SharedManual>, int)> _notes = _load();
 
   @override
   void initState() {
@@ -102,9 +103,13 @@ class _SidebarState extends State<_Sidebar> {
   }
 
   // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
-  Future<(List<ManualSummary>, List<SharedManual>)> _load() => (
+  Future<(List<ManualSummary>, List<SharedManual>, int)> _load() => (
         widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]),
         widget.api.listShared().catchError((Object _) => const <SharedManual>[]),
+        widget.api
+            .notices()
+            .then((n) => n.items.where((x) => n.seenAt == null || x.at.compareTo(n.seenAt!) > 0).length)
+            .catchError((Object _) => 0),
       ).wait;
 
   void _reload() => setState(() {
@@ -155,7 +160,7 @@ class _SidebarState extends State<_Sidebar> {
       child: FutureBuilder(
         future: _notes,
         builder: (context, snap) {
-          final (manuals, shared) = snap.data ?? (const <ManualSummary>[], const <SharedManual>[]);
+          final (manuals, shared, fresh) = snap.data ?? (const <ManualSummary>[], const <SharedManual>[], 0);
           final open = manuals.fold<int>(0, (n, m) => n + m.openCount) + shared.fold<int>(0, (n, m) => n + m.openCount);
           // 上から：アプリ名 → 言われたことを記録 → あとで確認 → ノートを探す → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
@@ -238,8 +243,10 @@ class _SidebarState extends State<_Sidebar> {
                     builder: (context, me) => _item(
                       me.name,
                       leading: Avatar(me.name, image: me.icon?.bytes),
-                      selected: widget.place == Place.profile,
-                      onTap: () => _go(ProfileScreen(api: widget.api)),
+                      // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
+                      selected: widget.place == Place.notices || widget.place == Place.profile,
+                      fresh: fresh,
+                      onTap: () => _go(NoticesScreen(api: widget.api)),
                     ),
                   ),
                 ),
@@ -293,6 +300,7 @@ class _SidebarState extends State<_Sidebar> {
       {required bool selected,
       required VoidCallback onTap,
       int open = 0,
+      int fresh = 0,
       String? owner,
       IconData? icon,
       Widget? leading,
@@ -313,7 +321,10 @@ class _SidebarState extends State<_Sidebar> {
         overflow: TextOverflow.ellipsis,
         style: k.text.body.copyWith(fontWeight: selected || strong ? FontWeight.w700 : null),
       ),
-      trailing: open == 0 && owner == null
+      trailing: fresh > 0
+          // 新しい通知の数。あとで確認の黄と分けて、操作の青にする
+          ? StatusTag('$fresh', bg: k.colors.found, fg: k.colors.action)
+          : open == 0 && owner == null
           ? null
           : Row(mainAxisSize: MainAxisSize.min, children: [
               if (owner != null)

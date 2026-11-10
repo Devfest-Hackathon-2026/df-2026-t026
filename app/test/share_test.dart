@@ -146,6 +146,18 @@ void main() {
     expect(find.text('まだ誰にも共有していません'), findsOneWidget);
   });
 
+  testWidgets('持ち主：共有した相手が行を直した記録は、発言に細い札で出て、押すと履歴でその版を選んで開く（ADR 0020）', (tester) async {
+    await _pump(tester, shared: false, size: const Size(400, 800));
+    await tester.tap(find.text('発言 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('「だしは煮干し」を足した'), findsOneWidget);
+    await tester.tap(find.text('が行を直した'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('履歴')), findsOneWidget);
+    final selected = find.byWidgetPredicate((w) => w.runtimeType.toString() == '_GraphRowTile' && (w as dynamic).selected == true);
+    expect(find.descendant(of: selected, matching: find.textContaining('佐藤店長')), findsWidgets);
+  });
+
   testWidgets('持ち主：狭い画面でも、上部バーに「共有」を出す', (tester) async {
     await _pump(tester, shared: false, size: const Size(400, 800));
     expect(_outlined('共有'), findsOneWidget);
@@ -163,8 +175,9 @@ void main() {
     expect(find.descendant(of: item, matching: find.text('かなで')), findsOneWidget);
     expect(find.descendant(of: item, matching: find.text('1')), findsOneWidget);
     expect(find.descendant(of: find.widgetWithText(MoonMenuItem, 'あとで確認'), matching: find.text('1')), findsOneWidget);
-    // 共有された人が直した行には、誰が直したかを出す
-    expect(find.descendant(of: find.byType(Speaker), matching: find.text('佐藤店長')), findsOneWidget);
+    // 共有された人が直した行には、誰が直したかを出す。記録した発言にも「が行を直した」の札を出す（ADR 0020）
+    expect(find.descendant(of: find.byType(Speaker), matching: find.text('佐藤店長')), findsNWidgets(2));
+    expect(find.text('が行を直した'), findsOneWidget);
 
     // 共有のモーダルには持ち主を出す
     await tester.tap(_outlined('共有'));
@@ -185,7 +198,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 火を止めてから味噌を溶く');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle();
     expect(server.sent.first, startsWith('POST /manuals/m1/edits'));
     // 書いたあとの食い違いの確かめも、共有された人の画面から呼ぶ
@@ -205,7 +218,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), text);
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle();
   }
 
