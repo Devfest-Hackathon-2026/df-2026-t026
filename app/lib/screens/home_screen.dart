@@ -10,7 +10,7 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'sidebar.dart';
 
-/// ノートの一覧。入力ページの上部バー「ノートを確認」から開く
+/// ノートの一覧。サイドバー（狭い画面はメニュー）の「ノート」の小見出しから開く
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.api});
   final Api api;

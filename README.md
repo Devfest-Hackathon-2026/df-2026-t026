@@ -1,6 +1,6 @@
 # DiffNote（仮）
 
-新人が、口頭で教わったことをマニュアルへの差分として記録し、矛盾に気づいて確認できる道具。仕様は [docs/spec/spec.md](docs/spec/spec.md)、開発のルールは [AGENTS.md](AGENTS.md)。
+新人が、口頭で教わったことや自分で書いたことをノート（職場のマニュアルや自分用のメモ）への差分として記録し、食い違いに気づいて確認できる道具。仕様は [docs/spec/spec.md](docs/spec/spec.md)、開発のルールは [AGENTS.md](AGENTS.md)。
 
 | ディレクトリ | 中身 |
 |---|---|
@@ -8,7 +8,7 @@
 | `api/` | Hono バックエンド |
 | `infra/` | Terraform（Cloud Run・Firestore・Firebase Hosting・GitHub Actions 連携）。手順は [infra/README.md](infra/README.md) |
 | `eval/` | 衝突検知の評価セットとスクリプト |
-| `docs/` | 仕様・ADR |
+| `docs/` | 仕様（`spec/`）・ADR（`adr/`。一覧は [docs/adr/README.md](docs/adr/README.md)）・設計書（`design/`） |
 
 ## ブランチと公開
 
@@ -32,14 +32,14 @@ fvm install
 fvm flutter run -d chrome
 ```
 
-アプリを開いたら、ID `demo`・パスワード `demo` でログインする。本番に配ったのと同じ ID（`kanade`・`haruto`・`hikaru`・`chinatsu`）でも入れるが、パスワードはどれもローカル専用の `demo`。どれもメモリ上のデータで動かすときだけ起動時に作り、デモの記録が入っているのは `demo` だけ。`demo` には、新人（ID `newbie`・パスワード `demo`）のノート「閉店作業メモ」が共有されていて、答える確認が2件待っている。`demo` で答えたあと `newbie` で入ると、通知で確かめられる（ADR 0017・0020）。
+アプリを開いたら、ID `demo`・パスワード `demo` でログインする。本番に配ったのと同じ ID（`kanade`・`haruto`・`hikaru`・`chinatsu`）でも入れるが、パスワードはどれもローカル専用の `demo`。どれもメモリ上のデータで動かすときだけ起動時に作り、見本のノートが入っているのは `demo` と `newbie` だけ。`demo` には、新人（ID `newbie`・パスワード `demo`）のノート「閉店作業メモ」が共有されていて、答える確認が2件待っている。`demo` で答えたあと `newbie` で入ると、通知で確かめられる（ADR 0017・0020）。
 
 アプリが呼ぶ API の URL は `--dart-define=API_URL=...` で変えられる（既定は `http://localhost:8787`）。
 
 偽の Gemini（`api/src/fake-ai.ts`）は、「田中さんから、塩は小さじ1/2でいいと言われた」のような決まった言い回しだけを解釈する。デモの流れ：
 
 1. 「田中さんから、塩は小さじ1/2でいいと言われた」→ 矛盾。確認先の候補と聞き方が出る
-2. 「店長」に確認した結果を「1/2で統一」と記録 → マニュアルの行に「店長に確認 11/7」が付く
+2. 「店長」に確認した結果を「1/2で統一」と記録 → ノートの行に「（聞いた日） 店長に確認」が付く（聞いた日は既定で今日）
 3. 「佐藤さんから、ご飯はおかわり1回まで無料と教わった」→ 追記
 4. 「田中さんに、忙しい日は大盛りは200gまでと言われた」→ 条件付きの補足
 
@@ -72,7 +72,7 @@ gcloud auth application-default set-quota-project diff-note-514023
 
 `STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう（メンバーは読むだけの権限なので、書こうとすると権限エラーになる）。保存まで確かめたいときは、下のエミュレータを使う。
 
-本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users/demo?project=diff-note-514023)で見られる。ノートはログイン ID ごとに分かれ、`users/{ID}/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に記録が並ぶ。アカウントの作り方は [infra/README.md](infra/README.md) の「使う人のアカウントを作る」。
+本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users/demo?project=diff-note-514023)で見られる。ノートはログイン ID ごとに分かれ、`users/{ID}/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に記録が並び、共有の相手は `shares`、資料は `materials` にある。共有されたノートの索引は `users/{ID}/shared`、未整理メモは `users/{ID}/memos`、ログインは `accounts`・`sessions` にある。アカウントの作り方は [infra/README.md](infra/README.md) の「使う人のアカウントを作る」。
 
 ## テスト
 
