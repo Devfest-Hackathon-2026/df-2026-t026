@@ -12,7 +12,7 @@ import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts
 import { manualContext, materialContext, type Check, type CheckPatch, type Resolution } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
 import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
-import { unmark, type InlineFile } from './gemini.ts';
+import { isItem, unmark, type InlineFile } from './gemini.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import { cleanLines, materialLines, materialText, openPdf, splitImages, splitPdf, type Material, type MaterialPart, type ReadMaterial } from './material.ts';
 import type { Memo, Share, Store } from './store.ts';
@@ -923,6 +923,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     }
     // 書いた行そのものは相手にしない。書き換える前の行は本人が直したので、もう残っていない
     let others = s.lines.filter((l) => l.patchId !== p.id);
+    /** 書き換える前の行。描けなかったときは undefined */
+    let replaced: ManualLine | undefined;
     if (p.op === 'replace') {
       // ただし確定済みの行を書き換えたときは、その行も相手にする。この編集を除いて描くと、書き換える前の行が
       // 元の位置に確定の出どころ付きで並び、Gemini がその行を指せる（#86）
@@ -938,12 +940,39 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         old &&
         s.checks.some((x) => x.resolution && (x.resolution.text === old.text || (old.patchId !== null && x.resolution.patchId === old.patchId)));
       if (confirmed) others = before;
+      replaced = old;
     }
-    const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
-    const result = await check({
+    // 確かめを省いたときは確認を残さず、今の状態を返す。アプリは確認が無ければ食い違いなしとして扱う（設計書 0020 §4.4）
+    // 印や前後の空白だけを変えた書き換えは、主張が変わらないので確かめ直さない。ただし次のときは確かめる。
+    // 見出しを項目にした（新しい主張）。前の行に確認待ちの食い違いが付いている（省くと確定で2行をまとめられない）。
+    // 前の行の確かめが同じ内容だった（その確かめがこの書き換えの後に走ると、書き換えた後の行を指して済ませている）
+    const plain = (line: string) => unmark(line).trim();
+    const open = (x: Check) => x.kind === 'contradiction' && !x.resolution;
+    if (
+      replaced &&
+      isItem(replaced.text) &&
+      plain(replaced.text) === plain(p.text) &&
+      !s.checks.some((x) => (x.patchId === replaced.patchId && (open(x) || x.kind === 'same')) || (open(x) && x.conflictLine === replaced.text))
+    ) {
+      return c.json(s);
+    }
+    const context = {
       ...manualContext(others, s.patches, s.utterances, s.checks),
       // 共有された人の編集も、持ち主のノートの下の資料と照らし合わせる（ADR 0019）
       ...materialContext(await materialsOf(s), s.checks),
+    };
+    // Gemini に渡す相手（項目の行・確定済みの記録・資料）が1つも無ければ、同じ内容にも食い違いにもなりえない
+    if (
+      !context.lines.some((l) => isItem(l.text)) &&
+      context.confirmations.length === 0 &&
+      context.materials.length === 0 &&
+      context.materialConfirmations.length === 0
+    ) {
+      return c.json(s);
+    }
+    const draft = { op: 'insert' as const, line: null, text: p.text, summary: p.summary };
+    const result = await check({
+      ...context,
       utterance: { text: u.text, speaker: u.speaker, saidAt: u.saidAt },
       patch: draft,
     });
