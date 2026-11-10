@@ -167,7 +167,7 @@ class _CheckDetailState extends State<CheckDetail> {
           decidedAt: answering ? today() : _decidedAt,
           text: text,
           note: note.isEmpty ? plain(text) : note);
-      if (mounted) showToast(context, answering ? '確定しました。あなたが決めた記録に残しています' : '確定しました。確認の記録に残しています');
+      if (mounted) showToast(context, answering ? '確定しました。自分が決めた記録として残しています' : '確認済みにしました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -181,7 +181,7 @@ class _CheckDetailState extends State<CheckDetail> {
     setState(() => _keeping = true);
     try {
       await widget.c.resolveByRecord(chk.id, shownFrom: confirmed.id);
-      if (mounted) showToast(context, '確定しました。確認の記録に残しています');
+      if (mounted) showToast(context, '確認済みにしました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {

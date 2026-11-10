@@ -4,9 +4,9 @@ import 'dart:typed_data';
 /// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
 enum Kind {
   same('同じ内容'),
-  addition('追記'),
-  qualification('条件付きの補足'),
-  contradiction('矛盾');
+  addition('追加'),
+  qualification('補足'),
+  contradiction('食い違い');
 
   const Kind(this.label);
   final String label;

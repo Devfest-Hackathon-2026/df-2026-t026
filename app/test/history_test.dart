@@ -269,7 +269,7 @@ void main() {
     testWidgets('広い画面：右にいちばん新しい記録の差分を出し、左で選んだ版に切り替える', (tester) async {
       await pump(tester, 1000);
 
-      expect(find.text('ノートに入れていない差分'), findsOneWidget);
+      expect(find.text('ノートに書き込んでいない行'), findsOneWidget);
       expect(find.text('・だしは昆布'), findsOneWidget);
       expect(find.text('確認リストを見る'), findsOneWidget);
 

@@ -7,8 +7,8 @@ import { checkWithGemini, type CheckInput, type ManualContext } from '../src/con
 import { toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
 
 /*
- * 資料が0冊のノートでは、判定の指示文・プロンプト・スキーマを、資料を載せる前（ADR 0019）と1文字も変えない。
- * 今の eval/ の数字と、資料を使わない人の判定を守るため。fixtures/ は資料を載せる前のコードで書き出したもので、書き換えない
+ * 資料が0冊のノートでは、判定の指示文・プロンプト・スキーマに資料のことを入れない（ADR 0019）。資料を使わない人の判定を守るため。
+ * fixtures/ は資料を載せる前のコードで書き出し、指示文を意図して変えたときだけ書き出し直す（見せる文の書き方を足したときに system だけ書き直した）
  */
 
 const kitchen: AssessInput['manuals'][number] = {
@@ -48,18 +48,18 @@ const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${
 const noPatches = { speaker: null, saidAt: null, patches: [] };
 const addition = { kind: 'addition', conflictLineNo: null, sameLineNo: null, reason: 'x', ask: null };
 
-test('資料が0冊なら、記録（assess）に渡す指示文・プロンプト・スキーマは資料を載せる前と同じ：ノート1冊', async () => {
+test('資料が0冊なら、記録（assess）に渡す指示文・プロンプト・スキーマは書き出したものと同じ：ノート1冊', async () => {
   assert.deepEqual(await sent((g) => assessWithGemini({ manuals: [kitchen], ...said }, g), noPatches), fixture('assess-one-note'));
 });
 
-test('資料が0冊なら、記録（assess）に渡す指示文・プロンプト・スキーマは資料を載せる前と同じ：白紙をまぜた2冊', async () => {
+test('資料が0冊なら、記録（assess）に渡す指示文・プロンプト・スキーマは書き出したものと同じ：白紙をまぜた2冊', async () => {
   assert.deepEqual(await sent((g) => assessWithGemini({ manuals: [kitchen, blank], ...said }, g), noPatches), fixture('assess-two-notes'));
 });
 
-test('資料が0冊なら、直接編集の確かめに渡す指示文・プロンプト・スキーマは資料を載せる前と同じ', async () => {
+test('資料が0冊なら、直接編集の確かめに渡す指示文・プロンプト・スキーマは書き出したものと同じ', async () => {
   assert.deepEqual(await sent((g) => checkWithGemini({ ...kitchen, ...edit }, g), addition), fixture('check'));
 });
 
-test('資料が0冊なら、白紙のノートの直接編集の確かめも資料を載せる前と同じ', async () => {
+test('資料が0冊なら、白紙のノートの直接編集の確かめも書き出したものと同じ', async () => {
   assert.deepEqual(await sent((g) => checkWithGemini({ ...blank, ...edit }, g), addition), fixture('check-blank'));
 });

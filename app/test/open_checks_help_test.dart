@@ -142,7 +142,7 @@ void main() {
       await tester.tap(find.descendant(of: find.byType(OpenChecksList), matching: find.text('ホール')));
       await tester.pumpAndSettle();
       expect(find.byType(CheckListScreen), findsOneWidget);
-      expect(find.text('あとで確認（2）'), findsOneWidget);
+      expect(find.text('あとで確認 2 件'), findsOneWidget);
     });
 
     testWidgets('読み込みに失敗したら「読み込めませんでした」を出し、「もう一度読み込む」で読み直せる', (tester) async {

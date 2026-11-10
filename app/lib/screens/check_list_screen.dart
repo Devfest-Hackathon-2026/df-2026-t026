@@ -96,7 +96,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const PageTitle('確認リスト'),
       SizedBox(height: k.space.xxl),
-      Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
+      Text('あとで確認 ${s.openChecks.length} 件', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.openChecks.isEmpty)
         Text('食い違いは、いまはありません', style: k.text.small)
@@ -106,7 +106,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
           SizedBox(height: k.space.md),
         ],
       SizedBox(height: k.space.xxl),
-      Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
+      Text('確認済み ${s.resolvedChecks.length} 件', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.resolvedChecks.isEmpty)
         Text('確認済みの食い違いは、まだありません', style: k.text.small)

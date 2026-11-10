@@ -183,7 +183,7 @@ class _RewindPanelState extends State<RewindPanel> with AutomaticKeepAliveClient
             SizedBox(height: k.space.lg),
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('書き起こし中 $_transcribing 件', style: k.text.small),
+              child: Text('文字にしています $_transcribing 件', style: k.text.small),
             ),
           ],
         ],

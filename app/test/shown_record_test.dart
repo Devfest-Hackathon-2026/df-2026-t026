@@ -187,7 +187,7 @@ void main() {
     expect(find.descendant(of: notes, matching: find.text('塩は小さじ1だよ')), findsOneWidget);
     expect(find.descendant(of: notes, matching: find.text('1/2で統一')), findsNothing);
     expect(find.descendant(of: notes, matching: find.text(_shownText)), findsNothing);
-    expect(find.text('記録した発言（2）'), findsOneWidget);
+    expect(find.text('記録した発言 2 件'), findsOneWidget);
   });
 
   testWidgets('履歴では、見せた版は見せた人と「…記録（1/2で統一）を見せた」で、店長の確認にしない', (tester) async {

@@ -382,7 +382,7 @@ class _ManualScreenState extends State<ManualScreen> {
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
               child: PageTitle(s.title, meta: [
-                if (s.sharedBy case final owner?) Text('${owner.name} から共有', style: k.text.small),
+                if (s.sharedBy case final owner?) Text('${owner.name}から共有', style: k.text.small),
                 Text('記録 ${s.said.length} 件', style: k.text.small),
                 Text('口頭で変わった行 $changed 行', style: k.text.small),
                 if (s.openChecks.isNotEmpty)
@@ -396,7 +396,7 @@ class _ManualScreenState extends State<ManualScreen> {
             if (s.lines.isEmpty && _editing == null)
               Padding(
                 padding: EdgeInsets.only(left: k.gutter, bottom: k.space.md),
-                child: Text('まだ白紙です。ここに直接書くか、入力ページで教わったことを記録すると書き足されます。', style: k.text.small),
+                child: Text('まだ白紙です。ここに直接書くか、入力ページで言われたことを記録すると書き足されます。', style: k.text.small),
               ),
             for (final (i, line) in s.lines.indexed) ...[
               if (_editing == (at: i, insert: false))
@@ -544,7 +544,7 @@ class _ManualScreenState extends State<ManualScreen> {
           after: confirmed.resolution!.verb,
           onTap: () => _openCheck(confirmed),
         ),
-      if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),
+      if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています…', style: k.text.small),
       for (final c in s.sameChecksFor(line))
         Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Speaker(
@@ -694,7 +694,7 @@ class _ManualScreenState extends State<ManualScreen> {
       if (withHeader)
         Padding(
           padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
-          child: Text('記録した発言（${s.said.length}）', style: k.text.title),
+          child: Text('記録した発言 ${s.said.length} 件', style: k.text.title),
         ),
       Expanded(
         child: entries.isEmpty
@@ -760,7 +760,7 @@ class _ManualScreenState extends State<ManualScreen> {
     final (bg, fg) = switch (status) {
       'あとで確認' => (c.pendingBg, c.pending),
       // 朱は確認印だけに使い、札を赤くしてエラーに見せない
-      '確認済み' || '反映済み' => (c.addedBg, c.added),
+      '確認済み' || '書き込み済み' => (c.addedBg, c.added),
       _ => (c.rule, c.ink),
     };
     return StatusTag(status, bg: bg, fg: fg);
@@ -768,13 +768,13 @@ class _ManualScreenState extends State<ManualScreen> {
 
   List<String> _statuses(ManualState s, Utterance u) {
     final patches = s.patchesOf(u.id);
-    if (patches.isEmpty) return ['差分なし'];
+    if (patches.isEmpty) return ['関係なし'];
     return patches.map((p) {
       final chk = s.checkOf(p.id);
       if (chk?.resolution != null) return '確認済み';
       if (chk?.isOpen ?? false) return 'あとで確認';
       if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
-      return switch (p.status) { 'applied' => '反映済み', 'discarded' => '反映しない', _ => '未反映' };
+      return switch (p.status) { 'applied' => '書き込み済み', 'discarded' => '書き込まない', _ => '未書き込み' };
     }).toList();
   }
 }
