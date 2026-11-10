@@ -177,15 +177,23 @@ class Api {
       ManualState.fromJson(await _send('POST', '/manuals/$manualId/patches/$id/apply', {'text': ?text}));
 
   /// ノートを直接編集する。op は insert（line の後ろ。null なら末尾）・replace・delete。
+  /// 発言と差分の ID はアプリが作って送る（先に画面へ出した編集と取り違えないため。ADR 0007）。
   /// 書き換える・消す行をほかの人が先に直していたら [EditConflict] を投げる（ADR 0016）
   Future<ManualState> edit(String manualId,
-      {required String op, String? line, String text = '', required String today}) async {
+      {required String op,
+      String? line,
+      String text = '',
+      required String today,
+      required String utteranceId,
+      required String patchId}) async {
     try {
       return ManualState.fromJson(await _send('POST', '/manuals/$manualId/edits', {
         'op': op,
         'line': line,
         'text': text,
         'today': today,
+        'utteranceId': utteranceId,
+        'patchId': patchId,
       }));
     } on ApiException catch (e) {
       if (e.body case {'conflict': final Map<String, dynamic> j}) throw EditConflict.fromJson(e.message, j);

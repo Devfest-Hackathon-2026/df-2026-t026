@@ -134,6 +134,8 @@ const EditUtterance =z.object({
   text: z.string().trim().min(1).optional(),
 });
 const ApplyPatch = z.object({ text: z.string().trim().min(1).optional() });
+// Firestore のドキュメント ID にそのまま使う。"/" や、予約された "__…__" にならないよう、英数字で始める
+const clientId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$/, 'ID は英数字・ハイフン・下線の16〜64文字にしてください');
 const Edit = z
   .object({
     op: z.enum(['insert', 'replace', 'delete']),
@@ -142,6 +144,9 @@ const Edit = z
     // 行頭の空白はマークダウンの入れ子なので残す（ADR 0009）
     text: z.string().overwrite((s) => s.trimEnd()).default(''),
     today: date.optional(),
+    /** アプリが作った発言と差分の ID。先に画面へ出した編集と、届いた編集を取り違えないため（ADR 0007）。省くとサーバーが作る */
+    utteranceId: clientId.optional(),
+    patchId: clientId.optional(),
   })
   .refine((b) => b.op === 'insert' || b.line !== null, '書き換える行を指定してください')
   .refine((b) => b.op === 'delete' || b.text, '行の中身を書いてください');
@@ -846,6 +851,10 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const manualId = c.req.param('id');
     const body = Edit.parse(await c.req.json());
     const s = await load(userId, manualId);
+    // put は上書きなので、今ある記録と同じ ID なら断る。断らないと、共有された人がほかの人の記録を書き換えられる
+    if (s.utterances.some((u) => u.id === body.utteranceId) || s.patches.some((p) => p.id === body.patchId)) {
+      throw new HTTPException(409, { message: '同じ ID の記録がもうあります。書き直してください' });
+    }
     // ほかの人が先に同じ行を直していたら、書き換え・削除は本人に選んでもらう。足す位置だけが変わったなら、だまって新しい位置に足す
     const conflict = body.line !== null && !s.lines.some((l) => l.text === body.line) ? conflictOf(s, userId, body.line) : null;
     if (conflict && body.op !== 'insert') {
@@ -853,7 +862,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     }
     const line = conflict ? (conflict.theirs ?? conflict.after) : body.line;
     const utterance: Utterance = {
-      id: randomUUID(),
+      id: body.utteranceId ?? randomUUID(),
       text: body.op === 'delete' ? `「${body.line}」を消した` : body.text,
       speaker: s.sharedBy ? await nameOf(userId) : SELF,
       saidAt: body.today ?? todayInJapan(),
@@ -863,7 +872,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       createdAt: now(),
     };
     const patch: Patch = {
-      id: randomUUID(),
+      id: body.patchId ?? randomUUID(),
       utteranceId: utterance.id,
       op: body.op,
       line,
