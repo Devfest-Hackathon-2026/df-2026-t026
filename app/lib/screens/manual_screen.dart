@@ -97,8 +97,12 @@ class _ManualScreenState extends State<ManualScreen> {
     if (e != null) WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
-  void _startEdit(int? at, {required bool insert}) =>
-      _setEditing((at: at, insert: insert), text: insert ? '' : c.state!.lines[at!].text);
+  /// at は描いたときの行の番号。store の最新は、欄を開いたことにしてから読み、土台に入れない。
+  /// 先に読むと、同じ描画の間に届いた状態が入って行がずれ、押した行と違う行の欄が開く
+  void _startEdit(int? at, {required bool insert}) {
+    c.editorOpen = true;
+    _setEditing((at: at, insert: insert), text: insert ? '' : c.state!.lines[at!].text);
+  }
 
   void _close() => _setEditing(null);
 

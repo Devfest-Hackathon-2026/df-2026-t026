@@ -617,6 +617,34 @@ void main() {
     expect(server.sent.single, allOf(containsPair('op', 'insert'), containsPair('text', '- 胡椒 少々')));
   });
 
+  testWidgets('ほかの人の編集で行がずれた状態が届いたのと同じ描画の間に行を押しても、押した行の欄を開き、その行を書き換える', (tester) async {
+    final server = _Server();
+    server.lines
+      ..clear()
+      ..addAll([
+        for (final t in ['- 一', '- 二', '- 三']) {'text': t, 'patchId': null},
+      ]);
+    final api = Api(client: server.client, baseUrl: 'http://api');
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+
+    // ほかの人が先頭に1行足した状態が store に届き、まだ描き直していない所で「二」を押す
+    server.othersAddFirst('- 零');
+    api.store.put(ManualState.fromJson(server.state));
+    await tester.tap(find.text('・二'));
+    await tester.pumpAndSettle();
+    expect(_draft(tester), '- 二');
+
+    await tester.enterText(find.byType(EditableText), '- 二つ');
+    await tester.tap(find.bySemanticsLabel('保存する'));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(server.sent.single, allOf(containsPair('op', 'replace'), containsPair('line', '- 二'), containsPair('text', '- 二つ')));
+    expect(_shownLines(tester), ['・零', '・一', '・二つ', '・三']);
+  });
+
   testWidgets('欄を開いたまま、ほかの人の編集で行がずれた応答を取っておいた所で別の行を押しても、押した行の欄を開く', (tester) async {
     final server = await _pump(tester);
     server.before = () => server.othersAddFirst('- 手を洗う');
