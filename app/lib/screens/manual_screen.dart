@@ -93,8 +93,12 @@ class _ManualScreenState extends State<ManualScreen> {
     if (e != null) WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
-  void _startEdit(int? at, {required bool insert}) =>
-      _setEditing((at: at, insert: insert), text: insert ? '' : c.state!.lines[at!].text);
+  /// at は描いたときの行の番号。store の最新は、欄を開いたことにしてから読み、土台に入れない。
+  /// 先に読むと、同じ描画の間に届いた状態が入って行がずれ、押した行と違う行の欄が開く
+  void _startEdit(int? at, {required bool insert}) {
+    c.editorOpen = true;
+    _setEditing((at: at, insert: insert), text: insert ? '' : c.state!.lines[at!].text);
+  }
 
   void _close() => _setEditing(null);
 
@@ -151,12 +155,17 @@ class _ManualScreenState extends State<ManualScreen> {
       return;
     }
     final failed = '保存できませんでした（${f.error}）。直した ${f.count} 行を元に戻しました';
+    // ほかの画面（確認リスト・履歴・資料・ダイアログ）が上に開いていれば、欄を開かず知らせるだけにする。
+    // 隠れた欄を開くと、閉じるまで store の状態が上の画面に入らず、上の画面で打った文字がその欄に入るおそれもある
+    if (ModalRoute.isCurrentOf(context) != true) return showError(context, '$failed。書き直してください');
     if (_editing case final e?) {
       // 書いている欄の文面はそのまま。戻した行の分だけ番号がずれるので、同じ行に合わせ直す
       _setEditing(_remap(e, f.shown, s.lines));
       showError(context, '$failed。書き直してください');
       return;
     }
+    // 消されたノートには書けないので、欄を開き直さない
+    if (c.gone) return showError(context, failed);
     // 欄を閉じていれば、届かなかった行の文面をその場所の欄に入れ直す
     final at = p.line == null ? null : s.lines.indexWhere((l) => l.text == p.line);
     if (p.op == 'delete' || at == -1) return showError(context, '$failed。書き直してください');
@@ -263,7 +272,8 @@ class _ManualScreenState extends State<ManualScreen> {
     return ListenableBuilder(
       listenable: c,
       builder: (context, _) {
-        final s = c.state;
+        // 消された・共有を外されたノートは、古い内容を出さずに「見つかりません」を出す。書いている欄は閉じるまで残す
+        final s = c.gone && _editing == null ? null : c.state;
         final open = s?.openChecks.length ?? 0;
         if (s != null && _toFound) {
           _toFound = false;

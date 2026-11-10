@@ -248,6 +248,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
    * 書き込むときは userId ではなく、返した owner の下に書く
    */
   async function load(userId: string, manualId: string) {
+    const asOf = now();
     let owner = userId;
     let manual = await store.getManual(userId, manualId);
     if (!manual) {
@@ -289,6 +290,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       me: userId,
       /** 共有されたノートなら持ち主。自分のノートなら null */
       sharedBy: ownerName === null ? null : { id: owner, name: ownerName },
+      /**
+       * 読み始める前の時刻（ISO 8601）。これより前に済んだ書き込みはすべて入っている。
+       * 応答の届く順は入れ替わるので、アプリは今持っている状態より古い asOf の状態を入れない（ADR 0021）
+       */
+      asOf,
     };
   }
 
@@ -1011,13 +1017,21 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       replaced = old;
     }
     // 確かめを省いたときは確認を残さず、今の状態を返す。アプリは確認が無ければ食い違いなしとして扱う（設計書 0021 §4.4）
-    // 印や前後の空白だけを変えた書き換えは、主張が変わらないので確かめ直さない。ただし次のときは確かめる。
-    // 見出しを項目にした（新しい主張）。前の行に確認待ちの食い違いが付いている（省くと確定で2行をまとめられない）。
-    // 前の行の確かめが同じ内容だった（その確かめがこの書き換えの後に走ると、書き換えた後の行を指して済ませている）
+    // 印や前後の空白だけを変えた書き換えは、主張が変わらないので確かめ直さない。ただし省くのは、前の行が直接編集で、
+    // その確かめの結果（確認）が残っているときだけ。作ったときの本文の行・口頭の記録の行・確かめが失敗したか確かめる前に
+    // 閉じた編集の行は、まだ直接編集として確かめていないので、ここで確かめないと二度と確かめられない。
+    // それでも次のときは確かめる。見出しを項目にした（新しい主張）。前の行に確認待ちの食い違いが付いている（省くと確定で
+    // 2行をまとめられない）。前の行の確かめが同じ内容だった（その確かめがこの書き換えの後に走ると、書き換えた後の行を指して済ませている）
     const plain = (line: string) => unmark(line).trim();
     const open = (x: Check) => x.kind === 'contradiction' && !x.resolution;
+    const prev = replaced?.patchId ? s.patches.find((x) => x.id === replaced.patchId) : undefined;
+    const prevChecked =
+      prev !== undefined &&
+      s.utterances.some((x) => x.id === prev.utteranceId && x.fromEdit) &&
+      s.checks.some((x) => x.patchId === prev.id);
     if (
       replaced &&
+      prevChecked &&
       isItem(replaced.text) &&
       plain(replaced.text) === plain(p.text) &&
       !s.checks.some((x) => (x.patchId === replaced.patchId && (open(x) || x.kind === 'same')) || (open(x) && x.conflictLine === replaced.text))

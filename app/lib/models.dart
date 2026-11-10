@@ -368,7 +368,8 @@ class ManualState {
         checks = [for (final c in j['checks']) Check.fromJson(c)],
         owner = j['owner'],
         me = j['me'],
-        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
+        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']),
+        asOf = j['asOf'];
 
   ManualState._from(
     ManualState s, {
@@ -382,7 +383,8 @@ class ManualState {
         createdAt = s.createdAt,
         owner = s.owner,
         me = s.me,
-        sharedBy = s.sharedBy;
+        sharedBy = s.sharedBy,
+        asOf = s.asOf;
 
   /// 行・記録・差分・確認を差し替えた写し。サーバーの応答の前に、手元の編集を重ねて見せるときに使う
   ManualState copyWith({
@@ -408,6 +410,10 @@ class ManualState {
   /// ノートの持ち主と、読んでいる自分のログイン ID
   final String owner;
   final String me;
+
+  /// サーバーがこの状態を読み始める前の時刻（ISO 8601）。store は、今持っている状態より古いものを入れない（ADR 0021）。
+  /// 古いサーバーは付けない
+  final String? asOf;
 
   /// 記録を直す・書き込むかを決められるのは、記録した本人だけ。前からある記録は、共有された人の直接の編集ならその人、
   /// それ以外は持ち主の記録とみなす（ADR 0018）

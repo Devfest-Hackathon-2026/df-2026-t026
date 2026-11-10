@@ -66,7 +66,7 @@ test('自分・全部のノートの状態・未整理メモを1本で返す。�
   assert.deepEqual(ids, [...own, ...shared]);
 
   // 1冊ずつの形は GET /manuals/:id と同じ。共有されたノートには持ち主が付く
-  for (const n of json.notes) assert.deepEqual(n, (await callAs('sato', 'GET', `/manuals/${n.manual.id}`)).json);
+  for (const n of json.notes) assert.deepEqual({ ...(await callAs('sato', 'GET', `/manuals/${n.manual.id}`)).json, asOf: n.asOf }, n);
   assert.deepEqual(
     json.notes.map((n: any) => n.sharedBy),
     [null, null, { id: 'demo', name: 'demo' }, { id: 'demo', name: 'demo' }],

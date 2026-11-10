@@ -74,7 +74,7 @@ test('白紙のノートの最初の行は確かめず、確認を残さずに�
   assert.equal(inputs.length, 0);
   assert.equal(first.status, 200);
   assert.equal(first.check, undefined);
-  assert.deepEqual(first.state, (await call('GET', `/manuals/${id}`)).json);
+  assert.deepEqual({ ...(await call('GET', `/manuals/${id}`)).json, asOf: first.state.asOf }, first.state);
 
   // 同じ差分にもう一度呼んでも、確かめずに今の状態を返す
   const again = await call('POST', `/manuals/${id}/patches/${first.patch.id}/check`);
@@ -119,28 +119,62 @@ test('確定済みの記録があれば、項目の行が無いノートでも�
   assert.equal(inputs[1].confirmations.length, 1);
 });
 
-test('印や前後の空白だけを変えた書き換えは確かめず、文が変わる書き換えは確かめる', async () => {
-  const marked = await write('demo-kitchen', { op: 'replace', line: '- 塩 小さじ1', text: '* 塩 小さじ1' });
+test('確かめた直接編集の行は、印や前後の空白だけを変えた書き換えなら確かめず、文が変わる書き換えは確かめる', async () => {
+  for (const text of ['- 粗塩でもよい', '- 鍋は弱火にかける', '  - 器は温めておく']) {
+    await write('demo-kitchen', { op: 'insert', line: null, text });
+  }
+  assert.equal(inputs.length, 3);
+  const marked = await write('demo-kitchen', { op: 'replace', line: '- 粗塩でもよい', text: '* 粗塩でもよい' });
   assert.equal(marked.status, 200);
   assert.equal(marked.check, undefined);
-  await write('demo-kitchen', { op: 'replace', line: '- 炊けたら10分蒸らす', text: '  - 炊けたら10分蒸らす' });
-  await write('demo-kitchen', { op: 'replace', line: '- 大盛りは250gまで', text: '1. 大盛りは250gまで' });
-  assert.equal(inputs.length, 0);
-
+  await write('demo-kitchen', { op: 'replace', line: '- 鍋は弱火にかける', text: '1. 鍋は弱火にかける' });
   // 行頭の空白を減らす
-  await write('demo-kitchen', { op: 'insert', line: '* 塩 小さじ1', text: '  - 粗塩でもよい' });
-  assert.equal(inputs.length, 1);
-  await write('demo-kitchen', { op: 'replace', line: '  - 粗塩でもよい', text: '- 粗塩でもよい' });
-  assert.equal(inputs.length, 1);
+  await write('demo-kitchen', { op: 'replace', line: '  - 器は温めておく', text: '- 器は温めておく' });
+  assert.equal(inputs.length, 3);
 
-  const changed = await write('demo-kitchen', { op: 'replace', line: '* 塩 小さじ1', text: '* 塩 小さじ2' });
-  assert.equal(inputs.length, 2);
+  await write('demo-kitchen', { op: 'insert', line: null, text: '- 醤油は薄口' });
+  const changed = await write('demo-kitchen', { op: 'replace', line: '- 醤油は薄口', text: '- 醤油は濃口' });
+  assert.equal(inputs.length, 5);
   assert.ok(changed.check);
 });
 
-test('見出しを同じ文の項目にした書き換えは、新しい主張なので確かめる', async () => {
-  const { check } = await write('demo-kitchen', { op: 'replace', line: '## ご飯', text: '- ご飯' });
+test('作ったときの本文の行や、口頭の記録で入った行は、まだ直接編集として確かめていないので、印だけ変えても確かめる', async () => {
+  await write('demo-kitchen', { op: 'replace', line: '- 塩 小さじ1', text: '* 塩 小さじ1' });
   assert.equal(inputs.length, 1);
+
+  const recorded = await call('POST', '/manuals/demo-kitchen/utterances', { text: '田中さんから、だしは煮干しと言われた', today: '2026-11-10' });
+  assert.equal(recorded.status, 201);
+  const p = recorded.json.state.patches.find((x: any) => x.utteranceId === recorded.json.utteranceId);
+  assert.ok(recorded.json.state.checks.some((x: any) => x.patchId === p.id));
+  assert.equal((await call('POST', `/manuals/demo-kitchen/patches/${p.id}/apply`, {})).status, 200);
+  assert.equal(p.text, '- だしは煮干し');
+  await write('demo-kitchen', { op: 'replace', line: '- だしは煮干し', text: '* だしは煮干し' });
+  assert.equal(inputs.length, 2);
+});
+
+test('確かめる前に閉じた編集や、確かめが失敗した編集の行は、印だけ変えても確かめる', async () => {
+  // 確かめを呼ばなかった（確かめる前にタブを閉じた）
+  await edit('demo-kitchen', { op: 'insert', line: null, text: '- 粗塩でもよい' });
+  await write('demo-kitchen', { op: 'replace', line: '- 粗塩でもよい', text: '* 粗塩でもよい' });
+  assert.equal(inputs.length, 1);
+
+  // 確かめが失敗した
+  respond = async () => {
+    throw new Error('混んでいます');
+  };
+  const failed = await write('demo-kitchen', { op: 'insert', line: null, text: '- 鍋は弱火にかける' });
+  assert.equal(failed.status, 500);
+  respond = fakeCheckPatch;
+  const { check } = await write('demo-kitchen', { op: 'replace', line: '- 鍋は弱火にかける', text: '* 鍋は弱火にかける' });
+  assert.equal(inputs.length, 3);
+  assert.ok(check);
+});
+
+test('見出しを同じ文の項目にした書き換えは、新しい主張なので、前の見出しを確かめてあっても確かめる', async () => {
+  await write('demo-kitchen', { op: 'insert', line: null, text: '## 汁物' });
+  assert.equal(inputs.length, 1);
+  const { check } = await write('demo-kitchen', { op: 'replace', line: '## 汁物', text: '- 汁物' });
+  assert.equal(inputs.length, 2);
   assert.ok(check);
 });
 
@@ -151,9 +185,12 @@ test('まだ確認していない食い違いが付いた行は、印だけ変�
   await write('demo-kitchen', { op: 'replace', line: '- 塩 小さじ2', text: '* 塩 小さじ2' });
   assert.equal(inputs.length, 2);
 
-  // 食い違いの相手になっている行
-  await write('demo-kitchen', { op: 'replace', line: '- 塩 小さじ1', text: '* 塩 小さじ1' });
-  assert.equal(inputs.length, 3);
+  // 食い違いの相手になっている行（確かめた直接編集の行）
+  await write('demo-kitchen', { op: 'insert', line: null, text: '- 醤油 大さじ1' });
+  const rival = await write('demo-kitchen', { op: 'insert', line: null, text: '- 醤油 大さじ2' });
+  assert.deepEqual([rival.check.kind, rival.check.conflictLine], ['contradiction', '- 醤油 大さじ1']);
+  await write('demo-kitchen', { op: 'replace', line: '- 醤油 大さじ1', text: '* 醤油 大さじ1' });
+  assert.equal(inputs.length, 5);
 });
 
 test('前の行の確かめが書き換えの後に走って同じ内容になったときは、印だけ変えても確かめる', async () => {

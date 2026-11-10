@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:diff_note/api.dart';
 import 'package:diff_note/manual_controller.dart';
+import 'package:diff_note/models.dart';
 import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
@@ -50,6 +51,9 @@ class _Server {
   /// あれば、直接編集はこれが済むまで書き込まず、返さない
   Completer<void>? editGate;
 
+  /// あれば、直接編集は書き込んでから、これが済むまで返さない。返す状態は書き込んだ時点のもの
+  Completer<void>? replyGate;
+
   /// 消された（GET /manuals/:id が 404 になる）ノート
   final gone = <String>{};
 
@@ -71,8 +75,10 @@ class _Server {
     (n['lines'] as List).insert(0, {'text': text, 'patchId': 'po$at'});
   }
 
-  /// 応答ごとに写しを返す。返した後にサーバーの中身が変わっても、前の応答は変わらない
-  Map<String, dynamic> _copy(String id) => jsonDecode(jsonEncode(notes[id]));
+  /// 応答ごとに写しを返す。返した後にサーバーの中身が変わっても、前の応答は変わらない。読んだ順に asOf を付ける
+  Map<String, dynamic> _copy(String id) =>
+      {...jsonDecode(jsonEncode(notes[id])), 'asOf': '2026-11-10T01:00:00.${(_reads++).toString().padLeft(3, '0')}Z'};
+  var _reads = 0;
 
   Future<http.Response> _handle(http.Request req) async {
     final path = req.url.path;
@@ -80,15 +86,15 @@ class _Server {
     if (path == '/home') return _json(homeJson([for (final id in notes.keys) _copy(id)]));
     final id = req.url.pathSegments.length > 1 ? req.url.pathSegments[1] : '';
     if (req.method == 'GET' && path == '/manuals/$id') {
-      if (gone.contains(id)) return _json({'error': 'ノートが見つかりません'}, 404);
-      final read = _copy(id);
+      final read = gone.contains(id) ? null : _copy(id);
       await noteGate?.future;
-      return _json(read);
+      return read == null ? _json({'error': 'ノートが見つかりません'}, 404) : _json(read);
     }
     if (path == '/manuals/$id/edits') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       edits.add(body);
       await editGate?.future;
+      if (gone.contains(id)) return _json({'error': 'ノートが見つかりません'}, 404);
       final n = notes[id]!;
       final at = _at();
       final lines = n['lines'] as List;
@@ -104,7 +110,9 @@ class _Server {
         case 'delete':
           lines.removeAt(i);
       }
-      return _json(_copy(id), 201);
+      final read = _copy(id);
+      await replyGate?.future;
+      return _json(read, 201);
     }
     if (path.endsWith('/check')) {
       final pid = req.url.pathSegments[3];
@@ -367,6 +375,91 @@ void main() {
     expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
   });
 
+  test('サーバーが編集→確定の順に済ませたのに、編集の応答が後から届いても、確定を古い状態で戻さない', () async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    final c = ManualController(server.api, 'm1');
+    await c.load();
+    server.replyGate = Completer();
+    final edit = c.edit('insert', text: '- 醤油 大さじ1');
+    await Future<void>.delayed(Duration.zero);
+    expect(server.notes['m1']!['lines'], hasLength(2), reason: 'サーバーは編集を書き込んだ');
+
+    await c.resolve('m1-c0', decidedBy: '店長', decidedAt: '2026-11-10', text: _salt, note: 'そのまま');
+    server.replyGate!.complete();
+    expect(await edit.saved, isTrue);
+    expect(server.api.store.note('m1')!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
+  });
+
+  test('ノートを消したあとに届いた書き込みの応答や読み直しでは、store にノートを戻さない。戻すのは GET /home が返したときだけ', () async {
+    final server = _Server();
+    final store = server.api.store;
+    await store.load();
+    // 消す前に読んだ、書き込みの応答
+    final late = ManualState.fromJson(server._copy('m1'));
+    server.noteGate = Completer();
+    final reading = store.refresh('m1');
+    await Future<void>.delayed(Duration.zero);
+
+    store.remove('m1');
+    store.put(late);
+    expect(store.note('m1'), isNull);
+    server.noteGate!.complete();
+    await reading;
+    expect(store.note('m1'), isNull);
+    // 消したあとに読み始めた1冊の読み直しが返しても（共有され直した）、戻さない
+    server.noteGate = null;
+    await store.refresh('m1');
+    expect(store.note('m1'), isNull);
+
+    // GET /home が返せば、また入れ、そのあとの書き込みの応答も入れる
+    await store.load();
+    expect(store.note('m1'), isNotNull);
+    server.othersAddFirst('m1', '- 手を洗う');
+    store.put(ManualState.fromJson(server._copy('m1')));
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+  });
+
+  test('読み直している間に、もっとあとに読んだ状態が入っていたら、読み直しの古い応答で戻さない', () async {
+    final server = _Server();
+    final store = server.api.store;
+    await store.load();
+    server.noteGate = Completer();
+    final reading = store.refresh('m1');
+    await Future<void>.delayed(Duration.zero);
+    expect(server.requests.last, 'GET /manuals/m1');
+
+    // 読み直しが返る前に、ほかの人が1行足し、アプリに戻ってきて GET /home で読んだ
+    server.othersAddFirst('m1', '- 手を洗う');
+    await store.load();
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+    server.noteGate!.complete();
+    await reading;
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+  });
+
+  test('確かめの確認を足した写しにも読んだ時刻を引き継ぎ、それより前に読んだ状態は入れない。読んだ時刻の無い状態は入れる', () {
+    final store = _Server().api.store;
+    ManualState read(String? asOf, List<String> lines) =>
+        ManualState.fromJson({...noteJson('m1', 'キッチン', lines: lines, open: 1), 'asOf': asOf});
+    store.put(read('2026-11-10T00:00:00.002Z', [_salt]));
+    store.addCheck('m1', Check.fromJson({'id': 'c-new', 'patchId': 'm1-p0', 'utteranceId': 'm1-e0', 'kind': 'addition', 'conflictLine': null, 'reason': '追記', 'resolution': null}));
+    expect(store.note('m1')!.asOf, '2026-11-10T00:00:00.002Z');
+
+    store.put(read('2026-11-10T00:00:00.001Z', [_salt, '- 古い行']));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_salt]);
+    expect(store.note('m1')!.checks.map((x) => x.id), ['m1-c0', 'c-new']);
+
+    // 同じ時刻なら入れる
+    store.put(read('2026-11-10T00:00:00.002Z', [_salt, _pepper]));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_salt, _pepper]);
+    // 古いサーバーの応答は今までどおり入れる
+    store.put(read(null, [_pepper]));
+    expect(store.note('m1')!.lines.map((l) => l.text), [_pepper]);
+  });
+
   testWidgets('開いたノートが消されていたら、古い内容を出さずに「見つかりません」を出し、サイドバーからも外す', (tester) async {
     final server = _Server();
     await _pumpInput(tester, server);
@@ -377,6 +470,93 @@ void main() {
     expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
     expect(_shownLines(tester), isEmpty);
     expect(_sidebarItem('キッチン'), findsNothing);
+  });
+
+  testWidgets('開いた直後の裏の読み直しが「見つかりません」でも、上に開いた確認リストは今の状態のまま出し、ノートに戻ると知らせる', (tester) async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // 入力ページを開いたあとと同じく、store にもう読んである
+    await server.api.store.load();
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    final nav = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), navigatorKey: nav, home: const SizedBox()));
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => ManualScreen(api: server.api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+    expect(_shownLines(tester), ['・塩 小さじ1']);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+    await tester.pumpAndSettle();
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(CheckListScreen), findsOneWidget);
+    expect(find.text('あとで確認（1）'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+    expect(_sidebarItem('キッチン'), findsNothing);
+
+    // 共有され直していても、「もう一度読み込む」では古い中身を出さない（次の GET /home で出る）
+    server.gone.remove('m1');
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'もう一度読み込む'));
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+  });
+
+  testWidgets('書いている欄を開いている間に「見つかりません」が届いたら、欄は残し、閉じてから知らせる', (tester) async {
+    final server = _Server();
+    await _pumpInput(tester, server);
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    await _openFromSidebar(tester, 'キッチン');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('・胡椒 少々'));
+    await tester.pumpAndSettle();
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MoonTextInput, _pepper), findsOneWidget);
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+  });
+
+  testWidgets('送っている編集があるときに「見つかりません」が届いても知らせ、その編集が届かなくても欄を開き直さない', (tester) async {
+    final server = _Server();
+    await _pumpInput(tester, server);
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    server.editGate = Completer();
+    await _openFromSidebar(tester, 'キッチン');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 醤油 大さじ1');
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('保存する'));
+    await tester.pump();
+    expect(_shownLines(tester), ['・塩 小さじ1', '・胡椒 少々', '・醤油 大さじ1']);
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+
+    server.editGate!.complete();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('保存できませんでした（ノートが見つかりません）。直した 1 行を元に戻しました'), findsOneWidget);
+    expect(find.byType(EditableText), findsNothing);
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
   testWidgets('画面を閉じれば、閉じずに捨てたコントローラー（入力ページから開いた確認リスト）も store に残らない', (tester) async {
