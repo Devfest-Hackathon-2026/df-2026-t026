@@ -582,7 +582,8 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
     // 共有した相手が行を直した記録も、細い札で時刻の順に混ぜる。持ち主の直しは本人の文なので出さない（ADR 0020）
-    final entries = s.utterances.where((u) => !u.fromEdit || u.editedBy != null).toList();
+    final said = s.said.toSet();
+    final entries = s.utterances.where((u) => said.contains(u) || (u.fromEdit && u.editedBy != null)).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (withHeader)
         Padding(
@@ -649,18 +650,14 @@ class _ManualScreenState extends State<ManualScreen> {
     final c = context.tokens.colors;
     final (bg, fg) = switch (status) {
       'あとで確認' => (c.pendingBg, c.pending),
-      // 確認の答え・記録を見せたも確認で決まった記録。朱は確認印だけに使い、札を赤くしてエラーに見せない
-      '確認済み' || '反映済み' || '確認の答え' || '記録を見せた' => (c.addedBg, c.added),
+      // 朱は確認印だけに使い、札を赤くしてエラーに見せない
+      '確認済み' || '反映済み' => (c.addedBg, c.added),
       _ => (c.rule, c.ink),
     };
     return StatusTag(status, bg: bg, fg: fg);
   }
 
   List<String> _statuses(ManualState s, Utterance u) {
-    // 記録を見せて済ませた確定の発言は、見せた人の行いで、確認の答えではない（#118）
-    if (s.resolvedChecks.where((c) => c.resolution!.utteranceId == u.id).firstOrNull case final c?) {
-      return [c.isDecision ? '確認の答え' : '記録を見せた'];
-    }
     final patches = s.patchesOf(u.id);
     if (patches.isEmpty) return ['差分なし'];
     return patches.map((p) {

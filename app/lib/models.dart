@@ -413,8 +413,10 @@ class ManualState {
 
   Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
 
-  /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
-  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
+  /// 口頭で言われた記録。直接編集の記録と、確定のときに残した答え（記録を見せた答えも）は付箋や記録の数に入れない。
+  /// 答えは確認リストと行の確認印で見せる
+  List<Utterance> get said =>
+      utterances.where((u) => !u.fromEdit && !checks.any((c) => c.resolution?.utteranceId == u.id)).toList();
   Patch patch(String id) => patches.firstWhere((p) => p.id == id);
   Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
   List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();
