@@ -6,7 +6,7 @@
 cd api
 pnpm eval                 # Gemini（Vertex AI）で回す。GOOGLE_CLOUD_PROJECT と ADC が必要
 pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだけ確かめる（数字に意味はない）
-pnpm eval -- --only plain       # 資料なしの cases.json（18件）だけ
+pnpm eval -- --only plain       # 資料なしの cases.json（20件）だけ
 pnpm eval -- --only materials   # 資料つきの material-cases.json（24件）だけ
 pnpm eval -- --check      # 直接編集の確かめ（check）で回す。発言を1行の追記として渡し、待ち時間を見る
 ```
@@ -100,6 +100,8 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 | supplement（補足） | `addition` | 4 |
 | same（同じ） | `same` | 2 |
 | update（更新） | 入れていない（読み替えが分かれるため。[#10](https://github.com/df-dev-kuma/diff-note/issues/10)） | 6 |
+
+あとから、仕様の「UUID を使うなと言う先輩と、こだわらない先輩」の板挟み（PC の前で働く人）を `c07`・`c08` として足した（どちらも `contradiction`）。
 
 ## 資料つきのケース（`material-cases.json`・`materials/`）
 
