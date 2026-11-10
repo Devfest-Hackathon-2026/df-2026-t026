@@ -42,3 +42,8 @@ flutter:
         - asset: fonts/BIZUDPGothic-Regular.ttf
         - asset: fonts/BIZUDPGothic-Bold.ttf
           weight: 700
+  # パッケージの LICENSE に入っていない表示を、ビルドの assets/NOTICES に足す。
+  # Lucide 本体は ISC で、写しに著作権表示と許諾文が要るが、lucide_icons_flutter は自分の MIT しか持たない
+  licenses:
+    - licenses/lucide.txt
+    - fonts/BIZUDPGothic-OFL.txt

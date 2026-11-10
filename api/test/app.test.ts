@@ -10,7 +10,7 @@ import type { CheckInput } from '../src/conflict/check.ts';
 import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, fakeListen, fakeReadMaterial, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { toGeminiSchema, type InlineFile } from '../src/gemini.ts';
 import type { ReadMaterial } from '../src/material.ts';
-import { seed, seedCheckRequest, seedWithHistory } from '../src/seed.ts';
+import { seed, seedCheckRequest, seedPreset, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
 let app: ReturnType<typeof createApp>;
@@ -1044,6 +1044,42 @@ test('ローカル起動のデモ：新人のノートが demo に共有され�
   // 2回目の起動では積み直さない
   await seedCheckRequest(store, 'kim', 'demo');
   assert.equal((await call('GET', '/shared')).json.length, 1);
+});
+
+test('審査員用の見本：新人はノート3冊・あとで確認2件・見ていない通知2件・未整理メモ3件から始まり、教える人が答えると通知が増える', async () => {
+  const store = new MemoryStore();
+  await seedPreset(store, 'aoi', 'boss', { pages: [{ page: 1, text: '- とんかつは、170度の油で5分揚げる' }], tokens: 10 });
+  for (const id of ['aoi', 'boss']) await store.putSession({ id: sessionIdOf(`${id}-token`), userId: id, createdAt: '' });
+  app = createApp({ store, ...ai });
+
+  const home = (await callAs('aoi', 'GET', '/home')).json;
+  assert.equal(home.me.name, 'あおい');
+  const open = (s: any) => s.checks.filter((c: any) => c.kind === 'contradiction' && !c.resolution).map((c: any) => c.conflictLine);
+  assert.deepEqual(
+    home.notes.map((s: any) => [s.manual.title, open(s)]),
+    [
+      ['閉店作業メモ', ['- 床はモップで水拭きする']],
+      ['ホール接客マニュアル（定食屋 みのり）', []],
+      ['キッチンマニュアル（定食屋 みのり）', ['- ガスの元栓を閉めて写真を撮る']],
+    ],
+  );
+  // 教える人が直した行は反映され、ノートのままと答えた行は変わらない
+  const closing = home.notes[0].lines.map((l: any) => l.text);
+  assert.ok(closing.includes('- ガスの元栓を閉めて写真を撮り、店のグループに送る'));
+  assert.ok(closing.includes('- レジ締めは社員がやる'));
+  assert.deepEqual(
+    home.notices.items.map((x: any) => [x.kind, x.by.name, x.at > home.notices.seenAt]),
+    [['edit', '店長', true], ['answer', '店長', true]],
+  );
+  assert.equal(home.memos.length, 3);
+  const materials = (await callAs('aoi', 'GET', '/manuals/demo-kitchen/materials')).json;
+  assert.deepEqual(materials.map((m: any) => [m.title, m.pageCount, m.addedBy.name]), [['店舗マニュアル', 1, 'あおい']]);
+
+  const shared = (await callAs('boss', 'GET', '/shared')).json;
+  assert.deepEqual(shared.map((x: any) => [x.title, x.sharedBy.name, x.openCount]), [['閉店作業メモ', 'あおい', 1]]);
+  const answered = await callAs('boss', 'POST', '/manuals/demo-closing/checks/demo-c-c2/resolve', { decidedAt: '2026-11-10', text: '- 床はモップで水拭きする', note: '水拭きのまま' });
+  assert.equal(answered.status, 200);
+  assert.equal((await callAs('aoi', 'GET', '/notices')).json.items.length, 3);
 });
 
 /** 資料の読み取りなどを差し替えて、アプリを作り直す */

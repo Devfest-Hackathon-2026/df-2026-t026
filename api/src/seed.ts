@@ -1,5 +1,6 @@
 import type { Check } from './conflict/check.ts';
 import type { Manual, Patch, Utterance } from './foundation/manual.ts';
+import type { Material } from './material.ts';
 import type { Store } from './store.ts';
 
 /** デモ用のマニュアル。登場人物・店はすべて架空 */
@@ -298,4 +299,95 @@ export async function seedCheckRequest(store: Store, owner: string, to: string):
       }),
     );
   }
+}
+
+/**
+ * 審査員が本番で確かめるための見本（docs/mock-data/restaurant.md）を、新人（owner）と教える人（teacher）に入れる。
+ * 手元の見本と違い、本番のアカウントに入れる。空の ID に1回だけ使う（scripts/seed-preset.ts が確かめる）
+ *
+ * @param manual 資料「店舗マニュアル」の本文とトークン数
+ */
+export async function seedPreset(store: Store, owner: string, teacher: string, manual: Pick<Material, 'pages' | 'tokens'>): Promise<void> {
+  const me = { id: owner, name: 'あおい' };
+  const boss = { id: teacher, name: '店長' };
+  await store.putProfile(owner, { name: me.name, icon: null });
+  await store.putProfile(teacher, { name: boss.name, icon: null });
+
+  // ノート A・B は手元の見本と同じ。A には資料を1冊足す
+  await seedWithHistory(store, owner);
+  await store.put<Material>(owner, 'demo-kitchen', 'materials', { id: 'demo-store-manual', title: '店舗マニュアル', ...manual, addedBy: me, createdAt: at(8, '01:00') });
+
+  // ノート C：教える人に共有し、教える人が答えた確認・直した行・まだ答えていない確認を1つずつ置く
+  const id = 'demo-closing';
+  await store.putManual(owner, {
+    id,
+    title: '閉店作業メモ',
+    base: `## 閉店作業
+- レジ締めは社員がやる
+- ガスの元栓を閉めて写真を撮る
+- 床はモップで水拭きする`,
+    createdAt: at(8, '00:00'),
+  });
+  await store.put(owner, id, 'shares', { id: teacher, createdAt: at(8, '00:10') });
+  await store.putShared(teacher, { id, ownerId: owner, createdAt: at(8, '00:10') });
+
+  const c1 = { ...said('demo-c-u1', 9, '09:00', '鈴木さん', 'レジ締めはアルバイトがやってもいいよ'), recordedBy: me };
+  const c1p = patch('demo-c-p1', c1, {
+    op: 'replace',
+    line: '- レジ締めは社員がやる',
+    text: '- レジ締めはアルバイトもやる',
+    summary: 'レジ締め: 社員 → アルバイトも',
+    status: 'discarded',
+    appliedAt: null,
+  });
+  const c1a = { ...said('demo-c-a1', 9, '12:00', boss.name, 'お金を扱うので、レジ締めは社員がやるまま'), recordedBy: boss };
+  const c2 = { ...said('demo-c-u2', 10, '01:00', '佐藤さん', '床は乾拭きだけでいいよ。水拭きは週末だけ'), recordedBy: me };
+  const c2p = patch('demo-c-p2', c2, {
+    op: 'replace',
+    line: '- 床はモップで水拭きする',
+    text: '- 床は乾拭きする（水拭きは週末だけ）',
+    summary: '床: 水拭き → 乾拭き（週末は水拭き）',
+    status: 'proposed',
+    appliedAt: null,
+  });
+  const c3 = { ...said('demo-c-u3', 10, '02:00', boss.name, '- ガスの元栓を閉めて写真を撮り、店のグループに送る', true), editedBy: teacher, recordedBy: boss };
+  const c3p = patch('demo-c-p3', c3, {
+    op: 'replace',
+    line: '- ガスの元栓を閉めて写真を撮る',
+    text: c3.text,
+    summary: '書き換え',
+    status: 'applied',
+    appliedAt: c3.createdAt,
+  });
+  const ask = (line: string, who: { who: string; why: string }, question: string) => ({
+    kind: 'contradiction' as const,
+    conflictLine: line,
+    sameLine: null,
+    reason: `ノートの「${line.slice(2)}」と両立しません`,
+    ask: { candidates: [{ who: '店長', why: 'お店のやり方を決める立場だから' }, who], question },
+    materialRef: null,
+  });
+  const checks = [
+    check(
+      'demo-c-c1',
+      c1p,
+      ask(c1p.line!, { who: '鈴木さん', why: 'アルバイトでもいいと言った本人だから' }, 'レジ締めは社員がやると教わっていたのですが、アルバイトでもいいとも聞きました。どちらに合わせればよいですか？'),
+      { utteranceId: c1a.id, patchId: null, decidedBy: boss.name, answeredBy: teacher, decidedAt: c1a.saidAt, text: c1p.line!, note: c1a.text },
+    ),
+    check(
+      'demo-c-c2',
+      c2p,
+      ask(c2p.line!, { who: '佐藤さん', why: '乾拭きでいいと言った本人だから' }, '床はモップで水拭きすると教わっていたのですが、乾拭きだけでいいとも聞きました。どちらに合わせればよいですか？'),
+    ),
+    check('demo-c-c3', c3p, { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null, materialRef: null }),
+  ];
+  for (const u of [c1, c1a, c2, c3]) await store.put(owner, id, 'utterances', u);
+  for (const p of [c1p, c2p, c3p]) await store.put(owner, id, 'patches', p);
+  for (const c of checks) await store.put(owner, id, 'checks', c);
+  // 教える人の答え（c1a）と直した行（c3）より前。入ると通知が2件ある
+  await store.putNoticesSeenAt(owner, at(9, '09:30'));
+
+  // マイクが使えない会場でも、リワインドの流れを見せるための未整理メモ。2つ目は発言者なしで、資料の「170度で5分」と食い違う
+  const memos = ['田中さんに、揚げ物の油は週2回替えると言われた', 'とんかつは180度で4分でいいよ', '店長から、閉店の30分前にラストオーダーを聞いて回ってと言われた'];
+  for (const [i, text] of memos.entries()) await store.putMemo(owner, { id: `demo-memo-${i + 1}`, at: at(10, `03:0${i}`), text });
 }
