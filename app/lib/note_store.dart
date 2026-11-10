@@ -37,6 +37,9 @@ class NoteStore extends ChangeNotifier {
 
   Future<void>? _loading;
 
+  /// ログアウトで空にするたびに増やす。空にする前に読み始めた読み込みの失敗を、次の人の画面に出さないよう比べる
+  var _session = 0;
+
   /// 書き込みの応答を入れるたびに増やす。読み込みの応答が、読んでいる間に書いた所を古い状態に戻さないよう比べる
   var _writes = 0;
   final _noteWrittenAt = <String, int>{};
@@ -61,6 +64,7 @@ class NoteStore extends ChangeNotifier {
   Future<void> _fetch() async {
     error = null;
     final since = _writes;
+    final session = _session;
     try {
       final h = await _api.home();
       final next = [
@@ -81,6 +85,8 @@ class NoteStore extends ChangeNotifier {
           : h.notices;
       _loaded = true;
     } catch (e) {
+      // ログアウトで空にする前に読み始めた読み込みの失敗（前の人の応答は Api が捨てる）は、次の人の画面に出さない
+      if (session != _session) return;
       // 応答の形が違ったときも、画面に出せる失敗として持つ
       error = e;
     }
@@ -100,6 +106,24 @@ class NoteStore extends ChangeNotifier {
     }
     if ((_noteWrittenAt[id] ?? 0) > since) return;
     _replace(_withChecked(s));
+    notifyListeners();
+  }
+
+  /// ログアウトしたとき。次にログインした人に前の人の中身を一瞬も出さないよう、全部を空にする。
+  /// 送っている途中の読み込み・書き込みの応答は、トークンが替わったので Api が捨てる
+  void clear() {
+    _session++;
+    me = null;
+    _notes = [];
+    _loaded = false;
+    memos = [];
+    notices = null;
+    error = null;
+    _loading = null;
+    _writes = 0;
+    _noteWrittenAt.clear();
+    _meWrittenAt = _memosWrittenAt = _noticesWrittenAt = 0;
+    _checked.clear();
     notifyListeners();
   }
 

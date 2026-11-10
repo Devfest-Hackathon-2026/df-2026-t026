@@ -1,12 +1,14 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:moon_design/moon_design.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
 import 'common.dart';
+import 'input_screen.dart';
 import 'sidebar.dart';
 
 /// アイコンにできる形式（ブラウザで切り抜けるもの）
@@ -34,6 +36,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _name = TextEditingController();
   IconImage? _icon;
   var _busy = false;
+  var _leaving = false;
 
   /// 欄に今の名前とアイコンを入れたか。入れたあとは、保存するまで書き換えない
   var _filled = false;
@@ -68,7 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {});
   }
 
-  bool get _ready => _name.text.trim().isNotEmpty && !_busy;
+  bool get _ready => _name.text.trim().isNotEmpty && !_busy && !_leaving;
 
   Future<void> _pick() async {
     final f = await widget.pickImage();
@@ -91,6 +94,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) showError(context, e);
     }
     if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _logout() async {
+    setState(() => _leaving = true);
+    try {
+      await widget.api.logout();
+    } on ApiException catch (e) {
+      if (mounted) {
+        showError(context, e);
+        setState(() => _leaving = false);
+      }
+      return;
+    }
+    await (await SharedPreferences.getInstance()).remove(tokenKey);
+    if (!mounted) return;
+    // 画面を全部閉じ、待ち受けや書きかけを前の人のまま残さない。入力ページはトークンが無いのでログインの欄を出す
+    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => InputScreen(api: widget.api)), (_) => false);
   }
 
   @override
@@ -150,6 +170,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onTap: _ready ? _save : null,
             leading: _busy ? const ButtonLoader() : null,
             label: Text(_busy ? '保存しています…' : '保存する'),
+          ),
+        ),
+        SizedBox(height: k.space.xxl),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: MoonOutlinedButton(
+            onTap: _busy || _leaving ? null : _logout,
+            label: Text(_leaving ? 'ログアウトしています…' : 'ログアウトする'),
           ),
         ),
       ]),

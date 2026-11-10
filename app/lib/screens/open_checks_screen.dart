@@ -24,17 +24,40 @@ class OpenChecksList extends StatelessWidget {
     final k = context.tokens;
     final open = manuals.where((s) => s.openChecks.isNotEmpty).toList();
     if (open.isEmpty) return Text('食い違いは、いまはありません', style: k.text.small);
-    // 罫線が方眼とぶつからないよう、白い面に載せる
+    // 自分が人に聞くことと、共有した人から答えを待たれていること（ADR 0017）を分ける。共有されたノートが無ければ今までどおり1つ
+    final mine = open.where((s) => s.sharedBy == null).toList();
+    final asked = open.where((s) => s.sharedBy != null).toList();
+    if (asked.isEmpty) return _sheet(context, mine);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      if (mine.isNotEmpty) ...[
+        Text('自分が聞くこと', style: k.text.heading),
+        SizedBox(height: k.space.sm),
+        _sheet(context, mine),
+        SizedBox(height: k.space.lg),
+      ],
+      Text('聞かれていること', style: k.text.heading),
+      SizedBox(height: k.space.sm),
+      _sheet(context, asked),
+    ]);
+  }
+
+  /// 罫線が方眼とぶつからないよう、白い面に載せる。共有されたノートは件数の左に持ち主の名前を添える
+  Widget _sheet(BuildContext context, List<ManualState> notes) {
+    final k = context.tokens;
     return PaperSheet(
       padding: EdgeInsets.symmetric(horizontal: k.space.sm),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final (i, s) in open.indexed) ...[
+        for (final (i, s) in notes.indexed) ...[
           if (i > 0) const Rule(),
           MoonMenuItem(
             onTap: () => onOpen(s),
             menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.sm, vertical: k.space.md),
             label: Text(s.title, style: k.text.heading),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (s.sharedBy case final owner?) ...[
+                Text(owner.name, style: k.text.small),
+                SizedBox(width: k.space.sm),
+              ],
               StatusTag('あとで確認 ${s.openChecks.length} 件', bg: k.colors.pendingBg, fg: k.colors.pending),
               SizedBox(width: k.space.sm),
               Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),

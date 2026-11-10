@@ -86,6 +86,38 @@ List<String> _shots() => [
 
 void main() {
   group('「あとで確認」の画面', () {
+    testWidgets('共有されたノートの確認は「聞かれていること」に分け、持ち主の名前を添える。自分のノートは「自分が聞くこと」', (tester) async {
+      final shared = {
+        ..._state('m2', '閉店作業メモ', 2),
+        'owner': 'newbie',
+        'sharedBy': {'id': 'newbie', 'name': '新人'},
+      };
+      final api = Api(
+        client: MockClient((req) async => switch (req.url.path) {
+              '/home' => _json(homeJson([_state('m1', 'キッチン', 1), shared], me: {'id': 'kanade', 'name': 'かなで', 'icon': null})),
+              '/manuals/m1' => _json(_state('m1', 'キッチン', 1)),
+              '/manuals/m2' => _json(shared),
+              _ => _json([]),
+            }),
+        baseUrl: 'http://api',
+      );
+      await _pumpChecks(tester, api, size: const Size(1440, 900));
+      // サイドバーにも同じ題名が出るので、一覧の中で探す
+      Rect at(String text) => tester.getRect(find.descendant(of: find.byType(OpenChecksList), matching: find.text(text)));
+      expect(
+        [at('自分が聞くこと').top < at('キッチン').top, at('キッチン').top < at('聞かれていること').top, at('聞かれていること').top < at('閉店作業メモ').top],
+        [true, true, true],
+      );
+      expect(find.descendant(of: find.byType(OpenChecksList), matching: find.text('新人')), findsOneWidget);
+      expect(find.text('あとで確認 2 件'), findsOneWidget);
+    });
+
+    testWidgets('共有されたノートの確認が無ければ、小見出しは出さない', (tester) async {
+      await _pumpChecks(tester, _api([('m1', 'キッチン', 1)]));
+      expect(find.text('自分が聞くこと'), findsNothing);
+      expect(find.text('聞かれていること'), findsNothing);
+    });
+
     for (final size in const [Size(390, 844), Size(1440, 900)]) {
       testWidgets('あとで確認が無ければ「食い違いは、いまはありません」。合計の札も出さない（$size）', (tester) async {
         await _pumpChecks(tester, _api([('m1', 'キッチン', 0), ('m2', 'ホール', 0)]), size: size);

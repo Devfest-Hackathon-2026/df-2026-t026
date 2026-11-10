@@ -54,6 +54,18 @@ class Api {
     );
   }
 
+  /// サーバーでトークンを止めてから手放す。もう止まっていた（401）ときもログアウトしたことにする。
+  /// 次に別の人がログインしても前の人の中身を出さないよう、store も空にする
+  Future<void> logout() async {
+    try {
+      await _send('POST', '/logout');
+    } on ApiException catch (e) {
+      if (e.status != 401) rethrow;
+    }
+    token = null;
+    store.clear();
+  }
+
   /// 名前とアイコンを保存する。icon が null ならアイコンを外す
   Future<Me> updateMe(String name, IconImage? icon) async {
     final me = Me.fromJson(await _send('PUT', '/me', {
@@ -272,12 +284,15 @@ class Api {
       req.headers['Content-Type'] = 'application/json';
       req.body = jsonEncode(body);
     }
+    final sentWith = token;
     final http.Response res;
     try {
       res = await http.Response.fromStream(await _client.send(req));
     } on http.ClientException {
       throw ApiException('サーバーにつながりません');
     }
+    // 送っている間にログアウト・ログインし直したら、届いたのは前の人の中身なので、store に入れさせない
+    if (sentWith != null && token != sentWith) throw ApiException('ログアウトしました');
     // 本文が JSON でない（混んだときの 5xx の HTML など）ときも、画面が受けられる ApiException にする。
     // FormatException のままだと、送る操作では何も出ず、読み込む画面では英語の例外の文が出る
     final dynamic json;

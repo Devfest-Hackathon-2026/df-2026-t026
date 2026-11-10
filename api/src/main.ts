@@ -11,7 +11,7 @@ import { formatWithGemini, readNoteWithGemini } from './format.ts';
 import { countTokensWithGemini } from './gemini.ts';
 import { transcribeWithGemini } from './intake.ts';
 import { readMaterialWithGemini } from './material.ts';
-import { seedWithHistory } from './seed.ts';
+import { seedCheckRequest, seedWithHistory } from './seed.ts';
 import { MemoryStore, type Store } from './store.ts';
 import { dictateWithSpeech, listenWithSpeech } from './stt.ts';
 
@@ -20,13 +20,15 @@ const useGemini = process.env.AI === 'gemini';
 const store: Store = process.env.STORE === 'firestore' ? new FirestoreStore() : new MemoryStore();
 // ローカルで試すときのアカウント。本番に配ったのと同じ ID でも入れるようにするが、パスワードはどれもローカル専用の
 // demo にし、本番のパスワードはリポジトリに入れない。本番のアカウントは scripts/create-account.ts で作る（ADR 0009）
-const localIds = ['demo', 'kanade', 'haruto', 'hikaru', 'chinatsu'];
+// newbie は、demo にノートを共有して確認を頼んでいる新人。demo で入ると、教える人として答える流れをすぐ試せる
+const localIds = ['demo', 'newbie', 'kanade', 'haruto', 'hikaru', 'chinatsu'];
 if (store instanceof MemoryStore) {
   // デモの中身はメモリ保存のときだけ入れる。本番に demo のアカウントは無く、Firestore を読むぶん起動が遅れるため
   await seedWithHistory(store, 'demo');
   for (const id of localIds) {
     await store.putAccount({ id, ...(await hashPassword('demo')), createdAt: new Date().toISOString() });
   }
+  await seedCheckRequest(store, 'newbie', 'demo');
 }
 
 const app = createApp({

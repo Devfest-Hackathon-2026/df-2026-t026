@@ -886,20 +886,103 @@ void main() {
     expectInputFontsAtLeast16(tester, count: 1); // 未整理メモを書き直す欄
   });
 
-  testWidgets('リワインドの間は、未整理メモを押すとその場で書き直して保存できる', (tester) async {
+  testWidgets('リワインドの間は、未整理メモを押すとその場で書き直し、外を押すと直した文が残る', (tester) async {
     final memos = [_memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじいち')];
     await _pumpInput(tester, _client((_) async => _json({}), memos: memos), mic: StreamController());
     await _startRewind(tester);
 
     await tester.tap(find.text('塩は小さじいち'));
     await tester.pump();
+    expect(find.text('保存する'), findsNothing);
+    expect(find.text('やめる'), findsNothing);
     await tester.enterText(find.widgetWithText(MoonTextArea, '塩は小さじいち'), '塩は小さじ1');
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '保存する'));
+    await tester.tap(find.text('未整理メモ'));
     await tester.pumpAndSettle();
 
-    expect(find.text('保存する'), findsNothing);
+    expect(find.byType(MoonTextArea), findsNothing);
     expect(find.text('塩は小さじ1'), findsOneWidget);
     expect(memos.single, _memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじ1'));
+  });
+
+  testWidgets('未整理メモを直さずに、または空にして外を押すと、何も送らずに元のまま閉じる', (tester) async {
+    final memos = [_memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじいち')];
+    await _pumpInput(tester, _client((_) async => _json({}), memos: memos), mic: StreamController());
+    await _startRewind(tester);
+    final before = memos.single['text'];
+
+    for (final text in ['塩は小さじいち', '']) {
+      await tester.tap(find.text('塩は小さじいち'));
+      await tester.pump();
+      await tester.enterText(find.byType(MoonTextArea), text);
+      await tester.tap(find.text('未整理メモ'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MoonTextArea), findsNothing);
+    }
+    expect(memos.single['text'], before);
+  });
+
+  testWidgets('未整理メモを書き直している間に別のメモを押すと、直した文を残して、そちらの欄を開く', (tester) async {
+    final memos = [
+      _memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじいち'),
+      _memo('b', DateTime(2026, 11, 4, 9, 30), 'お冷やはすぐ出す'),
+    ];
+    await _pumpInput(tester, _client((_) async => _json({}), memos: memos), mic: StreamController());
+    await _startRewind(tester);
+
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+    await tester.enterText(find.byType(MoonTextArea), '塩は小さじ1');
+    await tester.tap(find.text('お冷やはすぐ出す'));
+    await tester.pumpAndSettle();
+
+    expect(memos.first['text'], '塩は小さじ1');
+    expect(find.text('塩は小さじ1'), findsOneWidget);
+    expect(find.widgetWithText(MoonTextArea, 'お冷やはすぐ出す'), findsOneWidget);
+  });
+
+  testWidgets('未整理メモを書き直す欄で「ノートと照らし合わせる」を押すと、待たずに閉じて列に積み、次のメモをすぐ書き直せる', (tester) async {
+    final memos = [
+      _memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじ1/2'),
+      _memo('b', DateTime(2026, 11, 4, 9, 30), 'お冷やはすぐ出す'),
+    ];
+    final reply = Completer<http.Response>();
+    await _pumpInput(tester, _client(memos: memos, (_) => reply.future), mic: StreamController());
+    await _startRewind(tester);
+
+    await tester.tap(find.text('塩は小さじ1/2'));
+    await tester.pump();
+    // 欄の外を押すと閉じるので、「保存する」「やめる」は出さない
+    expect(find.text('保存する'), findsNothing);
+    expect(find.text('やめる'), findsNothing);
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    await tester.pump();
+    expect(find.byType(MoonTextArea), findsNothing);
+    expect(find.text('照らし合わせています…'), findsOneWidget);
+
+    // 返る前に、次のメモをすぐ書き直せる。ボタンは欄の文に合わせて押せる・押せないが変わる
+    await tester.tap(find.text('お冷やはすぐ出す'));
+    await tester.pump();
+    final send = find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる');
+    expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).readOnly, isFalse);
+    await tester.enterText(find.byType(MoonTextArea), '');
+    await tester.pump();
+    expect(tester.widget<MoonFilledButton>(send).onTap, isNull);
+    await tester.enterText(find.byType(MoonTextArea), 'お冷やはすぐ出す。おかわりも');
+    await tester.pump();
+    expect(tester.widget<MoonFilledButton>(send).onTap, isNotNull);
+
+    reply.complete(_json({
+      'text': '塩は小さじ1/2',
+      'results': [
+        {'manualId': 'm2', 'utteranceId': 'u2', 'state': _state('m2')},
+      ],
+    }, 201));
+    await tester.pumpAndSettle();
+    expect(find.text('照らし合わせています…'), findsNothing);
+    // 書き直している欄はそのまま
+    expect(find.widgetWithText(MoonTextArea, 'お冷やはすぐ出す。おかわりも'), findsOneWidget);
+    await tester.tap(find.byType(MoonSwitch));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('リワインドの間に、書き直した未整理メモ1件を切り出した日として記録し、メモから消す', (tester) async {

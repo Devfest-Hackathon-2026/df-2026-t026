@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -47,9 +46,6 @@ class _ManualScreenState extends State<ManualScreen> {
 
   /// 編集欄。Enter で次の行へ移っても同じ欄のままにし、打っている所（フォーカス）を外さない
   final _editorKey = GlobalKey();
-
-  /// 直接編集の欄の外を押し始めた所
-  Offset? _downOutside;
 
   /// 食い違いを確かめている編集と、確かめを待っている編集（パッチの ID）
   final _checking = <String>{};
@@ -443,16 +439,9 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _editor() {
     final k = context.tokens;
     final e = _editing!;
-    return TapRegion(
+    return TapOutside(
       key: _editorKey,
-      onTapOutside: (down) => _downOutside = down.position,
-      onTapUpOutside: (up) {
-        // スクロールの指で書きかけを消さないよう、ほぼ動かさずに離したときだけ閉じる
-        final down = _downOutside;
-        _downOutside = null;
-        if (down == null || (up.position - down).distance > kTouchSlop) return;
-        _closeOutside();
-      },
+      onTapOutside: _closeOutside,
       child: Padding(
         padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
         child: CallbackShortcuts(

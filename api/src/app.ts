@@ -11,7 +11,7 @@ import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, materialContext, type Check, type CheckPatch, type Resolution } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
-import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
+import { applyPatch, PatchError, render, renderSkipping, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
 import { isItem, unmark, type InlineFile } from './gemini.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import { cleanLines, materialLines, materialText, openPdf, splitImages, splitPdf, type Material, type MaterialPart, type ReadMaterial } from './material.ts';
@@ -39,7 +39,7 @@ export interface Deps {
   allowOrigin?: string;
 }
 
-type Env = { Variables: { userId: string } };
+type Env = { Variables: { userId: string; sessionId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
@@ -203,7 +203,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   // c.json は Content-Length を付けないので下限（1024 バイト）は効かず、小さい応答も圧縮される（害は無い）
   const compressed = compress();
   app.use((c, next) => (c.req.path === '/dictation' ? next() : compressed(c, next)));
-  // 呼び出しのたびに Firestore を読まないよう、見つかったセッションだけを5分覚える。
+  // 呼び出しのたびに Firestore を読まないよう、見つかったセッションだけを1分覚える。ログアウトしたトークンを
+  // ほかのインスタンスが覚えている間は通してしまうので、長くしない（ADR 0009）。
   // 見つからなかった結果は覚えない（ほかのインスタンスで作られたばかりのセッションを弾かないため）
   const sessions = new Map<string, { userId: string; until: number }>();
   async function userIdOf(sessionId: string) {
@@ -212,7 +213,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const session = await store.getSession(sessionId);
     if (!session) return null;
     if (sessions.size >= 1000) sessions.clear();
-    sessions.set(sessionId, { userId: session.userId, until: Date.now() + 5 * 60 * 1000 });
+    sessions.set(sessionId, { userId: session.userId, until: Date.now() + 60 * 1000 });
     return session.userId;
   }
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
@@ -220,9 +221,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (c.req.path === '/health' || c.req.path === '/login') return next();
     // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
     const token = c.req.header('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? (c.req.path === '/dictation' ? c.req.query('token') : undefined);
-    const userId = token ? await userIdOf(sessionIdOf(token)) : null;
-    if (!userId) throw new HTTPException(401, { message: 'ログインしてください' });
+    const sessionId = token ? sessionIdOf(token) : null;
+    const userId = sessionId ? await userIdOf(sessionId) : null;
+    if (!sessionId || !userId) throw new HTTPException(401, { message: 'ログインしてください' });
     c.set('userId', userId);
+    c.set('sessionId', sessionId);
     await next();
   });
   app.onError((e, c) => {
@@ -268,11 +271,18 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     utterances.sort(byCreated);
     patches.sort(byCreated);
     checks.sort(byCreated);
+    // 重なった書き込みで反映順には当たらなくなったパッチは、当てずに未反映として返す。行とパッチの状態をそろえ、
+    // 利用者が書き込み直せるようにする。保存したパッチは書き換えない（ADR 0001）
+    const { lines, skipped } = renderSkipping(manual.base, patches);
+    for (const patchId of skipped) {
+      // 本文（行の文字列）は出さない
+      console.warn(JSON.stringify({ severity: 'WARNING', message: 'skipped unappliable patch', owner, manualId, patchId }));
+    }
     return {
       manual,
-      lines: render(manual.base, patches),
+      lines,
       utterances,
-      patches,
+      patches: patches.map<Patch>((p) => (skipped.includes(p.id) ? { ...p, status: 'proposed', appliedAt: null } : p)),
       checks,
       owner,
       /** 読んでいる人。画面が自分の記録かを決めるのに使う（ADR 0018） */
@@ -352,6 +362,13 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const token = newToken();
     await store.putSession({ id: sessionIdOf(token), userId: account.id, createdAt: now() });
     return c.json({ token });
+  });
+
+  // 使っているトークンだけを止める。ほかの端末でのログインはそのまま。覚えたセッションも消す。ほかのインスタンスが覚えた分は、最長1分そのまま使える
+  app.post('/logout', async (c) => {
+    sessions.delete(c.var.sessionId);
+    await store.removeSession(c.var.sessionId);
+    return c.json({ ok: true });
   });
 
   // 名前を決めていなければ ID を名前にする（ADR 0010）
