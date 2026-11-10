@@ -77,6 +77,10 @@ Directory _fakeWeb({String mainJs = _firstFrame}) {
 
 File _moonIcons(Directory web) => File('${web.path}/assets/$moonIconsAsset');
 
+/// pubspec.lock に書かれた moon_icons の版。改行が CRLF でも読む（`.` は `\r` に当たらない）
+String? _moonIconsVersion(String lock) =>
+    RegExp(r'^  moon_icons:\r?\n(?:    .*\r?\n)*?    version: "([^"]+)"', multiLine: true).firstMatch(lock)?[1];
+
 void main() {
   test('Lucide の太さ違いだけを外し、既定の Lucide・MoonIcons・本文の書体は残す', () {
     final r = dropUnusedFonts(_manifest());
@@ -204,8 +208,9 @@ void main() {
   // 絞ったフォントは moon_icons 1.1.0 から作った。版を上げると同じ番号で字の形が変わりうるので、作り直してからここを直す
   test('moon_icons は、絞ったフォントを作った版（1.1.0）のまま', () {
     final lock = File('pubspec.lock').readAsStringSync();
-    final version = RegExp(r'^  moon_icons:\n(?:    .*\n)*?    version: "([^"]+)"', multiLine: true).firstMatch(lock)?[1];
-    expect(version, '1.1.0');
+    expect(_moonIconsVersion(lock), '1.1.0');
+    // Windows の git は改行を CRLF にして取り出すことがある
+    expect(_moonIconsVersion(lock.replaceAll('\n', '\r\n')), '1.1.0');
   });
 }
 
