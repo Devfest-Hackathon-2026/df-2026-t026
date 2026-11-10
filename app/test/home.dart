@@ -1,10 +1,11 @@
-/// GET /home の応答（自分・全部のノートの状態・未整理メモ）。偽のサーバーが返す
+/// GET /home の応答（自分・全部のノートの状態・未整理メモ・通知）。偽のサーバーが返す
 Map<String, dynamic> homeJson(
   List<Map<String, dynamic>> notes, {
   List<Map<String, dynamic>> memos = const [],
   Map<String, dynamic> me = const {'id': 'demo', 'name': 'demo', 'icon': null},
+  Map<String, dynamic> notices = const {'seenAt': null, 'items': []},
 }) =>
-    {'me': me, 'notes': notes, 'memos': memos};
+    {'me': me, 'notes': notes, 'memos': memos, 'notices': notices};
 
 /// 一覧・サイドバー・件数に並べるだけのノートの状態。口頭の記録が said 件、あとで確認が open 件。
 /// あとで確認は、記録の数に入らない直接の編集の食い違いにする

@@ -7,7 +7,7 @@ import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, f
 import { demoManual, seed } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
-// アプリを開いたときに1本で読む GET /home（ADR 0020）
+// アプリを開いたときに1本で読む GET /home（ADR 0021）
 
 let app: ReturnType<typeof createApp>;
 let store: MemoryStore;
@@ -26,9 +26,14 @@ beforeEach(async () => {
   app = createApp({ store, ...ai });
 });
 
-async function callAs(who: string | null, method: string, path: string) {
-  const res = await app.request(path, { method, headers: who ? { Authorization: `Bearer ${who}-token` } : {} });
-  return { status: res.status, json: (await res.json()) as any };
+async function callAs(who: string | null, method: string, path: string, body?: unknown) {
+  const res = await app.request(path, {
+    method,
+    headers: { ...(who ? { Authorization: `Bearer ${who}-token` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  return { status: res.status, json: (text ? JSON.parse(text) : null) as any };
 }
 
 /** 持ち主の側と相手の側の両方に、共有の記録を置く。並びを決めるため、共有した時刻を指定する */
@@ -72,10 +77,30 @@ test('自分・全部のノートの状態・未整理メモを1本で返す。�
 
 test('名前を決めていなければログイン ID を名前にし、ノートもメモも無ければ空で返す', async () => {
   const { json } = await callAs('kim', 'GET', '/home');
-  assert.deepEqual(json, { me: { id: 'kim', name: 'kim', icon: null }, notes: [], memos: [] });
+  assert.deepEqual(json, { me: { id: 'kim', name: 'kim', icon: null }, notes: [], memos: [], notices: { seenAt: null, items: [] } });
 });
 
 test('共有を外された直後で、相手の側の索引だけが残っているノートは入れない', async () => {
   await store.putShared('kim', { id: 'demo-kitchen', ownerId: 'demo', createdAt: '2026-11-02T00:00:00.000Z' });
   assert.deepEqual((await callAs('kim', 'GET', '/home')).json.notes, []);
+});
+
+test('通知（ADR 0020）：持ち主には GET /notices と同じ通知と見た時刻を返し、共有された人には自分のノートの分しか返さない', async () => {
+  await share('demo-kitchen', 'sato', '2026-11-02T00:00:00.000Z');
+  const edited = await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす', today: '2026-11-10' });
+  assert.equal(edited.status, 201);
+
+  const home = (await callAs('demo', 'GET', '/home')).json.notices;
+  assert.deepEqual(
+    home.items.map(({ kind, manualId, by, line, text }: any) => ({ kind, manualId, by, line, text })),
+    [{ kind: 'edit', manualId: 'demo-kitchen', by: { id: 'sato', name: '佐藤店長' }, line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす' }],
+  );
+  assert.deepEqual(home, (await callAs('demo', 'GET', '/notices')).json);
+  // 共有されたノートでの出来事は、共有された人には知らせない
+  assert.deepEqual((await callAs('sato', 'GET', '/home')).json.notices, { seenAt: null, items: [] });
+
+  assert.equal((await callAs('demo', 'POST', '/notices/seen')).status, 204);
+  const seen = (await callAs('demo', 'GET', '/home')).json.notices;
+  assert.ok(seen.seenAt >= home.items[0].at);
+  assert.deepEqual(seen, (await callAs('demo', 'GET', '/notices')).json);
 });

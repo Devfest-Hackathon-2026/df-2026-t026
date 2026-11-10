@@ -45,7 +45,7 @@ void main() {
         calls++;
         return calls == 1
             ? http.Response('<html>502 Bad Gateway</html>', 502)
-            : http.Response('{"me":{"id":"demo","name":"demo","icon":null},"notes":[],"memos":[]}', 200);
+            : http.Response('{"me":{"id":"demo","name":"demo","icon":null},"notes":[],"memos":[],"notices":{"seenAt":null,"items":[]}}', 200);
       }),
       baseUrl: 'http://api',
     );

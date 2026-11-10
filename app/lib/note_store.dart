@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'api.dart';
 import 'models.dart';
 
-/// アプリの状態の置き場（ADR 0020）。自分・全部のノートのサーバーの状態・未整理メモを1か所に持ち、画面はここから描く。
+/// アプリの状態の置き場（ADR 0021）。自分・全部のノートのサーバーの状態・未整理メモ・通知を1か所に持ち、画面はここから描く。
 /// 開いたとき・戻ってきたときに GET /home で読み、書き込みの応答は Api がここに入れる（書いたあとは取り直さない）
 class NoteStore extends ChangeNotifier {
   NoteStore(this._api);
@@ -21,6 +21,17 @@ class NoteStore extends ChangeNotifier {
   /// 未整理メモ。切り出した順
   var memos = <Memo>[];
 
+  /// 自分のノートで、共有した相手が答えた・直したこと（ADR 0020）。ほかの人がしたことなので、自分が書いても変わらない。
+  /// 開いたとき・戻ってきたときの GET /home でだけ新しくなる。1度も読めていなければ null
+  Notices? notices;
+
+  /// 新しい通知（最後に見た時刻より後）の数。サイドバーの自分の右に出す
+  int get freshNotices {
+    final n = notices;
+    if (n == null) return 0;
+    return n.items.where((x) => n.seenAt == null || x.at.compareTo(n.seenAt!) > 0).length;
+  }
+
   /// 最後に読めなかったときの失敗。読めたら null
   Object? error;
 
@@ -31,6 +42,7 @@ class NoteStore extends ChangeNotifier {
   final _noteWrittenAt = <String, int>{};
   var _meWrittenAt = 0;
   var _memosWrittenAt = 0;
+  var _noticesWrittenAt = 0;
 
   /// 直接書いた行の確かめで分かった確認（ADR 0007）。確かめより前に読まれた応答で消えないよう、応答に入るまで重ねる
   final _checked = <String, List<Check>>{};
@@ -62,6 +74,7 @@ class NoteStore extends ChangeNotifier {
       _notes = next;
       if (_meWrittenAt <= since) me = h.me;
       if (_memosWrittenAt <= since) memos = h.memos;
+      if (_noticesWrittenAt <= since) notices = h.notices;
       _loaded = true;
     } catch (e) {
       // 応答の形が違ったときも、画面に出せる失敗として持つ
@@ -127,6 +140,18 @@ class NoteStore extends ChangeNotifier {
   void removeMemos(List<String> ids) {
     _memosWrittenAt = ++_writes;
     memos = [for (final m in memos) if (!ids.contains(m.id)) m];
+    notifyListeners();
+  }
+
+  /// 通知を見たことにしたとき。Api が呼ぶ。サーバーは見た時刻を「今」にするので、手元では今ある通知をすべて見たことにする
+  void seeNotices() {
+    final n = notices;
+    if (n == null) return;
+    _noticesWrittenAt = ++_writes;
+    final newest = n.items.firstOrNull?.at;
+    if (newest != null && (n.seenAt == null || newest.compareTo(n.seenAt!) > 0)) {
+      notices = (seenAt: newest, items: n.items);
+    }
     notifyListeners();
   }
 

@@ -32,7 +32,7 @@ class Api {
   /// ログインで受け取ったトークン。ログインしていなければ null
   String? token;
 
-  /// 画面が描く状態の置き場。読むのは store で、書き込みの応答はここ（Api）から store に入れる（ADR 0020）
+  /// 画面が描く状態の置き場。読むのは store で、書き込みの応答はここ（Api）から store に入れる（ADR 0021）
   late final store = NoteStore(this);
 
   /// 配った ID とパスワードでログインし、以後の呼び出しに使うトークンを返す
@@ -42,13 +42,15 @@ class Api {
     return t;
   }
 
-  /// 自分・全部のノートの状態・未整理メモ。store が読む
-  Future<({Me me, List<ManualState> notes, List<Memo> memos})> home() async {
+  /// 自分・全部のノートの状態・未整理メモ・通知。store が読む
+  Future<({Me me, List<ManualState> notes, List<Memo> memos, Notices notices})> home() async {
     final j = await _send('GET', '/home');
+    final n = j['notices'];
     return (
       me: Me.fromJson(j['me']),
       notes: [for (final s in j['notes']) ManualState.fromJson(s)],
       memos: [for (final m in j['memos']) Memo.fromJson(m)],
+      notices: (seenAt: n['seenAt'] as String?, items: [for (final x in n['items']) Notice.fromJson(x)]),
     );
   }
 

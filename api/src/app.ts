@@ -306,6 +306,32 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   /** 書き起こしで認識しやすくする、登録済みの全マニュアルの語句 */
   const phrasesOf = (states: { lines: { text: string }[] }[]) => phraseHints(states.flatMap((s) => s.lines.map((l) => l.text)));
 
+  /**
+   * 通知（ADR 0020）。own は自分が持ち主のノートだけ（共有されたノートでの出来事は知らせない）。
+   * 出来事は別に持たず、記録・パッチ・確認から組み立てる。GET /notices と GET /home が返す
+   */
+  function noticesOf(own: State[], seenAt: string | null) {
+    const items = own.flatMap((s) => {
+      const where = { manualId: s.manual.id, title: s.manual.title };
+      // 記録を見せて済ませた確定は、決めたのが前の人なので答えにしない（#118）
+      const answers = s.checks.flatMap((x) => {
+        const r = x.resolution;
+        const u = r?.answeredBy && !r.shown ? s.utterances.find((y) => y.id === r.utteranceId) : undefined;
+        if (!r?.answeredBy || !u) return [];
+        return [{ id: x.id, kind: 'answer' as const, ...where, by: { id: r.answeredBy, name: r.decidedBy }, at: u.createdAt, line: x.conflictLine, text: r.text, note: r.note }];
+      });
+      const edits = s.utterances.flatMap((u) => {
+        const p = u.fromEdit && u.editedBy ? s.patches.find((y) => y.utteranceId === u.id) : undefined;
+        if (!u.editedBy || !p) return [];
+        const by = u.recordedBy ?? { id: u.editedBy, name: u.speaker ?? u.editedBy };
+        return [{ id: u.id, kind: 'edit' as const, ...where, by, at: u.createdAt, op: p.op, line: p.line, text: p.text }];
+      });
+      return [...answers, ...edits];
+    });
+    items.sort((a, b) => b.at.localeCompare(a.at));
+    return { seenAt, items: items.slice(0, 50) };
+  }
+
   function find<T extends { id: string }>(items: T[], id: string, label: string): T {
     const item = items.find((x) => x.id === id);
     if (!item) throw new HTTPException(404, { message: `${label}が見つかりません` });
@@ -357,16 +383,17 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
   });
 
-  // アプリを開いたときに1本で読む。自分・全部のノートの状態・未整理メモ（ADR 0020）。
+  // アプリを開いたときに1本で読む。自分・全部のノートの状態・未整理メモ（ADR 0021）と通知（ADR 0020）。
   // ノートは GET /manuals（作った新しい順）→ GET /shared（共有された新しい順）と同じ並び。
   // loadAll は並べないので（記録の振り分けに渡す順を変えないため触らない）、ここで並べてから読む
   app.get('/home', async (c) => {
     const { userId } = c.var;
-    const [manuals, pointers, profile, memos] = await Promise.all([
+    const [manuals, pointers, profile, memos, seenAt] = await Promise.all([
       store.listManuals(userId),
       store.listShared(userId),
       store.getProfile(userId),
       store.listMemos(userId),
+      store.getNoticesSeenAt(userId),
     ]);
     const [own, shared] = await Promise.all([
       Promise.all(manuals.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((m) => load(userId, m.id))),
@@ -376,6 +403,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       me: { id: userId, name: profile?.name ?? userId, icon: profile?.icon ?? null },
       notes: [...own, ...shared.filter((x) => x !== null)],
       memos: memos.sort((a, b) => a.at.localeCompare(b.at)),
+      // 全部のノートはもう読んだので、通知も同じ読み込みから作る
+      notices: noticesOf(own, seenAt),
     });
   });
 
@@ -416,31 +445,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     return c.json(items.filter((x) => x !== null).sort((a, b) => b.sharedAt.localeCompare(a.sharedAt)));
   });
 
-  // 自分が持ち主のノートで、共有した相手が確認に答えた・行を直したこと（ADR 0020）。
-  // 出来事は別に持たず、記録・パッチ・確認から組み立てる
+  // 自分が持ち主のノートで、共有した相手が確認に答えた・行を直したこと（ADR 0020）
   app.get('/notices', async (c) => {
     const { userId } = c.var;
     const [manuals, seenAt] = await Promise.all([store.listManuals(userId), store.getNoticesSeenAt(userId)]);
-    const states = await Promise.all(manuals.map((m) => load(userId, m.id)));
-    const items = states.flatMap((s) => {
-      const where = { manualId: s.manual.id, title: s.manual.title };
-      // 記録を見せて済ませた確定は、決めたのが前の人なので答えにしない（#118）
-      const answers = s.checks.flatMap((x) => {
-        const r = x.resolution;
-        const u = r?.answeredBy && !r.shown ? s.utterances.find((y) => y.id === r.utteranceId) : undefined;
-        if (!r?.answeredBy || !u) return [];
-        return [{ id: x.id, kind: 'answer' as const, ...where, by: { id: r.answeredBy, name: r.decidedBy }, at: u.createdAt, line: x.conflictLine, text: r.text, note: r.note }];
-      });
-      const edits = s.utterances.flatMap((u) => {
-        const p = u.fromEdit && u.editedBy ? s.patches.find((y) => y.utteranceId === u.id) : undefined;
-        if (!u.editedBy || !p) return [];
-        const by = u.recordedBy ?? { id: u.editedBy, name: u.speaker ?? u.editedBy };
-        return [{ id: u.id, kind: 'edit' as const, ...where, by, at: u.createdAt, op: p.op, line: p.line, text: p.text }];
-      });
-      return [...answers, ...edits];
-    });
-    items.sort((a, b) => b.at.localeCompare(a.at));
-    return c.json({ seenAt, items: items.slice(0, 50) });
+    return c.json(noticesOf(await Promise.all(manuals.map((m) => load(userId, m.id))), seenAt));
   });
 
   app.post('/notices/seen', async (c) => {
