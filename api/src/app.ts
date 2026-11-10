@@ -206,14 +206,26 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           }
         }),
   );
+  // 呼び出しのたびに Firestore を読まないよう、見つかったセッションだけを5分覚える。
+  // 見つからなかった結果は覚えない（ほかのインスタンスで作られたばかりのセッションを弾かないため）
+  const sessions = new Map<string, { userId: string; until: number }>();
+  async function userIdOf(sessionId: string) {
+    const hit = sessions.get(sessionId);
+    if (hit && hit.until > Date.now()) return hit.userId;
+    const session = await store.getSession(sessionId);
+    if (!session) return null;
+    if (sessions.size >= 1000) sessions.clear();
+    sessions.set(sessionId, { userId: session.userId, until: Date.now() + 5 * 60 * 1000 });
+    return session.userId;
+  }
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
   app.use(async (c, next) => {
     if (c.req.path === '/health' || c.req.path === '/login') return next();
     // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
     const token = c.req.header('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? (c.req.path === '/dictation' ? c.req.query('token') : undefined);
-    const session = token ? await store.getSession(sessionIdOf(token)) : null;
-    if (!session) throw new HTTPException(401, { message: 'ログインしてください' });
-    c.set('userId', session.userId);
+    const userId = token ? await userIdOf(sessionIdOf(token)) : null;
+    if (!userId) throw new HTTPException(401, { message: 'ログインしてください' });
+    c.set('userId', userId);
     await next();
   });
   app.onError((e, c) => {
