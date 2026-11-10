@@ -1643,6 +1643,8 @@ test('通知：自分のノートで、共有した相手が答えた・行を�
   assert.deepEqual((await call('GET', '/notices')).json, { seenAt: null, items: [] });
 
   await callAs('sato', 'POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, { decidedAt: '2026-11-10', text: '- 塩 小さじ1/2', note: '1/2で統一' });
+  // 時刻はミリ秒までなので、答えと直しが同じ時刻になって並びが決まらなくならないよう少し待つ
+  await new Promise((r) => setTimeout(r, 5));
   await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす', today: '2026-11-10' });
   // 持ち主が自分で直した行は知らせない
   await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- 自分で足した行', today: '2026-11-10' });
