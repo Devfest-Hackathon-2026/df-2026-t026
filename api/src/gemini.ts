@@ -1,9 +1,17 @@
+import { createHash } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
+
 import { ApiError, GoogleGenAI, type HttpOptions, type GenerateContentResponseUsageMetadata as UsageMetadata, type ThinkingLevel } from '@google/genai';
 import { z } from 'zod';
 
 export interface JsonRequest<T> {
   system: string;
   prompt: string;
+  /**
+   * prompt の前に置く、変わらない部分（資料のブロック）。指示文と合わせて明示のコンテキストキャッシュに入れ、
+   * 生成では prompt だけを送る。キャッシュを使えないときは prefix + prompt を送る（ADR 0002）
+   */
+  prefix?: string;
   /** 応答の形。JSON スキーマに変換して Gemini に渡し、受け取った後も同じスキーマで検証する */
   schema: z.ZodType<T>;
   /** プロンプトに添えるファイル・音声 */
@@ -27,6 +35,8 @@ export interface Usage {
   /** 使った応答が何本目か（1始まり）と、それまでに送った本数 */
   attempt: number;
   sent: number;
+  /** 明示のコンテキストキャッシュを使ったか。cachedContentTokenCount だけでは暗黙のキャッシュと見分けられない */
+  explicitCache: boolean;
   /** 1本目を送ってから使った応答を受け取るまで */
   seconds: number;
   promptTokenCount: number | null;
@@ -89,7 +99,66 @@ export function toGeminiSchema(schema: z.ZodType): Record<string, unknown> {
 }
 
 /** スキーマ付きで Gemini を呼び、検証済みの結果を返す */
-export const generateJson: GenerateJson = (req) => requestJson(gemini(), req);
+export const generateJson: GenerateJson = (req) => requestWithCache(gemini(), req);
+
+/** 明示のキャッシュの期限。使うたびに延ばさず、期限の5分前を過ぎたら作り直す */
+const CACHE_TTL_MS = 3_600_000;
+const CACHE_RENEW_MS = 5 * 60_000;
+/** キャッシュを作るのはふだん3〜6秒。これを過ぎたら待たずにキャッシュ無しで送り、できたものは次の回から使う */
+const CACHE_WAIT_MS = 10_000;
+
+/**
+ * 明示のキャッシュの名前。キーはモデル名・指示文・prefix の SHA-256 で、資料や指示文が変われば別のキャッシュになる。
+ * 正は Firestore の資料なので、インスタンスのメモリにだけ持ち、無くなれば作り直す。古いものは期限で消えるのに任せる。
+ * 作れなかったら null。4,096 トークン未満で断られた（400）ものは、期限まで作り直さない
+ */
+const caches = new Map<string, { name: Promise<string | null>; expireAt: number }>();
+
+function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, label: string | undefined): Promise<string | null> {
+  const hit = caches.get(key);
+  if (hit && hit.expireAt - CACHE_RENEW_MS > Date.now()) return hit.name;
+  const started = performance.now();
+  const log = (fields: object) =>
+    console.log(JSON.stringify({ message: 'gemini cache', label: label ?? null, seconds: Math.round((performance.now() - started) / 100) / 10, ...fields }));
+  const name = ai.caches
+    .create({
+      model: model(),
+      config: { systemInstruction: system, contents: [{ role: 'user', parts: [{ text: prefix }] }], ttl: `${CACHE_TTL_MS / 1000}s` },
+    })
+    .then(
+      (c) => (log({ created: true, tokens: c.usageMetadata?.totalTokenCount ?? null }), c.name ?? null),
+      (e: unknown) => {
+        log({ created: false, error: String(e).slice(0, 200) });
+        if (!(e instanceof ApiError && e.status === 400)) caches.delete(key);
+        return null;
+      },
+    );
+  caches.set(key, { name, expireAt: Date.now() + CACHE_TTL_MS });
+  return name;
+}
+
+/**
+ * prefix があれば、指示文と prefix を明示のキャッシュに入れて requestJson で送る（ADR 0002）。
+ * キャッシュが無い・期限切れで断られたら、外して今回はキャッシュ無しで送る
+ *
+ * Args:
+ *   ai: 呼び出しに使うクライアント（テストでは偽の fetch を持たせる）
+ *   req: requestJson と同じ
+ *   delayMs: requestJson と同じ
+ */
+export async function requestWithCache<T>(ai: GoogleGenAI, req: JsonRequest<T>, delayMs?: number): Promise<T> {
+  if (!req.prefix) return requestJson(ai, req, delayMs);
+  const key = createHash('sha256').update([model(), req.system, req.prefix].join('\0')).digest('hex');
+  const name = await Promise.race([cacheFor(ai, key, req.system, req.prefix, req.label), sleep(CACHE_WAIT_MS, null, { ref: false })]);
+  if (!name) return requestJson(ai, req, delayMs);
+  try {
+    return await requestJson(ai, req, delayMs, name);
+  } catch (e) {
+    if (!(e instanceof ApiError && (e.status === 400 || e.status === 404))) throw e;
+    caches.delete(key);
+    return requestJson(ai, req, delayMs);
+  }
+}
 
 /**
  * 合わせて3本まで送り、最初に形の合った応答を返す。2本目・3本目は、前の1本が返事をしないまま
@@ -102,11 +171,13 @@ export const generateJson: GenerateJson = (req) => requestJson(gemini(), req);
  *   ai: 呼び出しに使うクライアント（テストでは偽の fetch を持たせる）
  *   req: 指示・プロンプト・スキーマ・添えるファイル・並べて送るまでの時間・考える量
  *   delayMs: 失敗のあとに待つ時間の基準（テストで短くする）
+ *   cachedContent: 指示文と prefix を入れた明示のキャッシュの名前。あれば prompt だけを送る
  */
 export function requestJson<T>(
   ai: GoogleGenAI,
-  { system, prompt, schema, files, hedgeMs = HEDGE_MS, thinkingLevel, label, onUsage }: JsonRequest<T>,
+  { system, prefix = '', prompt, schema, files, hedgeMs = HEDGE_MS, thinkingLevel, label, onUsage }: JsonRequest<T>,
   delayMs = 1000,
+  cachedContent?: string,
 ): Promise<T> {
   const jsonSchema = toGeminiSchema(schema);
   const stop = new AbortController();
@@ -115,14 +186,15 @@ export function requestJson<T>(
 
   type Outcome = { value: T; usage?: UsageMetadata } | { error: unknown; retry: boolean };
   async function send(n: number): Promise<Outcome> {
-    const text = prompt + '\n'.repeat(n);
+    const text = (cachedContent ? '' : prefix) + prompt + '\n'.repeat(n);
     let res;
     try {
       res = await ai.models.generateContent({
         model: model(),
         contents: files?.length ? [{ role: 'user', parts: [{ text }, ...files.map((f) => ({ inlineData: f }))] }] : text,
         config: {
-          systemInstruction: system,
+          // キャッシュには指示文が入っている。両方を付けると 400 で断られる
+          ...(cachedContent ? { cachedContent } : { systemInstruction: system }),
           responseMimeType: 'application/json',
           responseJsonSchema: jsonSchema,
           temperature: 0,
@@ -151,6 +223,7 @@ export function requestJson<T>(
         label: label ?? null,
         attempt,
         sent,
+        explicitCache: !!cachedContent,
         seconds: Math.round((performance.now() - started) / 100) / 10,
         promptTokenCount: m.promptTokenCount ?? null,
         cachedContentTokenCount: m.cachedContentTokenCount ?? null,

@@ -288,13 +288,13 @@ export async function checkWithGemini(input: CheckInput, generate: GenerateJson 
   const lines = input.lines.map((l) => l.text);
   const { utterance: u, patch: p, materials } = input;
   const no = (id: string) => materials.findIndex((m) => m.id === id) + 1;
-  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、暗黙のコンテキストキャッシュに乗せる。
-  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置く
+  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、コンテキストキャッシュに乗せる。
+  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置き、指示文と合わせて明示のキャッシュに入れる
   const head = materials.length
     ? `# 資料\n${materials.map((m, i) => `## 資料M${i + 1}: ${m.title}\n${numberedMaterial(m.lines)}`).join('\n\n')}\n\n`
     : '';
   const confirmations = [...input.confirmations, ...input.materialConfirmations.map((c) => materialConfirmation(no(c.materialId), c))];
-  const prompt = `${head}# 現行マニュアル
+  const prompt = `# 現行マニュアル
 ${numbered(lines, (i) => input.lines[i].note)}
 
 # 確定済みの記録
@@ -309,7 +309,7 @@ ${p.op === 'replace' ? `「${p.line}」を「${p.text}」に置き換える` : `
   // 資料（3万〜8.4万トークン）を載せると1本目が8〜14秒で返ることが多く、8秒で並べた2本目はほとんど使われずに
   // 資料ぶんの入力を二重に払うので、資料があるときは assess と同じ12秒にする（ADR 0019 設計書 §12.3）
   const hedgeMs = materials.length ? 12_000 : 8_000;
-  const out = await generate({ system: system(materials.length > 0), prompt, schema: schema(lines, materials), hedgeMs, label: 'check' });
+  const out = await generate({ system: system(materials.length > 0), ...(head && { prefix: head }), prompt, schema: schema(lines, materials), hedgeMs, label: 'check' });
   const n = out.kind === 'contradiction' ? out.conflictLineNo : out.kind === 'same' ? out.sameLineNo : null;
   const m = materialLineOf(out);
   return counterpart(out, n === null ? undefined : lines[n - 1], m ? { ctx: materials[m.materialNo - 1], lineNo: m.lineNo } : undefined);
