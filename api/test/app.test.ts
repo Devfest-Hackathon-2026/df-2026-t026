@@ -10,7 +10,7 @@ import type { CheckInput } from '../src/conflict/check.ts';
 import { fakeAssess, fakeCheckPatch, fakeCountTokens, fakeDictate, fakeFormat, fakeListen, fakeReadMaterial, fakeReadNote, fakeTranscribe } from '../src/fake-ai.ts';
 import { toGeminiSchema, type InlineFile } from '../src/gemini.ts';
 import type { ReadMaterial } from '../src/material.ts';
-import { seed, seedWithHistory } from '../src/seed.ts';
+import { seed, seedCheckRequest, seedWithHistory } from '../src/seed.ts';
 import { MemoryStore } from '../src/store.ts';
 
 let app: ReturnType<typeof createApp>;
@@ -1012,6 +1012,35 @@ test('起動時のデモの履歴は、反映済みのパッチが順に当た�
   assert.equal((await store.list('demo', 'demo-kitchen', 'utterances')).length, json.utterances.length);
 });
 
+test('ローカル起動のデモ：新人のノートが demo に共有され、demo が答える確認が2件待っている。答えると新人の通知に出る', async () => {
+  const store = new MemoryStore();
+  await seedWithHistory(store, 'demo');
+  await seedCheckRequest(store, 'kim', 'demo');
+  await signIn(store);
+  await store.putSession({ id: sessionIdOf('kim-token'), userId: 'kim', createdAt: '' });
+  app = createApp({ store, ...ai });
+
+  const shared = (await call('GET', '/shared')).json;
+  assert.deepEqual(
+    shared.map((x: any) => [x.title, x.sharedBy.name, x.openCount]),
+    [['閉店作業メモ', '新人', 2]],
+  );
+  const s = (await call('GET', `/manuals/${shared[0].id}`)).json;
+  const open = s.checks.filter((c: any) => c.kind === 'contradiction' && !c.resolution);
+  assert.deepEqual(open.map((c: any) => c.conflictLine), ['- レジ締めは社員がやる', '- 床はモップで水拭きする']);
+  // 記録したのは新人。demo は書き込む前の確認ではなく、確認に答える側
+  assert.ok(s.utterances.every((u: any) => u.recordedBy.id === 'kim'));
+
+  const p = s.patches.find((x: any) => x.id === open[0].patchId);
+  const answered = await call('POST', `/manuals/${shared[0].id}/checks/${open[0].id}/resolve`, { decidedAt: '2026-11-10', text: p.text, note: 'アルバイトもやってよい' });
+  assert.equal(answered.status, 200);
+  assert.equal((await callAs('kim', 'GET', '/notices')).json.items[0].kind, 'answer');
+
+  // 2回目の起動では積み直さない
+  await seedCheckRequest(store, 'kim', 'demo');
+  assert.equal((await call('GET', '/shared')).json.length, 1);
+});
+
 /** 資料の読み取りなどを差し替えて、アプリを作り直す */
 async function withDeps(deps: Partial<Deps>) {
   const store = new MemoryStore();
@@ -1669,6 +1698,8 @@ test('通知：自分のノートで、共有した相手が答えた・行を�
   assert.deepEqual((await call('GET', '/notices')).json, { seenAt: null, items: [] });
 
   await callAs('sato', 'POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, { decidedAt: '2026-11-10', text: '- 塩 小さじ1/2', note: '1/2で統一' });
+  // 時刻はミリ秒までなので、答えと直しが同じ時刻になって並びが決まらなくならないよう少し待つ
+  await new Promise((r) => setTimeout(r, 5));
   await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす', today: '2026-11-10' });
   // 持ち主が自分で直した行は知らせない
   await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- 自分で足した行', today: '2026-11-10' });
