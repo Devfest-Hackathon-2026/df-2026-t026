@@ -438,17 +438,20 @@ class _ManualScreenState extends State<ManualScreen> {
             focusNode: _focus,
             autofocus: true,
             hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
-            onChanged: (_) => setState(() {}),
             // 既定では Enter で打つ所が外れるので、外さずに次の行を続けて書けるようにする
             onEditingComplete: () {},
             onSubmitted: (_) => _save(next: true),
           ),
           SizedBox(height: k.space.sm),
           Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-            MoonFilledButton(
-              buttonSize: MoonButtonSize.sm,
-              onTap: _draft.text.trim().isEmpty ? null : _save,
-              label: const Text('保存する'),
+            // 打つたびにノート全体を作り直さないよう、欄の文で変わるボタンだけを作り直す
+            ListenableBuilder(
+              listenable: _draft,
+              builder: (_, _) => MoonFilledButton(
+                buttonSize: MoonButtonSize.sm,
+                onTap: _draft.text.trim().isEmpty ? null : _save,
+                label: const Text('保存する'),
+              ),
             ),
             if (!e.insert) ...[
               MoonOutlinedButton(
@@ -669,14 +672,14 @@ class _ManualScreenState extends State<ManualScreen> {
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
               )
-            : Builder(builder: (context) => ListView(
+            // 記録が多くても、見えている分だけ作る。新しい記録を上にする
+            : Builder(builder: (context) => ListView.builder(
                 padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
-                children: [
-                  for (final u in s.said.reversed) ...[
-                    _utteranceEntry(s, u),
-                    SizedBox(height: k.space.lg),
-                  ],
-                ],
+                itemCount: s.said.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: EdgeInsets.only(bottom: k.space.lg),
+                  child: _utteranceEntry(s, s.said[s.said.length - 1 - i]),
+                ),
               )),
       ),
     ]);
