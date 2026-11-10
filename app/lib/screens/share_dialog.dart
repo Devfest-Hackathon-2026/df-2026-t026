@@ -118,12 +118,12 @@ class _ShareDialogState extends State<_ShareDialog> {
                   SizedBox(height: k.space.lg),
                   Text('相手のログイン ID', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextInput(
+                  typable(MoonTextInput(
                     controller: _id,
                     hintText: '例: haruto',
                     onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _add(),
-                  ),
+                  )),
                   SizedBox(height: k.space.sm),
                   Align(
                     alignment: Alignment.centerLeft,

@@ -92,4 +92,18 @@ void main() {
     }
     expect(violations, isEmpty, reason: violations.join('\n'));
   });
+
+  // moon_design の入力欄は、読み上げ用の情報に「使える」が無く、Flutter の Web 版が disabled の欄にする。
+  // 読み上げソフトからも打てるよう、common.dart の typable で包む
+  test('moon_design の入力欄は、typable で包む', () {
+    final call = RegExp(r'\b(MoonTextInput|MoonTextArea)\(');
+    final violations = <String>[];
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart'))) {
+      final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
+      for (final m in call.allMatches(src)) {
+        if (!src.substring(0, m.start).endsWith('typable(')) violations.add('${f.path}: ${m[0]}');
+      }
+    }
+    expect(violations, isEmpty, reason: violations.join('\n'));
+  });
 }

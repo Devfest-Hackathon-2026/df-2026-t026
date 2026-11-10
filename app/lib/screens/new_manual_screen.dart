@@ -194,23 +194,23 @@ class _NewManualScreenState extends State<NewManualScreen> {
               SizedBox(height: k.space.xl),
               Text('何のノート？', style: k.text.heading),
               SizedBox(height: k.space.sm),
-              MoonTextInput(
+              typable(MoonTextInput(
                 controller: _title,
                 hintText: '例: キッチンマニュアル / 自分用メモ / コーディング規約',
                 onChanged: (_) => setState(() {}),
-              ),
+              )),
               SizedBox(height: k.space.xl),
               Text('最初の本文', style: k.text.heading),
               SizedBox(height: k.space.sm),
               // expands を付けると moon_design 1.1.0 は文字を欄の縦の真ん中に置く。高さだけ決めて、文字・カーソル・例文を左上から始める
-              MoonTextArea(
+              typable(MoonTextArea(
                 key: _bodyKey,
                 focusNode: _bodyFocus,
                 controller: _body,
                 height: k.editorHeight,
                 textStyle: k.text.inputArea,
                 onChanged: (_) => setState(() {}),
-              ),
+              )),
               SizedBox(height: k.space.sm),
               Wrap(spacing: k.space.sm, runSpacing: k.space.sm, children: [
                 MoonOutlinedButton(
