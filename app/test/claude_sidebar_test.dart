@@ -17,6 +17,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // サイドバーを Claude 型に作り直す（実装18a・PC）
 
 http.Response _json(Object body) => http.Response.bytes(utf8.encode(jsonEncode(body)), 200);
@@ -62,11 +64,9 @@ Api _api({int more = 0}) {
   return Api(
     client: MockClient((req) async {
       final path = req.url.path;
-      if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
-      if (path == '/manuals') {
-        return _json([
-          for (final (id, title, open) in manuals) {'id': id, 'title': title, 'utteranceCount': open, 'openCount': open},
-        ]);
+      if (path == '/home') {
+        return _json(homeJson([for (final (id, title, open) in manuals) _state(id, title, open)],
+            me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
       }
       for (final (id, title, open) in manuals) {
         if (path == '/manuals/$id') return _json(_state(id, title, open));

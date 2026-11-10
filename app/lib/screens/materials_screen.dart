@@ -42,20 +42,8 @@ class MaterialsScreen extends StatefulWidget {
 class _MaterialsScreenState extends State<MaterialsScreen> {
   ManualController get c => widget.c;
 
+  /// 資料は store に持たず、足したあとと、資料の中（そこで消せる）から戻ったときにだけ読み直す（ADR 0021）
   late Future<List<MaterialSummary>> _materials = c.api.listMaterials(c.manualId);
-
-  @override
-  void initState() {
-    super.initState();
-    // 足す・消すのあと（資料の中で消したときも）に読み直す
-    c.api.changes.addListener(_reload);
-  }
-
-  @override
-  void dispose() {
-    c.api.changes.removeListener(_reload);
-    super.dispose();
-  }
 
   void _reload() => setState(() {
         _materials = c.api.listMaterials(c.manualId);
@@ -67,13 +55,17 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
       builder: (_) => _AddDialog(api: c.api, manualId: c.manualId, pickFiles: widget.pickFiles),
     );
     if (added == null || !mounted) return;
+    _reload();
     showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount} ページ）'}');
   }
 
-  void _open(MaterialSummary m) => Navigator.push(
-        context,
-        MaterialPageRoute(settings: aboveNote(context), builder: (_) => MaterialScreen(c: c, materialId: m.id)),
-      );
+  Future<void> _open(MaterialSummary m) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(settings: aboveNote(context), builder: (_) => MaterialScreen(c: c, materialId: m.id)),
+    );
+    if (mounted) _reload();
+  }
 
   Widget _addButton() => MoonFilledButton(label: const Text('資料を足す'), onTap: _add);
 

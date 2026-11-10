@@ -12,6 +12,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 http.Response _json(Object body) => http.Response.bytes(utf8.encode(jsonEncode(body)), 200);
 
 Map<String, dynamic> _state(String id, String title, List<String> lines, {bool shared = false}) => {
@@ -35,16 +37,8 @@ Api _api() {
   return Api(
     client: MockClient((req) async {
       final path = req.url.path;
-      if (path == '/me') return _json({'id': 'tester', 'name': 'テスト', 'icon': null});
-      if (path == '/manuals') {
-        return _json([
-          for (final id in ['m1', 'm2']) {'id': id, 'title': states[id]!['manual']['title'], 'utteranceCount': 0, 'openCount': 0},
-        ]);
-      }
-      if (path == '/shared') {
-        return _json([
-          {'id': 's1', 'title': '洗い場', 'sharedBy': {'id': 'haruto', 'name': 'はると'}, 'openCount': 0},
-        ]);
+      if (path == '/home') {
+        return _json(homeJson([...states.values], me: {'id': 'tester', 'name': 'テスト', 'icon': null}));
       }
       for (final MapEntry(:key, :value) in states.entries) {
         if (path == '/manuals/$key') return _json(value);

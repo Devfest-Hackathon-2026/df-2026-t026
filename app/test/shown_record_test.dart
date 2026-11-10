@@ -180,26 +180,14 @@ void main() {
     });
   });
 
-  testWidgets('記録した発言の付箋では、見せた記録は見せた人の発言で「記録を見せた」。店長の確認の答えにしない', (tester) async {
+  testWidgets('確定のときに残した答え（店長の確認の答え・見せた記録）は、記録した発言の付箋にも件数にも混ぜない', (tester) async {
     await _pump(tester, ManualScreen(api: _api(_shown()), manualId: 'm1'));
-    final note = find.ancestor(of: find.text(_shownText), matching: find.byType(StickyNote));
-    expect(note, findsOneWidget);
-    expect(find.descendant(of: note, matching: find.byWidgetPredicate((w) => w is Speaker && w.name == 'かなで')), findsOneWidget);
-    expect(find.descendant(of: note, matching: find.text('記録を見せた')), findsOneWidget);
-    expect(find.descendant(of: note, matching: find.text('確認の答え')), findsNothing);
-    // 店長の確認の答えは、11/7 の1つだけ
-    expect(find.text('確認の答え'), findsOneWidget);
-  });
-
-  testWidgets('「確認の答え」「記録を見せた」の札は、確認印の朱でなく、確認済みと同じ緑にする（赤いとエラーに見える）', (tester) async {
-    await _pump(tester, ManualScreen(api: _api(_shown()), manualId: 'm1'));
-    final c = appTheme().extension<AppTokens>()!.colors;
-    for (final label in ['確認の答え', '記録を見せた']) {
-      final tag = tester.widget<StatusTag>(find.ancestor(of: find.text(label), matching: find.byType(StatusTag)));
-      expect(tag.fg, isNot(c.stamp), reason: label);
-      expect(tag.bg, isNot(c.stamp), reason: label);
-      expect((tag.bg, tag.fg), (c.addedBg, c.added), reason: label);
-    }
+    final notes = find.byType(StickyNote);
+    expect(find.descendant(of: notes, matching: find.text('塩は小さじ1/2でいい')), findsOneWidget);
+    expect(find.descendant(of: notes, matching: find.text('塩は小さじ1だよ')), findsOneWidget);
+    expect(find.descendant(of: notes, matching: find.text('1/2で統一')), findsNothing);
+    expect(find.descendant(of: notes, matching: find.text(_shownText)), findsNothing);
+    expect(find.text('記録した発言 2 件'), findsOneWidget);
   });
 
   testWidgets('履歴では、見せた版は見せた人と「…記録（1/2で統一）を見せた」で、店長の確認にしない', (tester) async {

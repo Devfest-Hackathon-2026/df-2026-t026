@@ -14,7 +14,6 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'notices_screen.dart';
 import 'open_checks_screen.dart';
-import 'profile_screen.dart' show MeBuilder;
 import 'search_screen.dart';
 
 /// サイドバーで、いまいる画面
@@ -59,7 +58,7 @@ class SidebarDrawer extends StatelessWidget {
   final Place place;
   final VoidCallback? onRecord;
 
-  /// 画面を開く（入力ページの push。戻ってきたら入力ページを読み直す）
+  /// 画面を開く（入力ページの push）
   final Future<void> Function(Widget screen) open;
 
   @override
@@ -92,34 +91,11 @@ class _Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<_Sidebar> {
-  /// 自分のノートと、共有されたノート（あとで確認の合計に両方を数える。ADR 0016）と、新しい通知の数（ADR 0020）
-  late Future<(List<ManualSummary>, List<SharedManual>, int)> _notes = _load();
-
   @override
   void initState() {
     super.initState();
-    widget.api.changes.addListener(_reload);
+    widget.api.store.ensureLoaded();
   }
-
-  @override
-  void dispose() {
-    widget.api.changes.removeListener(_reload);
-    super.dispose();
-  }
-
-  // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
-  Future<(List<ManualSummary>, List<SharedManual>, int)> _load() => (
-        widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]),
-        widget.api.listShared().catchError((Object _) => const <SharedManual>[]),
-        widget.api
-            .notices()
-            .then((n) => n.items.where((x) => n.seenAt == null || x.at.compareTo(n.seenAt!) > 0).length)
-            .catchError((Object _) => 0),
-      ).wait;
-
-  void _reload() => setState(() {
-        _notes = _load();
-      });
 
   /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く。
   /// 広い画面のサイドバーでは、戻る動き・横から出る動きは付けない（違和感 #1）。
@@ -160,13 +136,19 @@ class _SidebarState extends State<_Sidebar> {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
+    final store = widget.api.store;
     return Container(
       color: k.colors.canvas,
-      child: FutureBuilder(
-        future: _notes,
-        builder: (context, snap) {
-          final (manuals, shared, fresh) = snap.data ?? (const <ManualSummary>[], const <SharedManual>[], 0);
-          final open = manuals.fold<int>(0, (n, m) => n + m.openCount) + shared.fold<int>(0, (n, m) => n + m.openCount);
+      child: ListenableBuilder(
+        listenable: store,
+        builder: (context, _) {
+          // 自分のノートと、共有されたノート。あとで確認の合計に両方を数える（ADR 0016）。
+          // 読めないとき（ログインする前など）はノートを並べないだけにする
+          final notes = store.notes ?? const <ManualState>[];
+          final manuals = [for (final m in notes) if (m.sharedBy == null) m];
+          final shared = [for (final m in notes) if (m.sharedBy != null) m];
+          final open = notes.fold<int>(0, (n, m) => n + m.openChecks.length);
+          final me = store.me;
           // 上から：アプリ名 → 言われたことを記録 → あとで確認 → ノートを探す → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -215,7 +197,7 @@ class _SidebarState extends State<_Sidebar> {
                     _item(
                       m.title,
                       selected: widget.manualId == m.id,
-                      open: m.openCount,
+                      open: m.openChecks.length,
                       onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
                     ),
                   // ほかの人から共有されたノート。共有された人も確定できるので、あとで確認の件数も付ける（ADR 0016）
@@ -231,9 +213,9 @@ class _SidebarState extends State<_Sidebar> {
                     for (final m in shared)
                       _item(
                         m.title,
-                        owner: m.sharedBy.name,
+                        owner: m.sharedBy!.name,
                         selected: widget.manualId == m.id,
-                        open: m.openCount,
+                        open: m.openChecks.length,
                         onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
                       ),
                   ],
@@ -245,18 +227,18 @@ class _SidebarState extends State<_Sidebar> {
               padding: EdgeInsets.all(k.space.sm),
               // 自分の右に使い方（?）。上部バーには置かない
               child: Row(children: [
+                // 読めない（ログインする前など）ときは何も出さない
                 Expanded(
-                  child: MeBuilder(
-                    api: widget.api,
-                    builder: (context, me) => _item(
-                      me.name,
-                      leading: Avatar(me.name, image: me.icon?.bytes),
-                      // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
-                      selected: widget.place == Place.notices || widget.place == Place.profile,
-                      fresh: fresh,
-                      onTap: () => _go(NoticesScreen(api: widget.api)),
-                    ),
-                  ),
+                  child: me == null
+                      ? const SizedBox.shrink()
+                      : _item(
+                          me.name,
+                          leading: Avatar(me.name, image: me.icon?.bytes),
+                          // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
+                          selected: widget.place == Place.notices || widget.place == Place.profile,
+                          fresh: store.freshNotices,
+                          onTap: () => _go(NoticesScreen(api: widget.api)),
+                        ),
                 ),
                 SizedBox(width: k.space.xs),
                 MoonButton.icon(

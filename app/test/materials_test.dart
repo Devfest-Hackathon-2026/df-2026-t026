@@ -17,6 +17,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // 資料の一覧・足す・中を見る・消す（ADR 0019 と、その設計書の §6・§10）。
 // API は設計書 §6 の形に合わせた偽（MockClient）
 
@@ -107,9 +109,7 @@ class _Server {
 
   late final client = MockClient((req) async {
     final path = req.url.path;
-    if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
-    if (path == '/shared') return _json([]);
-    if (path == '/manuals') return _json([if (!shared) {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 0, 'openCount': 0}]);
+    if (path == '/home') return _json(homeJson([state], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
     if (path == '/manuals/m1/materials') {
       if (req.method == 'POST') {
         final body = jsonDecode(req.body) as Map<String, dynamic>;

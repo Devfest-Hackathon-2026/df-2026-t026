@@ -16,6 +16,8 @@ import 'package:http/testing.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // 違和感メモの小さな直し（実装17）
 
 Api _emptyApi() => Api(client: MockClient((_) async => http.Response('[]', 200)), baseUrl: 'http://api');
@@ -24,8 +26,8 @@ http.Response _json(Object body) => http.Response.bytes(utf8.encode(jsonEncode(b
 
 /// 自分は かなで、ノートは無い（サイドバーを出すため）
 Api _meApi() => Api(
-    client: MockClient((req) async => req.url.path == '/me'
-        ? _json({'id': 'kanade', 'name': 'かなで', 'icon': null})
+    client: MockClient((req) async => req.url.path == '/home'
+        ? _json(homeJson([], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}))
         : _json([])),
     baseUrl: 'http://api');
 

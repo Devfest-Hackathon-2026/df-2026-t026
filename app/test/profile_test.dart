@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -26,9 +27,7 @@ MockClient _client(List<Map<String, dynamic>> sent) => MockClient((req) async {
         sent.add(body);
         return _json({'id': 'kanade', ...body});
       }
-      if (req.url.path == '/me') return _json({'id': 'kanade', 'name': 'kanade', 'icon': null});
-      if (req.url.path == '/manuals' || req.url.path == '/shared') return _json([]);
-      if (req.url.path == '/notices') return _json({'seenAt': null, 'items': []});
+      if (req.url.path == '/home') return _json(homeJson([], me: {'id': 'kanade', 'name': 'kanade', 'icon': null}));
       if (req.url.path == '/notices/seen') return http.Response('', 204);
       return _json({'error': '見つかりません'}, 404);
     });

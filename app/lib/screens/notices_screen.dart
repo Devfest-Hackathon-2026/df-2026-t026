@@ -5,6 +5,7 @@ import 'package:moon_design/moon_design.dart';
 
 import '../api.dart';
 import '../models.dart';
+import '../note_store.dart';
 import '../theme.dart';
 import 'common.dart';
 import 'manual_screen.dart';
@@ -12,7 +13,8 @@ import 'profile_screen.dart';
 import 'sidebar.dart';
 
 /// 自分のノートで、共有した相手が答えた・行を直したこと（ADR 0020）。サイドバーの自分から開く。
-/// 開いたら見たことにし、前に見たときより後の通知に「新しい」を付ける
+/// 通知は store にあるものをすぐ出し、裏で1本読み直す（ノートを開くときと同じ形。ADR 0021）。
+/// 読み直してから見たことにし、開いた時点で前に見たときより後の通知に「新しい」を付ける
 class NoticesScreen extends StatefulWidget {
   const NoticesScreen({super.key, required this.api});
   final Api api;
@@ -22,19 +24,41 @@ class NoticesScreen extends StatefulWidget {
 }
 
 class _NoticesScreenState extends State<NoticesScreen> {
-  late Future<(Me, ({String? seenAt, List<Notice> items}))> _data = _load();
+  NoteStore get _store => widget.api.store;
 
-  // 見たことにすると changes が増えるので、changes では読み直さない（読み直すたびに見たことになり、新しいの印が消える）
-  Future<(Me, ({String? seenAt, List<Notice> items}))> _load() async {
-    final (me, notices) = await (widget.api.me(), widget.api.notices()).wait;
-    // 見たことにできなくても、通知は見せる。次に開いたときにまた新しいと出るだけ
-    widget.api.seeNotices().catchError((Object _) {});
-    return (me, notices);
+  /// 開いた時点の、通知を最後に見た時刻。見たことにしたあとも、開いている間は「新しい」の印をこれで付ける
+  String? _seenAt;
+
+  /// _seenAt を控えたか。見たことが無ければ _seenAt は null なので、別に持つ
+  var _opened = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _capture();
+    _load();
   }
 
-  void _reload() => setState(() {
-        _data = _load();
-      });
+  /// 開いた時点の見た時刻を控える。store にまだ通知が無ければ、読めたときに控える
+  void _capture() {
+    final n = _store.notices;
+    if (n == null || _opened) return;
+    _seenAt = n.seenAt;
+    _opened = true;
+  }
+
+  /// 裏で読み直し、そのあとで見たことにする。アプリを前面に開いたままだと戻ってきたときの読み直しが無いので、
+  /// ここで読まないと届いていた通知が出ない。先に見たことにすると、読み直しで届いた通知が手元の見た時刻より後になり、
+  /// サイドバーの数がまた出る
+  void _load() {
+    _store.load().then((_) {
+      if (!mounted) return;
+      setState(_capture);
+      // 読み直せなかったら見たことにしない。最後に読めたあとに届いた通知を、出さないまま見たことにしてしまう。
+      // 見たことにできなくても、通知は見せる。次に開いたときにまた新しいと出るだけ
+      if (_opened && _store.error == null) widget.api.seeNotices().catchError((Object _) {});
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,13 +69,16 @@ class _NoticesScreenState extends State<NoticesScreen> {
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const TopBar(crumbs: ['通知']),
           Expanded(
-            child: FutureBuilder(
-              future: _data,
-              builder: (context, snap) {
-                if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-                if (!snap.hasData) return const Loading();
-                final (me, notices) = snap.data!;
-                return _body(me, notices.seenAt, notices.items);
+            child: ListenableBuilder(
+              listenable: _store,
+              builder: (context, _) {
+                final (me, notices) = (_store.me, _store.notices);
+                if (!_opened || me == null || notices == null) {
+                  return _store.error == null
+                      ? const Loading()
+                      : LoadFailed(message: _store.error.toString(), onRetry: () => setState(_load));
+                }
+                return _body(me, notices.items);
               },
             ),
           ),
@@ -60,7 +87,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
     );
   }
 
-  Widget _body(Me me, String? seenAt, List<Notice> items) {
+  Widget _body(Me me, List<Notice> items) {
     final k = context.tokens;
     return Narrow(
       maxWidth: k.pageWidth,
@@ -88,7 +115,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               for (final (i, n) in items.indexed) ...[
                 if (i > 0) const Rule(),
-                _notice(n, fresh: seenAt == null || n.at.compareTo(seenAt) > 0),
+                _notice(n, fresh: _seenAt == null || n.at.compareTo(_seenAt!) > 0),
               ],
             ]),
           ),
