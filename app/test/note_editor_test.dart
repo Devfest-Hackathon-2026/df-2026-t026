@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 const _salt = '- 塩 小さじ1';
@@ -461,7 +462,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト'));
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
     await tester.pumpAndSettle();
     expect(find.byType(CheckListScreen), findsOneWidget);
 

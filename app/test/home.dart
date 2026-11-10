@@ -1,3 +1,9 @@
+import 'package:diff_note/screens/tab_bar.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// 広い画面で上部バーの下に出るノートのタブ
+Finder noteTab(String label) => find.descendant(of: find.byType(NoteTabRow), matching: find.text(label));
+
 /// GET /home の応答（自分・全部のノートの状態・未整理メモ・通知）。偽のサーバーが返す
 Map<String, dynamic> homeJson(
   List<Map<String, dynamic>> notes, {

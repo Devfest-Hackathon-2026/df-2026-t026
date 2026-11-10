@@ -55,6 +55,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
             // パンくずは画面の積み重ねと同じにする。ノートの外（入力ページなど）から開いたときは下にノートが無く、
             // ← もそこへ戻るので、ノートの題名を出さない（どのノートかはサイドバーで分かる）
             TopBar(crumbs: [if (aboveNote(context) != null) s.title, '確認リスト']),
+            if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.checks),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, onOpen: _push));

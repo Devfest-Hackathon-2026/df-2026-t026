@@ -53,6 +53,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: [s.title, '履歴']),
+            if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.history),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, selected: _selected, onOpen: _push));

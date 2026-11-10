@@ -487,7 +487,7 @@ void main() {
     nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => ManualScreen(api: server.api, manualId: 'm1')));
     await tester.pumpAndSettle();
     expect(_shownLines(tester), ['・塩 小さじ1']);
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
     await tester.pumpAndSettle();
 
     server.noteGate!.complete();
