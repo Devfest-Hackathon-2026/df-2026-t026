@@ -1202,10 +1202,10 @@ class _InputScreenState extends State<InputScreen> {
   /// noteWidth は付箋1枚の幅。広い画面の右の列では、列の幅いっぱいに縦に積む
   List<Widget> _recent(List<ManualState> manuals, {double? noteWidth}) {
     final k = context.tokens;
-    final recent = [
+    final recent = sameInput([
       for (final s in manuals)
         for (final u in s.said) (manual: s, u: u),
-    ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt));
+    ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt)));
     return [
       Text('最近の記録', style: k.text.title),
       SizedBox(height: k.space.sm),
@@ -1215,17 +1215,18 @@ class _InputScreenState extends State<InputScreen> {
         Padding(
           padding: EdgeInsets.only(top: k.space.sm),
           child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
-            for (final (:manual, :u) in recent.take(_recentCount))
+            for (final (:manuals, :u) in recent.take(_recentCount))
               SizedBox(
                 width: noteWidth ?? k.stickyWidth,
                 child: StickyNote(
-                  onTap: () => _push(ManualScreen(api: widget.api, manualId: manual.id)),
+                  // いくつものノートに記録したときは、いちばん新しく記録したノートを開く。ほかはサイドバーから開ける
+                  onTap: () => _push(ManualScreen(api: widget.api, manualId: manuals.first.id)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Speaker(name: u.speaker, day: u.saidAt),
                     SizedBox(height: k.space.sm),
                     Text(u.text, style: k.text.body),
                     SizedBox(height: k.space.sm),
-                    Text(manual.title, style: k.text.small),
+                    Text(manuals.map((m) => m.title).join('・'), style: k.text.small),
                   ]),
                 ),
               ),
@@ -1252,6 +1253,26 @@ class _InputScreenState extends State<InputScreen> {
       ]),
     );
   }
+}
+
+/// 最近の記録で、1つの入力からいくつものノートにできた記録を1枚の付箋にまとめる。
+/// サーバーはノートごとに発言を作るので、文・言った人・言われた日が同じで、1分以内に記録したものを同じ入力とみなす。
+/// recent は新しい順。まとめたノートも、新しく記録した順に並ぶ
+List<({List<ManualState> manuals, Utterance u})> sameInput(List<({ManualState manual, Utterance u})> recent) {
+  final out = <({List<ManualState> manuals, Utterance u})>[];
+  for (final (:manual, :u) in recent) {
+    final same = out.where((g) =>
+        g.u.text == u.text &&
+        g.u.speaker == u.speaker &&
+        g.u.saidAt == u.saidAt &&
+        DateTime.parse(g.u.createdAt).difference(DateTime.parse(u.createdAt)).abs() < const Duration(minutes: 1));
+    if (same.firstOrNull case final g?) {
+      g.manuals.add(manual);
+    } else {
+      out.add((manuals: [manual], u: u));
+    }
+  }
+  return out;
 }
 
 /// 失敗を知らせる文。応答の形が違ったとき（TypeError など）に、英語の例外の文を出さない。then はどうすればいいか
