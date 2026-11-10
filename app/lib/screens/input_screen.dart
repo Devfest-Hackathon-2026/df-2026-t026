@@ -793,10 +793,11 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
+  bool get _memoFilled => _memoText.text.trim().isNotEmpty;
+
   /// リワインドの間に付箋のまま書き直す欄。そのまま記録するか、直した文だけ残す
   Widget _memoEditor(Memo m) {
     final k = context.tokens;
-    final filled = _memoText.text.trim().isNotEmpty;
     return StickyNote(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
@@ -809,19 +810,25 @@ class _InputScreenState extends State<InputScreen> {
           height: k.memoEditorHeight,
           readOnly: _busy,
           textStyle: k.text.inputArea,
-          onChanged: (_) => setState(() {}),
         ),
         SizedBox(height: k.space.sm),
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: filled && !_busy ? _sendMemo : null,
-            label: const Text('ノートと照らし合わせる'),
+          // 打つたびにページ全体を作り直さないよう、欄の文で変わるボタンだけを作り直す
+          ListenableBuilder(
+            listenable: _memoText,
+            builder: (_, _) => MoonFilledButton(
+              buttonSize: MoonButtonSize.sm,
+              onTap: _memoFilled && !_busy ? _sendMemo : null,
+              label: const Text('ノートと照らし合わせる'),
+            ),
           ),
-          MoonOutlinedButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: filled && !_busy ? _saveMemo : null,
-            label: const Text('保存する'),
+          ListenableBuilder(
+            listenable: _memoText,
+            builder: (_, _) => MoonOutlinedButton(
+              buttonSize: MoonButtonSize.sm,
+              onTap: _memoFilled && !_busy ? _saveMemo : null,
+              label: const Text('保存する'),
+            ),
           ),
           MoonTextButton(
             buttonSize: MoonButtonSize.sm,
@@ -879,10 +886,11 @@ class _InputScreenState extends State<InputScreen> {
                     activeBorderColor: k.colors.canvas,
                     textPadding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                     hintText: '例: 田中さんから、塩は小さじ1/2でいいと言われた',
-                    onChanged: (v) => setState(() {
-                      // 消し切ったら、流し込んだメモはもう使っていない
-                      if (v.trim().isEmpty) _poured.clear();
-                    }),
+                    // 消し切ったら、流し込んだメモはもう使っていない。打つたびにページ全体は作り直さず
+                    // （送るボタンは欄を聞いて作り直す）、付箋の印を外すときだけ作り直す
+                    onChanged: (v) {
+                      if (v.trim().isEmpty && _poured.isNotEmpty) setState(_poured.clear);
+                    },
                   ),
                   SizedBox(
                     height: k.composerTools,
@@ -925,9 +933,12 @@ class _InputScreenState extends State<InputScreen> {
           Align(
             alignment: Alignment.centerLeft,
             // 照らし合わせは裏で進むので、押したあとも止めない
-            child: MoonFilledButton(
-              onTap: _ready && !_busy && !_dictating ? submit : null,
-              label: const Text('ノートと照らし合わせる'),
+            child: ListenableBuilder(
+              listenable: _text,
+              builder: (_, _) => MoonFilledButton(
+                onTap: _ready && !_busy && !_dictating ? submit : null,
+                label: const Text('ノートと照らし合わせる'),
+              ),
             ),
           ),
         ]),

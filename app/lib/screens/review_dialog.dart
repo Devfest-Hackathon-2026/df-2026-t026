@@ -243,24 +243,33 @@ class _ReviewDialogState extends State<ReviewDialog> {
                         SizedBox(height: k.space.lg),
                         Text('誰が言った？', style: k.text.small),
                         SizedBox(height: k.space.xs),
-                        MoonTextInput(
-                          controller: _speaker,
-                          onChanged: (_) => setState(() {}),
-                          errorText: _hasSpeaker ? null : '反映する前に入れてください',
-                        ),
-                        if (_knownSpeakers case final known when known.isNotEmpty) ...[
-                          SizedBox(height: k.space.xs),
-                          Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
-                            for (final (:name, :id) in known)
-                              MoonChip(
-                                chipSize: MoonChipSize.sm,
-                                isActive: _speaker.text.trim() == name,
-                                semanticLabel: '発言者を$nameにする',
-                                label: Text(id == null ? name : '$name（$id）'),
-                                onTap: () => setState(() => _speaker.text = name),
+                        // 打つたびにダイアログ全体を作り直さないよう、発言者で変わる所だけが欄を聞いて作り直す
+                        ListenableBuilder(
+                          listenable: _speaker,
+                          builder: (_, _) => Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              MoonTextInput(
+                                controller: _speaker,
+                                errorText: _hasSpeaker ? null : '反映する前に入れてください',
                               ),
-                          ]),
-                        ],
+                              if (_knownSpeakers case final known when known.isNotEmpty) ...[
+                                SizedBox(height: k.space.xs),
+                                Wrap(spacing: k.space.xs, runSpacing: k.space.xs, children: [
+                                  for (final (:name, :id) in known)
+                                    MoonChip(
+                                      chipSize: MoonChipSize.sm,
+                                      isActive: _speaker.text.trim() == name,
+                                      semanticLabel: '発言者を$nameにする',
+                                      label: Text(id == null ? name : '$name（$id）'),
+                                      onTap: () => setState(() => _speaker.text = name),
+                                    ),
+                                ]),
+                              ],
+                            ],
+                          ),
+                        ),
                         SizedBox(height: k.space.sm),
                         MoonOutlinedButton(
                           onTap: _pickDate,
@@ -359,12 +368,15 @@ class _ReviewDialogState extends State<ReviewDialog> {
   List<Widget> _contradiction(ManualController c, Patch p, Check chk) {
     final k = context.tokens;
     return [
-      ConflictPair(
-        leftLabel: counterpartLabel(chk),
-        left: chk.conflictLine ?? '',
-        rightLabel: '${_hasSpeaker ? _speaker.text.trim() : '発言者未入力'}（${fmtDay(_saidAt)}）',
-        right: p.text,
-        settled: chk.resolution != null,
+      ListenableBuilder(
+        listenable: _speaker,
+        builder: (_, _) => ConflictPair(
+          leftLabel: counterpartLabel(chk),
+          left: chk.conflictLine ?? '',
+          rightLabel: '${_hasSpeaker ? _speaker.text.trim() : '発言者未入力'}（${fmtDay(_saidAt)}）',
+          right: p.text,
+          settled: chk.resolution != null,
+        ),
       ),
       // 相手が確定済みの記録なら、確認のページと同じく、その記録を確認印つきで比較のすぐ下に出す
       if (c.state!.confirmedRecordFor(chk)?.resolution case final r?) ...[
@@ -411,9 +423,12 @@ class _ReviewDialogState extends State<ReviewDialog> {
         Text(p.status == 'applied' ? '反映済み' : '記録だけ残しました', style: k.text.small)
       else
         _buttons([
-          MoonTextButton(
-            onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id)),
-            label: const Text('それでも書き込む'),
+          ListenableBuilder(
+            listenable: _speaker,
+            builder: (_, _) => MoonTextButton(
+              onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id)),
+              label: const Text('それでも書き込む'),
+            ),
           ),
         ], MoonFilledButton(
             onTap: _busy ? null : () => _run(() => c.discardPatch(p.id)),
@@ -461,10 +476,13 @@ class _ReviewDialogState extends State<ReviewDialog> {
             }),
             label: Text(edit == null ? '書き込む内容を直す' : 'やめる'),
           ),
-        ], MoonFilledButton(
-          onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id, text: edit?.text.trim())),
-          leading: _busy ? const ButtonLoader() : null,
-          label: const Text('ノートに書き込む'),
+        ], ListenableBuilder(
+          listenable: _speaker,
+          builder: (_, _) => MoonFilledButton(
+            onTap: _busy || !_hasSpeaker ? null : () => _run(() => c.applyPatch(p.id, text: edit?.text.trim())),
+            leading: _busy ? const ButtonLoader() : null,
+            label: const Text('ノートに書き込む'),
+          ),
         )),
     ];
   }
