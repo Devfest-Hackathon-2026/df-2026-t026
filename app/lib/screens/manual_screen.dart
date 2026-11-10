@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
@@ -42,6 +43,9 @@ class _ManualScreenState extends State<ManualScreen> {
   ({int? at, bool insert})? _editing;
   final _draft = TextEditingController();
   var _saving = false;
+
+  /// 直接編集の欄の外を押し始めた所
+  Offset? _downOutside;
 
   /// 食い違いを確かめている編集（パッチの ID）
   final _checking = <String>{};
@@ -336,43 +340,56 @@ class _ManualScreenState extends State<ManualScreen> {
   bool _fromEdit(ManualState s, ManualLine line) =>
       line.patchId != null && s.utterance(s.patch(line.patchId!).utteranceId).fromEdit;
 
-  /// 直接編集の欄。行の場所に開く
+  /// 直接編集の欄。行の場所に開く。欄の外を押すと閉じる
   Widget _editor(ManualState s) {
     final k = context.tokens;
     final e = _editing!;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MoonTextInput(
-          controller: _draft,
-          autofocus: true,
-          hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (_) => _save(s),
-        ),
-        SizedBox(height: k.space.sm),
-        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, children: [
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: _saving || _draft.text.trim().isEmpty ? null : () => _save(s),
-            leading: _saving ? const ButtonLoader() : null,
-            label: const Text('保存する'),
+    return TapRegion(
+      onTapOutside: (down) => _downOutside = down.position,
+      onTapUpOutside: (up) {
+        // スクロールの指で書きかけを消さないよう、ほぼ動かさずに離したときだけ閉じる
+        final down = _downOutside;
+        _downOutside = null;
+        if (_saving || down == null || (up.position - down).distance > kTouchSlop) return;
+        _cancelEdit();
+      },
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          MoonTextInput(
+            controller: _draft,
+            autofocus: true,
+            hintText: '例: - 塩 小さじ1（マークダウンで書けます。見出しは「## 」で始める）',
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) => _save(s),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              MoonButton.icon(
+                buttonSize: MoonButtonSize.sm,
+                semanticLabel: '保存する',
+                onTap: _saving || _draft.text.trim().isEmpty ? null : () => _save(s),
+                icon: _saving
+                    ? MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s)
+                    : Icon(LucideIcons.check, color: k.colors.action),
+              ),
+              MoonButton.icon(
+                buttonSize: MoonButtonSize.sm,
+                semanticLabel: 'この行を消す',
+                // まだ無い行は、閉じれば消えたのと同じ
+                onTap: _saving ? null : (e.insert ? _cancelEdit : () => _save(s, delete: true)),
+                icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
+              ),
+            ]),
           ),
           if (!e.insert) ...[
-            MoonOutlinedButton(
-              buttonSize: MoonButtonSize.sm,
-              onTap: _saving ? null : () => _save(s, delete: true),
-              label: const Text('この行を消す'),
-            ),
+            SizedBox(height: k.space.sm),
             MoonTextButton(
               buttonSize: MoonButtonSize.sm,
               onTap: _saving ? null : () => _startEdit(s, e.at, insert: true),
               label: const Text('下に行を足す'),
             ),
           ],
-          MoonTextButton(buttonSize: MoonButtonSize.sm, onTap: _saving ? null : _cancelEdit, label: const Text('やめる')),
         ]),
-      ]),
+      ),
     );
   }
 
