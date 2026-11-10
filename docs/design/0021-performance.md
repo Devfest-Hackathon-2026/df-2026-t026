@@ -1,6 +1,6 @@
-# 0020 高速化の実装計画
+# 0021 高速化の実装計画
 
-- 対応する ADR：まだ無い。決めた項目から ADR に書く（§6 の表の「ADR」の列）
+- 対応する ADR：`docs/adr/0021-app-state-in-one-place.md`（実装の PR で足す）。ほかは既存の ADR への追記（§6 の表の「ADR」の列）。番号は、通知の ADR が 0020 を先に使ったので 0021 にした
 - 書いた日：2026-11-10（dev の eb86ae6 と、同じ日の本番を見て書いた）
 - 読み方：「確かめた」は、コード・本番のログ・手元の計測で確かめたこと。「推測」は、まだ測っていないことと、文書を読み直していないこと。推測の数字は、その PR で測って置き換える。
 - この PR は計画だけで、実装は1行も変えていない。
@@ -214,10 +214,10 @@ A は挙動を変えない小さな PR で、どれからでも入れられる�
 | A2 `perf/web-first-load` | 使っていないフォントを外す、読み込み中の画面、API を先に起こす | 6.7MB → 4.9MB（推測）、真っ白 → 方眼とアプリ名、開いたときの起動待ちを読み込みに重ねる | `app/web/index.html`・`.github/workflows/deploy.yml`（ビルドのあとで `FontManifest.json` を直す。フォントは依存のパッケージが宣言しているので、アプリの `pubspec.yaml` からは外せない） | 変わらない | 不要 | なし |
 | A3 `perf/cold-start` | 起動時の CPU の上乗せ、本番で seed を呼ばない | 起動 2.6〜4.6 秒 → 測って書く | `infra/main.tf`・`api/src/main.ts` | 変わらない | 不要 | なし |
 | A4 `perf/api-compress` | 応答の圧縮、セッションを覚える | 146KB の応答 → 測って書く、呼び出しごとの Firestore の読み 1 回 → 0 回 | `api/src/app.ts`・テスト | 変わらない | 不要 | なし |
-| B1 `refactor/note-store` | アプリの状態を1か所に持つ、`GET /home`、`Api.changes` をやめる | ログイン直後 30 本以上 → 4 本以下、ノートを開くとすぐ出る、書いたあとの取り直し 0 本 | `app/lib/note_store.dart`（新規）・`api.dart`・`manual_controller.dart`・各画面・`api/src/app.ts`・アプリのテスト | 画面の動きは同じ。裏の取り直しが入るので、書いている行をずらさない決まり（§3）を一緒に入れる | 不要 | 0020（新規） |
+| B1 `refactor/note-store` | アプリの状態を1か所に持つ、`GET /home`、`Api.changes` をやめる | ログイン直後 30 本以上 → 4 本以下、ノートを開くとすぐ出る、書いたあとの取り直し 0 本 | `app/lib/note_store.dart`（新規）・`api.dart`・`manual_controller.dart`・各画面・`api/src/app.ts`・アプリのテスト | 画面の動きは同じ。裏の取り直しが入るので、書いている行をずらさない決まり（§3）を一緒に入れる | 不要 | 0021（新規） |
 | B2 `perf/app-rebuilds` | 索引、入力欄だけの作り直し、発言の一覧を builder に | 450 行で 19.1 ミリ秒 → 12 行と同じ | `app/lib/models.dart`・`manual_screen.dart`・`input_screen.dart`・`review_dialog.dart` | 変わらない | 不要 | なし |
-| C1 `feat/edit-without-waiting` | 行の編集を先に画面へ出す、ID をアプリが作る、Enter で次の行へ | 保存の往復を待つ → 待たない | `manual_screen.dart`・`note_store.dart`・`api/src/app.ts`（`Edit`） | 変わる（§9 の 4） | 不要 | 0007 に追記・0020 |
-| C2 `feat/record-without-waiting` | 記録を未整理メモに置いて裏で照らし合わせる、書き込みをサーバーへ | 次を書けるまで 5〜20 秒 → 0.1 秒以内、往復 1+N → 1 | `input_screen.dart`・`review_dialog.dart`・`record_result.dart`・`api/src/app.ts` | 変わる（§9 の 3） | 不要（プロンプトは変えない） | 0006・0015 に追記・0020 |
+| C1 `feat/edit-without-waiting` | 行の編集を先に画面へ出す、ID をアプリが作る、Enter で次の行へ | 保存の往復を待つ → 待たない | `manual_screen.dart`・`note_store.dart`・`api/src/app.ts`（`Edit`） | 変わる（§9 の 4） | 不要 | 0007 に追記・0021 |
+| C2 `feat/record-without-waiting` | 記録を未整理メモに置いて裏で照らし合わせる、書き込みをサーバーへ | 次を書けるまで 5〜20 秒 → 0.1 秒以内、往復 1+N → 1 | `input_screen.dart`・`review_dialog.dart`・`record_result.dart`・`api/src/app.ts` | 変わる（§9 の 3） | 不要（プロンプトは変えない） | 0006・0015 に追記・0021 |
 | D1 `perf/check-thinking-low` | 確かめの考える量を LOW に | 中央値 3.9 秒 → 測って書く | `api/src/conflict/check.ts` | 判定が変わりうる | 要る | 0002 に追記 |
 | D2 `perf/check-in-one-call` | 続けて書いた行をまとめて確かめる、呼ばなくてよい編集で呼ばない | 10 行で 10 回 → 1〜2 回 | `conflict/check.ts`・`app.ts`・`manual_screen.dart`・`eval/` | 判定が変わりうる | 要る | 0007 に追記 |
 | D3 `perf/assess-thinking` | assess の考える量を比べる | 5〜15 秒 → 測って書く | `api/src/assess.ts` | 判定が変わりうる | 要る | 0002 に追記 |
