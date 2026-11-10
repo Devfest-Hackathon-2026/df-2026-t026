@@ -39,6 +39,8 @@ class Api {
   Future<String> login(String id, String password) async {
     final t = (await _send('POST', '/login', {'id': id, 'password': password}))['token'] as String;
     token = t;
+    // ログアウトを通らずに（ほかのタブでログアウトして 401 になった所から）別の人が入っても、前の人の中身を出さない
+    store.clear();
     return t;
   }
 

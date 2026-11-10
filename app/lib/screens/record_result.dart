@@ -157,7 +157,8 @@ class _RecordResultCardState extends State<RecordResultCard> {
   /// 確認のページの「記録を見せて、ノートのままにする」と同じく、どの確定を見せたかだけを送って確認済みにする（#118）
   Future<void> _keepByRecord(Recorded r, Check chk, Check confirmed) async {
     final c = _target(r).c;
-    // 確定すると入力ページが読み直す。そのときにカードを消さないよう、送る前に知らせる
+    // 確定の応答が store に入ると、入力ページは「食い違いがほかの画面で確定された」カードを外す。
+    // カードで決着させたものとして外さないよう、送る前に知らせる
     widget.onSettling(chk.id);
     setState(() => _settling = chk.id);
     try {

@@ -68,8 +68,12 @@ class _Server {
         ],
       };
 
+  /// true の間は GET /home を 500 にする
+  var failHome = false;
+
   late final client = MockClient((req) async {
     requests.add('${req.method} ${req.url.path}');
+    if (req.url.path == '/home' && failHome) return _json({'error': '混んでいます'}, 500);
     switch (req.url.path) {
       case '/home':
         final body = homeJson([note], me: {'id': 'demo', 'name': 'かなで', 'icon': null}, notices: notices);
@@ -239,5 +243,21 @@ void main() {
     await tester.tap(_me);
     await tester.pumpAndSettle();
     expect(find.text('ノートを共有した人が確認に答えたり、行を直したりすると、ここに出ます'), findsOneWidget);
+  });
+
+  testWidgets('通知のページの裏の読み直しに失敗したら、見たことにしない', (tester) async {
+    _wide(tester);
+    final server = _Server();
+    await tester.pumpWidget(
+        MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: server.client, baseUrl: 'http://api'))));
+    await tester.pumpAndSettle();
+    server.failHome = true;
+
+    await tester.tap(_me);
+    await tester.pumpAndSettle();
+    // 手元にある通知は出す。読み直せなかったので、最後に読めたあとに届いた通知があるかもしれず、見たことにしない
+    expect(find.text('佐藤店長がノートを編集しました'), findsOneWidget);
+    expect(server.requests, isNot(contains('POST /notices/seen')));
+    expect(find.descendant(of: _me, matching: find.text('1')), findsOneWidget);
   });
 }

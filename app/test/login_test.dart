@@ -25,6 +25,10 @@ class _Users {
   var _issued = 0;
   Completer<void>? taroGate;
 
+  /// GET /home を受けた回数と、true の間は GET /home を 500 にする
+  var homes = 0;
+  var failHome = false;
+
   static final _taro = homeJson(
     [noteJson('m1', 'キッチン', open: 1)],
     me: {'id': 'taro', 'name': 'たろう', 'icon': null},
@@ -64,7 +68,9 @@ class _Users {
       tokens.remove(token);
       return _json({'ok': true}, 200);
     }
+    if (req.url.path == '/home') homes++;
     if (user == 'taro') await taroGate?.future;
+    if (req.url.path == '/home' && failHome) return _json({'error': '混んでいます'}, 500);
     if (req.url.path == '/home') return _json(user == 'taro' ? _taro : _hana, 200);
     if (req.url.path == '/memos') return _json({'id': 'memo-$user', ...jsonDecode(req.body) as Map<String, dynamic>}, 201);
     return _json(user == 'taro' ? noteJson('m1', 'キッチン', open: 1) : noteJson('m2', 'ホール'), 200);
@@ -238,5 +244,71 @@ void main() {
     expect(api.store.memos, isEmpty);
     expect(api.store.notices?.items, isEmpty);
     expect(api.store.error, isNull);
+  });
+
+  testWidgets('ほかのタブでログアウトして読み直しが 401 になったら、ログインの欄の横に前の人のノートと名前を出さない', (tester) async {
+    SharedPreferences.setMockInitialValues({tokenKey: 'token-taro'});
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final users = _Users();
+    final api = Api(client: users.client, baseUrl: 'http://api', token: 'token-taro');
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: api)));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(MoonMenuItem), matching: find.text('キッチン')), findsWidgets);
+
+    // ほかのタブでログアウトした。戻ってきて読み直すと 401
+    users.tokens.remove('token-taro');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('ログインしてください'), findsOneWidget);
+    expect(find.text('キッチン'), findsNothing);
+    expect(find.text('たろう'), findsNothing);
+    expect([api.store.me, api.store.notes, api.store.notices], [null, null, null]);
+    expect(api.store.memos, isEmpty);
+  });
+
+  test('ログインできたら、前の人の中身を消してから読む（ログアウトを通らずに別の人が入ったときも出さない）', () async {
+    final users = _Users();
+    final api = Api(client: users.client, baseUrl: 'http://api', token: 'token-taro');
+    await api.store.load();
+    expect(api.store.me?.id, 'taro');
+
+    await api.login('hana', 'pass-hana');
+    expect([api.store.me, api.store.notes, api.store.notices], [null, null, null]);
+    await api.store.load();
+    expect([for (final n in api.store.notes!) n.id], ['m2']);
+  });
+
+  test('読み直しが 401 以外で失敗したら、1度読めた表示を残す', () async {
+    final users = _Users();
+    final api = Api(client: users.client, baseUrl: 'http://api', token: 'token-taro');
+    await api.store.load();
+    users.failHome = true;
+    await api.store.load();
+    expect(api.store.error, isA<ApiException>());
+    expect([for (final n in api.store.notes!) n.id], ['m1']);
+    expect(api.store.me?.id, 'taro');
+  });
+
+  test('ログアウトの前に始まった読み込みが遅れて終わっても、次の人の読み込みを読み込み中のまま扱い、もう1本読まない', () async {
+    final users = _Users();
+    final api = Api(client: users.client, baseUrl: 'http://api', token: 'token-taro');
+    await api.store.load();
+
+    users.taroGate = Completer();
+    final stale = api.store.load();
+    await api.logout();
+    await api.login('hana', 'pass-hana');
+    final hana = api.store.load();
+    users.taroGate!.complete();
+    await stale;
+    // 前の読み込みが終わっても、hana の読み込みはまだ読み込み中のまま。同じものを待ち、もう1本は読まない
+    final again = api.store.load();
+    expect(identical(again, hana), isTrue);
+    await hana;
+    // 読んだのは、taro の2本と hana の1本だけ
+    expect(users.homes, 3);
   });
 }

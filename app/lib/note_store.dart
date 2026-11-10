@@ -63,7 +63,15 @@ class NoteStore extends ChangeNotifier {
 
   /// GET /home で全部を読み直す。読んでいる途中なら、その読み込みを待つ。
   /// 画面を作っている最中に呼ばれてもよいよう、読み始めでは知らせない
-  Future<void> load() => _loading ??= _fetch().whenComplete(() => _loading = null);
+  Future<void> load() {
+    if (_loading case final loading?) return loading;
+    late final Future<void> loading;
+    loading = _fetch().whenComplete(() {
+      // 空にしたあとに始めた読み込みを、前の読み込みが終わったときに外さない
+      if (identical(_loading, loading)) _loading = null;
+    });
+    return _loading = loading;
+  }
 
   Future<void> _fetch() async {
     error = null;
@@ -92,6 +100,9 @@ class NoteStore extends ChangeNotifier {
     } catch (e) {
       // ログアウトで空にする前に読み始めた読み込みの失敗（前の人の応答は Api が捨てる）は、次の人の画面に出さない
       if (session != _session) return;
+      // ログインが切れた（ほかのタブでログアウトしたなど）ら、ログインの欄の横に前の人の中身を出さない。
+      // それ以外の失敗では、1度読めた表示を残す
+      if (e is ApiException && e.status == 401) _reset();
       // 応答の形が違ったときも、画面に出せる失敗として持つ
       error = e;
     }
@@ -117,6 +128,11 @@ class NoteStore extends ChangeNotifier {
   /// ログアウトしたとき。次にログインした人に前の人の中身を一瞬も出さないよう、全部を空にする。
   /// 送っている途中の読み込み・書き込みの応答は、トークンが替わったので Api が捨てる
   void clear() {
+    _reset();
+    notifyListeners();
+  }
+
+  void _reset() {
     _session++;
     me = null;
     _notes = [];
@@ -130,7 +146,6 @@ class NoteStore extends ChangeNotifier {
     _meWrittenAt = _memosWrittenAt = _noticesWrittenAt = 0;
     _checked.clear();
     _removed.clear();
-    notifyListeners();
   }
 
   /// 書き込みの応答の状態を入れる。Api が呼ぶ。応答の届く順は入れ替わるので、今持っている状態より前に読んだものは入れない

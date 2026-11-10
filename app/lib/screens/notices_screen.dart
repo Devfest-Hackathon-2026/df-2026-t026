@@ -54,8 +54,9 @@ class _NoticesScreenState extends State<NoticesScreen> {
     _store.load().then((_) {
       if (!mounted) return;
       setState(_capture);
+      // 読み直せなかったら見たことにしない。最後に読めたあとに届いた通知を、出さないまま見たことにしてしまう。
       // 見たことにできなくても、通知は見せる。次に開いたときにまた新しいと出るだけ
-      if (_opened) widget.api.seeNotices().catchError((Object _) {});
+      if (_opened && _store.error == null) widget.api.seeNotices().catchError((Object _) {});
     });
   }
 
