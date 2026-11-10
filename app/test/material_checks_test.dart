@@ -684,7 +684,7 @@ void main() {
       await tester.tap(find.text('・塩 小さじ1'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(EditableText).first, _half);
-      await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+      await tester.tap(find.bySemanticsLabel('保存する'));
       await tester.pumpAndSettle();
       expect(find.text('$_where の「味噌汁の塩は小さじ1」と食い違っています。確認リストに入れました'), findsOneWidget);
       await tester.pump(const Duration(seconds: 10));

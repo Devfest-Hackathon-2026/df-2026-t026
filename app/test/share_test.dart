@@ -198,7 +198,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), '- 火を止めてから味噌を溶く');
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle();
     expect(server.sent.first, startsWith('POST /manuals/m1/edits'));
     // 書いたあとの食い違いの確かめも、共有された人の画面から呼ぶ
@@ -218,7 +218,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText), text);
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+    await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pumpAndSettle();
   }
 
