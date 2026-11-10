@@ -31,6 +31,8 @@ flutter:
   uses-material-design: true
   # 使い方のスクショ。撮り直し方は assets/help/README.md
   assets:
+    - fonts/BIZUDPGothic-OFL.txt
+    - licenses/lucide.txt
     - assets/help/wide/
     - assets/help/narrow/
     # 発言者の顔（Open Peeps、CC0）。出どころは assets/avatars/README.md
