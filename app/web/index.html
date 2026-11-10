@@ -49,6 +49,11 @@
   </script>
 
   <style>
+    /* 読み込み中の画面を消してから CanvasKit が最初の絵を出すまでの間も、白くせず地の色（shell）にする */
+    html, body {
+      background: #F2F2F4;
+    }
+
     /* 読み込み中の画面。色と方眼の間隔は lib/theme.dart の shell・grid・ink と space.xl に合わせる。書体はまだ届いていないので OS のものを使う */
     #loading {
       position: fixed;
