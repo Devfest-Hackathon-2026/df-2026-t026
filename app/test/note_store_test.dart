@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/manual_controller.dart';
+import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/screens/manual_screen.dart';
@@ -45,6 +47,12 @@ class _Server {
   /// あれば、GET /manuals/:id はこれが済むまで返さない。返す状態は、受けた時点のもの
   Completer<void>? noteGate;
 
+  /// あれば、直接編集はこれが済むまで書き込まず、返さない
+  Completer<void>? editGate;
+
+  /// 消された（GET /manuals/:id が 404 になる）ノート
+  final gone = <String>{};
+
   /// 次の直接編集で送られた本文
   final edits = <Map<String, dynamic>>[];
 
@@ -72,6 +80,7 @@ class _Server {
     if (path == '/home') return _json(homeJson([for (final id in notes.keys) _copy(id)]));
     final id = req.url.pathSegments.length > 1 ? req.url.pathSegments[1] : '';
     if (req.method == 'GET' && path == '/manuals/$id') {
+      if (gone.contains(id)) return _json({'error': 'ノートが見つかりません'}, 404);
       final read = _copy(id);
       await noteGate?.future;
       return _json(read);
@@ -79,6 +88,7 @@ class _Server {
     if (path == '/manuals/$id/edits') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       edits.add(body);
+      await editGate?.future;
       final n = notes[id]!;
       final at = _at();
       final lines = n['lines'] as List;
@@ -111,6 +121,12 @@ class _Server {
         'reason': '量が違う',
         'resolution': null,
       });
+      return _json(_copy(id));
+    }
+    if (path.endsWith('/resolve')) {
+      final b = jsonDecode(req.body) as Map<String, dynamic>;
+      final c = (notes[id]!['checks'] as List).firstWhere((c) => c['id'] == req.url.pathSegments[3]);
+      c['resolution'] = {'utteranceId': 'u-ans', 'patchId': null, 'decidedBy': b['decidedBy'], 'decidedAt': b['decidedAt'], 'text': b['text'], 'note': b['note']};
       return _json(_copy(id));
     }
     if (req.method == 'POST' && path == '/memos') return _json({'id': 'memo1', ...jsonDecode(req.body)}, 201);
@@ -330,5 +346,49 @@ void main() {
     await tester.pumpAndSettle();
     expect(_shownLines(tester), ['・塩 小さじ1', '・胡椒 少々', '・醤油 大さじ1']);
     expect(server.api.store.note('m1')!.lines.map((l) => l.text), [_salt, _pepper, '- 醤油 大さじ1']);
+  });
+
+  test('行の編集を送っている間に確定しても、確定の応答は編集を待たずに出し、送っている行も消さない', () async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    final c = ManualController(server.api, 'm1');
+    await c.load();
+    server.editGate = Completer();
+    final edit = c.edit('insert', text: '- 醤油 大さじ1');
+    expect(c.saving, isTrue);
+
+    await c.resolve('m1-c0', decidedBy: '店長', decidedAt: '2026-11-10', text: _salt, note: 'そのまま');
+    expect(c.state!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
+
+    server.editGate!.complete();
+    expect(await edit.saved, isTrue);
+    expect(c.state!.checks.single.resolution?.decidedBy, '店長');
+    expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
+  });
+
+  testWidgets('開いたノートが消されていたら、古い内容を出さずに「見つかりません」を出し、サイドバーからも外す', (tester) async {
+    final server = _Server();
+    await _pumpInput(tester, server);
+    server.gone.add('m1');
+
+    await _openFromSidebar(tester, 'キッチン');
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+    expect(_sidebarItem('キッチン'), findsNothing);
+  });
+
+  testWidgets('画面を閉じれば、閉じずに捨てたコントローラー（入力ページから開いた確認リスト）も store に残らない', (tester) async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    await _pumpInput(tester, server);
+    await tester.tap(find.descendant(of: find.byType(OpenChecksList), matching: find.text('キッチン')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CheckListScreen), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    // ignore: invalid_use_of_protected_member
+    expect(server.api.store.hasListeners, isFalse);
   });
 }

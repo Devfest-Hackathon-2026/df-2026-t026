@@ -112,16 +112,18 @@ class ManualController extends ChangeNotifier {
       loadError = null;
     } on ApiException catch (e) {
       loadError = e.message;
+      // 消された・共有を外されたノートは、手元の古い内容を出さずに「見つかりません」を出す
+      if (e.status == 404 && _local.isEmpty && !_editorOpen) _base = _state = _held = null;
     }
     _notify();
   }
 
   Future<void> editUtterance(String id, {String? speaker, String? saidAt, String? text}) =>
-      api.editUtterance(manualId, id, speaker: speaker, saidAt: saidAt, text: text);
+      _write(api.editUtterance(manualId, id, speaker: speaker, saidAt: saidAt, text: text));
 
-  Future<void> applyPatch(String id, {String? text}) => api.applyPatch(manualId, id, text: text);
+  Future<void> applyPatch(String id, {String? text}) => _write(api.applyPatch(manualId, id, text: text));
 
-  Future<void> discardPatch(String id) => api.discardPatch(manualId, id);
+  Future<void> discardPatch(String id) => _write(api.discardPatch(manualId, id));
 
   /// ノートを直接編集する。応答を待たずに画面へ出し、裏で送る。返した編集の saved で、届いたかが分かる
   LocalEdit edit(String op, {String? line, String text = ''}) {
@@ -159,10 +161,10 @@ class ManualController extends ChangeNotifier {
     required String text,
     required String note,
   }) =>
-      api.resolve(manualId, checkId, decidedBy: decidedBy, decidedAt: decidedAt, text: text, note: note);
+      _write(api.resolve(manualId, checkId, decidedBy: decidedBy, decidedAt: decidedAt, text: text, note: note));
 
   Future<void> resolveByRecord(String checkId, {required String shownFrom}) =>
-      api.resolveByRecord(manualId, checkId, shownFrom: shownFrom);
+      _write(api.resolveByRecord(manualId, checkId, shownFrom: shownFrom));
 
   /// 画面を閉じた後も、積んだ編集と確かめは送り切る。閉じた後は知らせない
   var _disposed = false;
@@ -269,14 +271,28 @@ class ManualController extends ChangeNotifier {
     return chk.isOpen ? chk : null;
   }
 
-  /// store にあるこのノートの最新を取り込む。編集欄を開いている間と、送っていない編集がある間は取っておき、
-  /// どちらも済んでから土台にする（古い応答で、まだ届いていない編集の後ろの行をずらさない）。ここでは知らせない
-  void _take() {
+  /// 確定・反映・記録を直すなど、行の編集でない書き込み。応答は Api が store に入れるので、ここでは store から取り込む。
+  /// 欄を閉じていれば、送っている編集を待たずに土台にする（届いていない編集はその上に重ねて出る）
+  Future<void> _write(Future<void> sent) async {
+    await sent;
+    _pull();
+    if (_held case final h? when !_editorOpen) _setBase(h);
+    _notify();
+  }
+
+  /// store にあるこのノートの最新を、まだ土台にしていないものとして取っておく
+  void _pull() {
     final s = api.store.note(manualId);
     if (s != null && !identical(s, _seen)) {
       _seen = s;
       _held = s;
     }
+  }
+
+  /// store の最新を取り込む。編集欄を開いている間と、送っていない編集がある間は取っておき、
+  /// どちらも済んでから土台にする（古い応答で、まだ届いていない編集の後ろの行をずらさない）。ここでは知らせない
+  void _take() {
+    _pull();
     if (_held case final h? when !saving && !_editorOpen) _setBase(h);
   }
 
@@ -291,7 +307,9 @@ class ManualController extends ChangeNotifier {
 
   /// 土台に、まだ入っていない自分の編集と確かめの結果を重ねる
   void _rebuild() {
-    final base = _base!;
+    // 消されたノートで、出す状態をもう外した
+    final base = _base;
+    if (base == null) return;
     var lines = base.lines;
     final utterances = [...base.utterances];
     final patches = [...base.patches];

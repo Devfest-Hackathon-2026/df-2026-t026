@@ -70,10 +70,17 @@ class NoteStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだら、書き込みの応答の方を残す
+  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだら、書き込みの応答の方を残す。
+  /// 見つからなければ（消された・共有を外された）外す
   Future<void> refresh(String id) async {
     final since = _writes;
-    final s = await _api.getManual(id);
+    final ManualState s;
+    try {
+      s = await _api.getManual(id);
+    } on ApiException catch (e) {
+      if (e.status == 404) remove(id);
+      rethrow;
+    }
     if ((_noteWrittenAt[id] ?? 0) > since) return;
     _replace(_withChecked(s));
     notifyListeners();
