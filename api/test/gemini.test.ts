@@ -32,7 +32,7 @@ const item = (o: Record<string, unknown>) => ({
 });
 
 function assessWith(patches: unknown[]) {
-  const s = stub({ speaker: '田中さん', saidAt: '2026-11-03', patches });
+  const s = stub({ speaker: '田中さん', saidAt: '2026-11-03', said: 'x', patches });
   const run = () =>
     assessWithGemini(
       { manuals: [{ title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] }], text: '田中さんから…', today: '2026-11-03', speakers: [] },
@@ -116,7 +116,7 @@ test('振り分け：パッチごとのマニュアル番号を添字に直し�
     { title: 'ホール', lines: hall.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] },
   ];
   const run = (patches: unknown[]) => {
-    const s = stub({ speaker: null, saidAt: null, patches });
+    const s = stub({ speaker: null, saidAt: null, said: 'x', patches });
     return { calls: s.calls, done: assessWithGemini({ manuals, text: 'x', today: '2026-11-03', speakers: [] }, s.generate) };
   };
   const ok = run([item({ manualNo: 2, op: 'replace', lineNo: 2, text: '- レジは現金のみ' }), item({ manualNo: 1, op: 'replace', lineNo: 2 })]);
@@ -131,13 +131,13 @@ test('振り分け：パッチごとのマニュアル番号を添字に直し�
 
 test('白紙のノート：題名だけで振り分けさせ、末尾への追記だけを受け付ける', async () => {
   const blank = { title: '自分用メモ', lines: [], confirmations: [], materials: [], materialConfirmations: [] };
-  const ok = stub({ speaker: null, saidAt: null, patches: [item({ text: '- 塩 小さじ1' })] });
+  const ok = stub({ speaker: null, saidAt: null, said: 'x', patches: [item({ text: '- 塩 小さじ1' })] });
   const r = await assessWithGemini({ manuals: [blank], text: '塩は小さじ1', today: '2026-11-03', speakers: [] }, ok.generate);
   assert.deepEqual(r.items.map((x) => [x.manual, x.patch.op, x.patch.line]), [[0, 'insert', null]]);
   assert.match(ok.calls[0].prompt, /# マニュアル1: 自分用メモ\n（白紙。まだ何も書かれていません）/);
   // 最小1・最大0のような、満たせない範囲を Gemini に渡さない
   assert.doesNotMatch(JSON.stringify(toGeminiSchema(ok.calls[0].schema)), /"maximum":0/);
-  const bad = stub({ speaker: null, saidAt: null, patches: [item({ lineNo: 1 })] });
+  const bad = stub({ speaker: null, saidAt: null, said: 'x', patches: [item({ lineNo: 1 })] });
   await assert.rejects(assessWithGemini({ manuals: [blank], text: 'x', today: '2026-11-03', speakers: [] }, bad.generate));
 });
 
@@ -203,7 +203,7 @@ const withMaterials = {
 const hall = { title: 'ホール', lines: [{ text: '- レジは現金のみ', note: null }], confirmations: [], materials: [hygiene], materialConfirmations: [] };
 
 function assessWithMaterials(patches: unknown[]) {
-  const s = stub({ speaker: null, saidAt: null, patches });
+  const s = stub({ speaker: null, saidAt: null, said: 'x', patches });
   const run = () => assessWithGemini({ manuals: [withMaterials, hall], text: 'x', today: '2026-11-10', speakers: [] }, s.generate);
   return { run, calls: s.calls };
 }

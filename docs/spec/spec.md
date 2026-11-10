@@ -1,4 +1,4 @@
-# DiffNote（仮） 仕様
+# DiffNote 仕様
 
 DevFest Hackathon 2026（教育テーマ）提出作のプロダクト仕様。検証結果に応じて更新する。変わらない前提と技術上の制約は `CLAUDE.md` にある。
 

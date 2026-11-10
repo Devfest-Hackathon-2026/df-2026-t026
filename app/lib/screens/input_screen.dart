@@ -1224,7 +1224,7 @@ class _InputScreenState extends State<InputScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Speaker(name: u.speaker, day: u.saidAt),
                     SizedBox(height: k.space.sm),
-                    Text(u.text, style: k.text.body),
+                    Text(u.words, style: k.text.body),
                     SizedBox(height: k.space.sm),
                     Text(manuals.map((m) => m.title).join('・'), style: k.text.small),
                   ]),

@@ -2,7 +2,7 @@
 
 <img src="docs/logo.png" width="480" alt="DiffNote のロゴ">
 
-# DiffNote（仮）
+# DiffNote
 
 **教わったことを、ノートへの差分として残す。食い違いに気づいて、確かめられる。**
 

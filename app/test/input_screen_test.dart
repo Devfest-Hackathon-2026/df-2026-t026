@@ -34,7 +34,9 @@ Map<String, dynamic> _state(String id) => switch (id) {
           'lines': [
             {'text': '- 塩 小さじ1', 'patchId': null},
           ],
-          'utterances': [_utterance('u1', '塩は小さじ1/2', '2026-11-03T10:00:00Z')],
+          'utterances': [
+            {..._utterance('u1', '田中さんから、塩は小さじ1/2でいいと言われた', '2026-11-03T10:00:00Z'), 'said': '塩は小さじ1/2'},
+          ],
           'patches': [
               {
                 'id': 'p1',
@@ -312,6 +314,8 @@ void main() {
         .map((t) => t.data)
         .toList();
     expect(texts.indexOf('お冷やはすぐ出す'), lessThan(texts.indexOf('塩は小さじ1/2')));
+    // 発言者は付箋の上に出すので、本文には言われた言葉だけを出す
+    expect(texts, isNot(contains('田中さんから、塩は小さじ1/2でいいと言われた')));
   });
 
   testWidgets('スマホの幅では、最近の記録と未整理メモの付箋を、上のあとで確認と同じ幅いっぱいにする', (tester) async {

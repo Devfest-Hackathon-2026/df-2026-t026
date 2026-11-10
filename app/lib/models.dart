@@ -151,6 +151,7 @@ class Utterance {
     required this.text,
     required this.speaker,
     required this.saidAt,
+    this.said,
     required this.fromEdit,
     required this.editedBy,
     required this.recordedBy,
@@ -162,6 +163,7 @@ class Utterance {
         text = j['text'],
         speaker = j['speaker'],
         saidAt = j['saidAt'],
+        said = j['said'],
         fromEdit = j['fromEdit'] ?? false,
         editedBy = j['editedBy'],
         recordedBy = j['recordedBy'] == null ? null : _person(j['recordedBy']),
@@ -173,6 +175,12 @@ class Utterance {
 
   /// YYYY-MM-DD
   final String saidAt;
+
+  /// 言った人や「〜と言われた」を除いた、言われた言葉。前からある記録と直接編集には無い
+  final String? said;
+
+  /// 付箋に出す文。発言者は上に別に出すので、言われた言葉があればそれを出す。入力そのものは確認の「元の発言」で見せる
+  String get words => said ?? text;
 
   /// 利用者がノートを直接編集した記録。口頭で言われたことではない
   final bool fromEdit;
