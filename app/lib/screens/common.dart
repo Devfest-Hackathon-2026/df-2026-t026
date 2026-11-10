@@ -20,7 +20,7 @@ String fmtDay(String ymd) {
   return p.length == 3 ? '${int.parse(p[1])}/${int.parse(p[2])}' : ymd;
 }
 
-// ノートは1行を1まとまりとするマークダウン。表やコードブロックのように複数行にまたがる書き方は読まない（ADR 0009）
+// ノートは1行を1まとまりとするマークダウン。表やコードブロックのように複数行にまたがる書き方は読まない（ADR 0022）
 final _heading = RegExp(r'^(#{1,6})[ \t]+(.*)');
 final _rule = RegExp(r'^ {0,3}([-*_])(\s*\1){2,}\s*$');
 final _block = RegExp(r'^([ \t]*)([-*+][ \t]+|\d+[.)][ \t]+|>[ \t]?)?(.*)');
@@ -285,7 +285,7 @@ class LineText extends StatelessWidget {
     return spans..add(TextSpan(text: text.substring(at), style: s));
   }
 
-  // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0009）
+  // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0022）
   TextStyle _style(AppTokens k, String tag, TextStyle s) => switch (tag) {
         'strong' => s.copyWith(fontWeight: FontWeight.w700),
         'em' => s.copyWith(fontStyle: FontStyle.italic),

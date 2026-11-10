@@ -198,7 +198,7 @@ void main() {
       _size(tester, const Size(1440, 900));
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _confirmedApi(), manualId: 'm1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MoonOutlinedButton, '履歴'));
+      await tester.tap(noteTab('履歴'), warnIfMissed: false);
       await tester.pumpAndSettle();
       final history = find.byType(HistoryScreen);
       expect(find.descendant(of: history, matching: find.byType(ConfirmStamp)), findsNothing);

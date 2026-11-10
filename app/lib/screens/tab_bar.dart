@@ -10,13 +10,14 @@ import 'check_list_screen.dart';
 import 'common.dart';
 import 'history_screen.dart';
 import 'manual_screen.dart';
+import 'materials_screen.dart';
 import 'sidebar.dart';
 
 /// 後ろをぼかすか（UI ルールの例外。.claude/rules/flutter-ui.md）。重い端末向けに `--dart-define=TABBAR_BLUR=false` で切れる
 const tabBarBlur = bool.fromEnvironment('TABBAR_BLUR', defaultValue: true);
 
-/// ノートの中のタブ
-enum NoteTab { note, checks, history }
+/// ノートの中のタブ。資料は広い画面のノートのタブにだけある（下のタブバーには足さない。ADR 0019）
+enum NoteTab { note, checks, history, materials }
 
 /// 下のタブバーを出すか。サイドバーの出ない狭い画面で、キーボードが出ていないときだけ
 bool showsNoteTabBar(BuildContext context) =>
@@ -59,7 +60,11 @@ void openNoteTab(BuildContext context, ManualController c,
     }
     return;
   }
-  final screen = to == NoteTab.checks ? CheckListScreen(c: c) : HistoryScreen(c: c, utteranceId: utteranceId);
+  final screen = switch (to) {
+    NoteTab.checks => CheckListScreen(c: c),
+    NoteTab.history => HistoryScreen(c: c, utteranceId: utteranceId),
+    _ => MaterialsScreen(c: c),
+  };
   if (from == NoteTab.note) {
     nav.push(_instant(screen, RouteSettings(name: '${_aboveNote}1')));
     return;
@@ -136,7 +141,7 @@ class _NoteTabBarState extends State<NoteTabBar> {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final open = widget.c.state?.openChecks.length ?? 0;
-    final tabs = NoteTab.values;
+    const tabs = [NoteTab.note, NoteTab.checks, NoteTab.history];
     final bar = SizedBox(
       height: k.tabBarHeight,
       child: Stack(children: [
@@ -242,6 +247,61 @@ class _NoteTabBarState extends State<NoteTabBar> {
             Text(label, style: k.text.label.copyWith(color: k.colors.ink)),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+/// 広い画面で上部バーのすぐ下に出すノートのタブ（ノート / 確認リスト / 履歴 / 資料）。
+/// 狭い画面では下のタブバーを使うので出さない
+class NoteTabRow extends StatefulWidget {
+  const NoteTabRow({super.key, required this.c, required this.current});
+  final ManualController c;
+  final NoteTab current;
+
+  @override
+  State<NoteTabRow> createState() => _NoteTabRowState();
+}
+
+class _NoteTabRowState extends State<NoteTabRow> {
+  /// 押すと MoonTabBar は押したタブを選んだままになる。ノートから開いた画面を外して戻ったとき
+  /// 下のノートのタブが前のまま残らないよう、押すたびに作り直して今のタブに戻す
+  var _reset = 0;
+
+  void _open(int i) {
+    openNoteTab(context, widget.c, from: widget.current, to: NoteTab.values[i]);
+    if (mounted) setState(() => _reset++);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final k = context.tokens;
+    return Container(
+      decoration: BoxDecoration(
+        color: k.colors.canvas,
+        border: Border(bottom: BorderSide(color: k.colors.rule, width: k.hairline)),
+      ),
+      padding: EdgeInsets.symmetric(horizontal: k.space.md),
+      alignment: Alignment.centerLeft,
+      child: ListenableBuilder(
+        listenable: widget.c,
+        builder: (context, _) {
+          final open = widget.c.state?.openChecks.length ?? 0;
+          return MoonTabBar(
+            key: ValueKey(_reset),
+            initialIndex: NoteTab.values.indexOf(widget.current),
+            onTabChanged: _open,
+            tabs: [
+              const MoonTab(label: Text('ノート')),
+              MoonTab(
+                label: const Text('確認リスト'),
+                trailing: open > 0 ? StatusTag('$open', bg: k.colors.pendingBg, fg: k.colors.pending) : null,
+              ),
+              const MoonTab(label: Text('履歴')),
+              const MoonTab(label: Text('資料')),
+            ],
+          );
+        },
       ),
     );
   }

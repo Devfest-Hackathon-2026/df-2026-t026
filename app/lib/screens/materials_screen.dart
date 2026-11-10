@@ -74,6 +74,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     return Scaffold(
       body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(crumbs: [c.state!.title, '資料']),
+        if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.materials),
         // 確認リストで確定すると「あとで確認」の数が変わるので、ノートの状態も聞く
         Expanded(
           child: FutureBuilder(

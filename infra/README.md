@@ -3,10 +3,11 @@
 GCP 上の次のものを作る。手で作るのは、GCP プロジェクトそのものと課金アカウントのひも付けだけ。
 
 - Cloud Run（API。`AI=gemini`・`STORE=firestore` で動き、配った ID とパスワードのログインで守る）と、そのサービスアカウント（Firestore・Vertex AI・Speech-to-Text を使える）
-- Firestore（ネイティブモード）
+- Firestore（ネイティブモード。7日前まで戻せる PITR と、データベースの削除保護つき）
 - Artifact Registry（API のイメージ置き場）
 - Firebase Hosting（Web 版。`https://<プロジェクト ID>.web.app`）
 - GitHub Actions からのデプロイ用の Workload Identity 連携とサービスアカウント（鍵は作らない。main ブランチのワークフローだけがデプロイできる）
+- 稼働の監視（5分おきに API の `/health` を見て、失敗が続いたら `alert_email` にメールが届く）
 - 予算アラート（1か月の予算の 50%・90%・100% で、課金アカウントの管理者にメールが届く。超えても止まりはしない）
 
 state はいまはローカルに置く（`terraform apply` を回すのは1人の想定）。複数人で回すようになったら GCS に移す。
@@ -29,7 +30,7 @@ gcloud auth application-default set-quota-project <プロジェクト ID>
 
 # 4. 作る
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # project_id・billing_account を書き換える
+cp terraform.tfvars.example terraform.tfvars   # project_id・billing_account・alert_email を書き換える
 terraform init
 # 3 でできた Firebase と Hosting のサイトを取り込む
 terraform import google_firebase_project.this projects/<プロジェクト ID>

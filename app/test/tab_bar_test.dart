@@ -8,6 +8,7 @@ import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/history_screen.dart';
 import 'package:diff_note/screens/input_screen.dart';
 import 'package:diff_note/screens/manual_screen.dart';
+import 'package:diff_note/screens/materials_screen.dart';
 import 'package:diff_note/screens/tab_bar.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
@@ -179,13 +180,52 @@ void main() {
         tabBarBlur ? findsOneWidget : findsNothing);
   });
 
-  testWidgets('広い画面（サイドバーが出る幅）ではタブバーを出さず、上部バーの履歴・確認リストは今のまま', (tester) async {
+  testWidgets('広い画面（サイドバーが出る幅）では下のタブバーを出さず、上部バーの下のノートのタブに移る先を並べる。上部バーには共有と…だけ', (tester) async {
     _size(tester, const Size(1440, 900));
     await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
     await tester.pumpAndSettle();
     expect(find.byType(NoteTabBar), findsNothing);
-    expect(find.widgetWithText(MoonOutlinedButton, '履歴'), findsOneWidget);
-    expect(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'), findsOneWidget);
+    for (final label in ['ノート', '確認リスト', '履歴', '資料']) {
+      expect(noteTab(label), findsOneWidget);
+    }
+    // あとで確認の件数は確認リストのタブのタグで出す
+    expect(noteTab('1'), findsOneWidget);
+    // 本文の下の「行を足す」も枠のボタンなので、上部バーの中だけを数える
+    final inTopBar = find.descendant(of: find.byType(TopBar), matching: find.byType(MoonOutlinedButton));
+    expect(inTopBar, findsOneWidget);
+    expect(find.descendant(of: find.byType(TopBar), matching: find.widgetWithText(MoonOutlinedButton, '共有')), findsOneWidget);
+    expect(find.bySemanticsLabel('その他'), findsOneWidget);
+  });
+
+  testWidgets('広い画面のノートのタブは、押すと画面を積まずに入れ替え、ノートに戻ると「ノート」が選ばれたままになる', (tester) async {
+    _size(tester, const Size(1440, 900));
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
+    await tester.pumpAndSettle();
+
+    for (final (label, screen) in [('確認リスト', CheckListScreen), ('履歴', HistoryScreen), ('資料', MaterialsScreen)]) {
+      await tester.tap(noteTab(label), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byType(screen), findsOneWidget);
+      // ノートの上に1枚だけ。ほかのタブの画面は外れている
+      expect(find.byType(ManualScreen, skipOffstage: false), findsOneWidget);
+      for (final other in [CheckListScreen, HistoryScreen, MaterialsScreen].where((t) => t != screen)) {
+        expect(find.byType(other, skipOffstage: false), findsNothing);
+      }
+    }
+
+    await tester.tap(noteTab('ノート'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.byType(ManualScreen), findsOneWidget);
+    expect(find.byType(MaterialsScreen, skipOffstage: false), findsNothing);
+
+    // 戻る矢印で戻ったあとも、下に残っていたノートのタブが前に押したタブのままにならず、もう一度押せる
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.byType(CheckListScreen), findsOneWidget);
   });
 
   testWidgets('狭い画面では「ノート」は下のタブだけ（上のタブは「本文」）。上部バーに履歴・確認リストを出さない', (tester) async {
@@ -319,7 +359,7 @@ void main() {
     testWidgets('ノートから開いたときは、ノートの題名を出し、← でもパンくずでもノートへ戻る', (tester) async {
       _size(tester, const Size(1440, 900));
       Future<void> openList() async {
-        await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+        await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
         await tester.pumpAndSettle();
         expect(inTopBar('キッチン'), findsOneWidget);
         expect(inTopBar('確認リスト'), findsOneWidget);
@@ -366,12 +406,12 @@ void main() {
     expect(find.byType(CheckListScreen, skipOffstage: false), findsNothing);
   });
 
-  for (final (label, screen) in [('確認リスト 1', CheckListScreen), ('履歴', HistoryScreen)]) {
-    testWidgets('広い画面の上部バーの「$label」で開いてから狭い幅に変えても、ノートのタブで1枚のノートに戻る', (tester) async {
+  for (final (label, screen) in [('確認リスト', CheckListScreen), ('履歴', HistoryScreen)]) {
+    testWidgets('広い画面のノートのタブの「$label」で開いてから狭い幅に変えても、下のタブバーで1枚のノートに戻る', (tester) async {
       _size(tester, const Size(1440, 900));
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _api(), manualId: 'm1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MoonOutlinedButton, label));
+      await tester.tap(noteTab(label), warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.byType(screen), findsOneWidget);
 
