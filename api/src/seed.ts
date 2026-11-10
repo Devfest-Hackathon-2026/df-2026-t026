@@ -79,7 +79,7 @@ const check = (id: string, p: Patch, r: Omit<Check, 'id' | 'patchId' | 'utteranc
   ...r,
 });
 
-const addition = { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null } as const;
+const addition = { kind: 'addition', conflictLine: null, sameLine: null, reason: '既存の記述に触れない追記です', ask: null, materialRef: null } as const;
 
 // キッチン：版を6つ積み、食い違いの確認（ノートのまま・言われた通り）、同じ内容、あとで確認を1つずつ入れる
 const k1 = said('demo-k-u1', 2, '01:00', '店長', 'まな板は熱湯のあと、週に1回は漂白もしておいて');
@@ -172,7 +172,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
     utterances: [k1, k2, k3, k3a, k4, k5, k6, k5a, k7],
     patches: [k1p, k2p, k3p, k4p, k5p, k6p, k5f, k7p],
     checks: [
-      check('demo-k-c1', k1p, { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null }),
+      check('demo-k-c1', k1p, { kind: 'qualification', conflictLine: null, sameLine: null, reason: '元の記述を残したまま条件を足しています', ask: null, materialRef: null }),
       check('demo-k-c2', k2p, addition),
       check(
         'demo-k-c3',
@@ -189,6 +189,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
             ],
             question: '大盛りは250gまでと教わっていたのですが、300gまでとも聞きました。どちらに合わせればよいですか？',
           },
+          materialRef: null,
         },
         { utteranceId: k3a.id, patchId: null, decidedBy: '店長', decidedAt: k3a.saidAt, text: '- 大盛りは250gまで', note: k3a.text },
       ),
@@ -208,6 +209,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
             ],
             question: '洗った皿は右の棚に戻すと教わっていたのですが、左の棚とも聞きました。どちらに合わせればよいですか？',
           },
+          materialRef: null,
         },
         { utteranceId: k5a.id, patchId: k5f.id, decidedBy: '店長', decidedAt: k5a.saidAt, text: k5f.text, note: k5a.text },
       ),
@@ -217,6 +219,7 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
         sameLine: '- 味噌は火を止めてから溶く',
         reason: 'ノートの「味噌は火を止めてから溶く」と同じ内容です',
         ask: null,
+        materialRef: null,
       }),
       check('demo-k-c7', k7p, {
         kind: 'contradiction',
@@ -230,8 +233,69 @@ const demoHistory: Record<string, { utterances: Utterance[]; patches: Patch[]; c
           ],
           question: 'ガスの元栓は閉めて写真を撮ると教わっていたのですが、写真はもう撮らなくていいとも聞きました。どちらに合わせればよいですか？',
         },
+        materialRef: null,
       }),
     ],
   },
   'demo-hall': { utterances: [h1], patches: [h1p], checks: [check('demo-h-c1', h1p, addition)] },
 };
+
+/**
+ * ローカルで起動したときに、新人（owner）のノートを to に共有し、to が答える確認を2件待たせておく。
+ * to でログインすると、共有されたノートの「あとで確認」から、教える人として答える流れ（ADR 0017）をすぐ試せる。
+ * 答えると、新人の通知（ADR 0020）に出る。本番のアカウントに共有を作らないよう、メモリ上の保存先のときだけ呼ぶ
+ */
+export async function seedCheckRequest(store: Store, owner: string, to: string): Promise<void> {
+  const id = 'newbie-closing';
+  if (await store.getManual(owner, id)) return;
+  await store.putProfile(owner, { name: '新人', icon: null });
+  await store.putManual(owner, {
+    id,
+    title: '閉店作業メモ',
+    base: `## 閉店作業
+- レジ締めは社員がやる
+- ガスの元栓を閉めて写真を撮る
+- 床はモップで水拭きする`,
+    createdAt: at(8, '00:00'),
+  });
+  await store.put(owner, id, 'shares', { id: to, createdAt: at(8, '00:10') });
+  await store.putShared(to, { id, ownerId: owner, createdAt: at(8, '00:10') });
+
+  const by = { id: owner, name: '新人' };
+  const asks = [
+    {
+      u: { ...said('newbie-u1', 9, '09:00', '鈴木さん', 'レジ締めはアルバイトがやってもいいよ'), recordedBy: by },
+      line: '- レジ締めは社員がやる',
+      text: '- レジ締めはアルバイトもやる',
+      summary: 'レジ締め: 社員 → アルバイトも',
+      who: { who: '鈴木さん', why: 'アルバイトでもいいと言った本人だから' },
+      question: 'レジ締めは社員がやると教わっていたのですが、アルバイトでもいいとも聞きました。どちらに合わせればよいですか？',
+    },
+    {
+      u: { ...said('newbie-u2', 10, '01:00', '佐藤さん', '床は乾拭きだけでいいよ。水拭きは週末だけ'), recordedBy: by },
+      line: '- 床はモップで水拭きする',
+      text: '- 床は乾拭きする（水拭きは週末だけ）',
+      summary: '床: 水拭き → 乾拭き（週末は水拭き）',
+      who: { who: '佐藤さん', why: '乾拭きでいいと言った本人だから' },
+      question: '床はモップで水拭きすると教わっていたのですが、乾拭きだけでいいとも聞きました。どちらに合わせればよいですか？',
+    },
+  ];
+  for (const [i, a] of asks.entries()) {
+    const p = patch(`newbie-p${i + 1}`, a.u, { op: 'replace', line: a.line, text: a.text, summary: a.summary, status: 'proposed', appliedAt: null });
+    await store.put(owner, id, 'utterances', a.u);
+    await store.put(owner, id, 'patches', p);
+    await store.put(
+      owner,
+      id,
+      'checks',
+      check(`newbie-c${i + 1}`, p, {
+        kind: 'contradiction',
+        conflictLine: a.line,
+        sameLine: null,
+        reason: `ノートの「${a.line.slice(2)}」と両立しません`,
+        ask: { candidates: [{ who: '店長', why: 'お店のやり方を決める立場だから' }, a.who], question: a.question },
+        materialRef: null,
+      }),
+    );
+  }
+}

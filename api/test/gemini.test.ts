@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
-import { checkWithGemini } from '../src/conflict/check.ts';
+import { checkWithGemini, manualContext, materialContext, type Check } from '../src/conflict/check.ts';
 import { formatWithGemini, readNoteWithGemini } from '../src/format.ts';
 import { transcribeWithGemini } from '../src/intake.ts';
+import type { Material } from '../src/material.ts';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 
-import { httpOptions, isItem, requestJson, toGeminiSchema, type GenerateJson, type JsonRequest } from '../src/gemini.ts';
+import { httpOptions, isItem, requestJson, toGeminiSchema, type GenerateJson, type JsonRequest, type Usage } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
 
@@ -34,7 +35,7 @@ function assessWith(patches: unknown[]) {
   const s = stub({ speaker: '田中さん', saidAt: '2026-11-03', patches });
   const run = () =>
     assessWithGemini(
-      { manuals: [{ title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [] }], text: '田中さんから…', today: '2026-11-03', speakers: [] },
+      { manuals: [{ title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] }], text: '田中さんから…', today: '2026-11-03', speakers: [] },
       s.generate,
     );
   return { run, calls: s.calls };
@@ -111,8 +112,8 @@ test('Gemini に渡すスキーマに、使えないキーワードを含めな�
 test('振り分け：パッチごとのマニュアル番号を添字に直し、行番号はそのマニュアルの行で確かめる', async () => {
   const hall = ['## 会計', '- レジは現金とカードのみ'];
   const manuals = [
-    { title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [] },
-    { title: 'ホール', lines: hall.map((text) => ({ text, note: null })), confirmations: [] },
+    { title: 'キッチン', lines: lines.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] },
+    { title: 'ホール', lines: hall.map((text) => ({ text, note: null })), confirmations: [], materials: [], materialConfirmations: [] },
   ];
   const run = (patches: unknown[]) => {
     const s = stub({ speaker: null, saidAt: null, patches });
@@ -129,7 +130,7 @@ test('振り分け：パッチごとのマニュアル番号を添字に直し�
 });
 
 test('白紙のノート：題名だけで振り分けさせ、末尾への追記だけを受け付ける', async () => {
-  const blank = { title: '自分用メモ', lines: [], confirmations: [] };
+  const blank = { title: '自分用メモ', lines: [], confirmations: [], materials: [], materialConfirmations: [] };
   const ok = stub({ speaker: null, saidAt: null, patches: [item({ text: '- 塩 小さじ1' })] });
   const r = await assessWithGemini({ manuals: [blank], text: '塩は小さじ1', today: '2026-11-03', speakers: [] }, ok.generate);
   assert.deepEqual(r.items.map((x) => [x.manual, x.patch.op, x.patch.line]), [[0, 'insert', null]]);
@@ -146,6 +147,8 @@ test('直接編集の分類：白紙のノートでも、満たせない行番�
     {
       lines: [],
       confirmations: [],
+      materials: [],
+      materialConfirmations: [],
       utterance: { text: '- 塩 小さじ1', speaker: '自分', saidAt: '2026-11-08' },
       patch: { op: 'insert', line: null, text: '- 塩 小さじ1', summary: '追記' },
     },
@@ -162,6 +165,8 @@ test('直接編集の分類：矛盾なら衝突相手の行を文字列で返�
     {
       lines: lines.map((text) => ({ text, note: null })),
       confirmations: [],
+      materials: [],
+      materialConfirmations: [],
       utterance: { text: '- 塩 小さじ2', speaker: '自分', saidAt: '2026-11-08' },
       patch: { op: 'insert', line: null, text: '- 塩 小さじ2', summary: '追記' },
     },
@@ -169,6 +174,164 @@ test('直接編集の分類：矛盾なら衝突相手の行を文字列で返�
   );
   assert.deepEqual([r.kind, r.conflictLine], ['contradiction', '- 塩 小さじ1']);
   assert.equal(calls[0].hedgeMs, 8_000);
+});
+
+/** 資料（ADR 0019）。M1 は2ページ、M2 はページの無い貼り付けた文 */
+const store = {
+  id: 'mat-store',
+  title: '店舗マニュアル',
+  lines: [
+    { page: 1, text: '## 開店前' },
+    { page: 1, text: '- 冷蔵庫の温度を記録する' },
+    { page: 2, text: '- 味噌汁の塩は小さじ1' },
+  ],
+};
+const hygiene = { id: 'mat-hygiene', title: '衛生の手引き', lines: [{ page: null, text: '- 手洗いは30秒' }] };
+const saltConfirmed = {
+  materialId: 'mat-store',
+  lineNo: 3,
+  page: 2,
+  text: '2026-11-07 店長に確認：1/2で統一（資料「- 味噌汁の塩は小さじ1」→「- 味噌汁の塩は小さじ1/2」）',
+};
+const withMaterials = {
+  title: 'キッチン',
+  lines: lines.map((text) => ({ text, note: null })),
+  confirmations: ['2026-11-05 店長に確認：250gのまま（「- 大盛りは250gまで」→「- 大盛りは250gまで」）'],
+  materials: [store, hygiene],
+  materialConfirmations: [saltConfirmed],
+};
+const hall = { title: 'ホール', lines: [{ text: '- レジは現金のみ', note: null }], confirmations: [], materials: [hygiene], materialConfirmations: [] };
+
+function assessWithMaterials(patches: unknown[]) {
+  const s = stub({ speaker: null, saidAt: null, patches });
+  const run = () => assessWithGemini({ manuals: [withMaterials, hall], text: 'x', today: '2026-11-10', speakers: [] }, s.generate);
+  return { run, calls: s.calls };
+}
+
+test('資料：プロンプトは「# 資料」から始まり、ページの印と L 付きの行をノートより前に置く。資料に結び付いた確定は確定済みの記録の最後に出る', async () => {
+  const { run, calls } = assessWithMaterials([]);
+  await run();
+  const [{ system, prompt, schema }] = calls;
+  // M の番号は、ノートの順・取り込んだ順に通しで振り、どのノートの資料かを添える
+  assert.ok(
+    prompt.startsWith(`# 資料
+## 資料M1: 店舗マニュアル（マニュアル1の資料）
+〔p.1〕
+L1: ## 開店前
+L2: - 冷蔵庫の温度を記録する
+〔p.2〕
+L3: - 味噌汁の塩は小さじ1
+
+## 資料M2: 衛生の手引き（マニュアル1の資料）
+L1: - 手洗いは30秒
+
+## 資料M3: 衛生の手引き（マニュアル2の資料）
+L1: - 手洗いは30秒
+
+# マニュアル1: キッチン
+L1: ## 味噌汁
+`),
+    prompt,
+  );
+  assert.ok(
+    prompt.includes(`## 確定済みの記録（マニュアル1）
+- 2026-11-05 店長に確認：250gのまま（「- 大盛りは250gまで」→「- 大盛りは250gまで」）
+- 資料M1 L3（p.2）について 2026-11-07 店長に確認：1/2で統一（資料「- 味噌汁の塩は小さじ1」→「- 味噌汁の塩は小さじ1/2」）
+
+# マニュアル2: ホール`),
+    prompt,
+  );
+  assert.match(system, /資料は、職場や学校で配られた/);
+  assert.match(system, /資料について:\n/);
+  assert.match(JSON.stringify(toGeminiSchema(schema)), /"materialLine"/);
+});
+
+test('資料：直接編集の確かめも、資料をマニュアルより前に置き、資料に結び付いた確定を添える', async () => {
+  const { generate, calls } = stub({ kind: 'addition', conflictLineNo: null, sameLineNo: null, materialLine: null, reason: 'x', ask: null });
+  await checkWithGemini(
+    {
+      ...withMaterials,
+      utterance: { text: '- 塩 小さじ2', speaker: '自分', saidAt: '2026-11-08' },
+      patch: { op: 'insert', line: null, text: '- 塩 小さじ2', summary: '追記' },
+    },
+    generate,
+  );
+  const [{ system, prompt }] = calls;
+  assert.ok(prompt.startsWith('# 資料\n## 資料M1: 店舗マニュアル\n〔p.1〕\nL1: ## 開店前\n'), prompt);
+  assert.match(prompt, /## 資料M2: 衛生の手引き\nL1: - 手洗いは30秒\n\n# 現行マニュアル\n/);
+  assert.match(prompt, /# 確定済みの記録\n- 2026-11-05 .+\n- 資料M1 L3（p\.2）について 2026-11-07 店長に確認：/);
+  assert.match(system, /資料について:\n/);
+  // パッチの作り方は直接編集の確かめには要らない
+  assert.doesNotMatch(system, /資料は、職場や学校で配られた/);
+  // 資料ぶんだけ1本目が遅いので、並べて送るまで assess と同じだけ待つ
+  assert.equal(calls[0].hedgeMs, 12_000);
+});
+
+test('資料：資料の行を指すと、相手の行の文と資料の場所を返す。ノートの行も正しく指していればノートを採る', async () => {
+  const toMaterial = await assessWithMaterials([
+    item({ kind: 'contradiction', materialLine: { materialNo: 1, lineNo: 3 }, ask }),
+    item({ kind: 'same', materialLine: { materialNo: 2, lineNo: 1 } }),
+    item({ kind: 'contradiction', conflictLineNo: 2, materialLine: { materialNo: 1, lineNo: 3 }, ask }),
+    item({ kind: 'addition', materialLine: { materialNo: 1, lineNo: 3 } }),
+  ]).run();
+  assert.deepEqual(
+    toMaterial.items.map(({ check: c }) => [c.kind, c.conflictLine, c.sameLine, c.materialRef]),
+    [
+      ['contradiction', '- 味噌汁の塩は小さじ1', null, { materialId: 'mat-store', title: '店舗マニュアル', page: 2, lineNo: 3 }],
+      ['same', null, '- 手洗いは30秒', { materialId: 'mat-hygiene', title: '衛生の手引き', page: null, lineNo: 1 }],
+      ['contradiction', '- 塩 小さじ1', null, null],
+      ['addition', null, null, null],
+    ],
+  );
+
+  const { generate } = stub({ kind: 'contradiction', conflictLineNo: null, sameLineNo: null, materialLine: { materialNo: 1, lineNo: 3 }, reason: 'x', ask });
+  const r = await checkWithGemini({ ...withMaterials, utterance: { text: 'x', speaker: null, saidAt: '2026-11-08' }, patch: { op: 'insert', line: null, text: 'x', summary: 'x' } }, generate);
+  assert.deepEqual([r.conflictLine, r.materialRef], ['- 味噌汁の塩は小さじ1', { materialId: 'mat-store', title: '店舗マニュアル', page: 2, lineNo: 3 }]);
+});
+
+test('資料：別のノートの資料・見出し・無い行を指したら、形が合わない', async () => {
+  for (const materialLine of [{ materialNo: 3, lineNo: 1 }, { materialNo: 1, lineNo: 1 }, { materialNo: 1, lineNo: 4 }, { materialNo: 4, lineNo: 1 }, null]) {
+    await assert.rejects(assessWithMaterials([item({ kind: 'contradiction', materialLine, ask })]).run());
+    await assert.rejects(assessWithMaterials([item({ kind: 'same', materialLine })]).run());
+  }
+  // 2冊目のノートの資料（M3）は、2冊目へのパッチからなら指せる
+  const r = await assessWithMaterials([item({ manualNo: 2, kind: 'same', materialLine: { materialNo: 3, lineNo: 1 } })]).run();
+  assert.deepEqual(r.items[0].check.materialRef, { materialId: 'mat-hygiene', title: '衛生の手引き', page: null, lineNo: 1 });
+});
+
+test('資料：資料に結び付いた確定は、今ある資料のものだけを、資料のまま・違う内容で書き分ける。ノートの確定済みの記録と裏付けには出さない', () => {
+  const material: Material = {
+    id: 'mat-store',
+    title: '店舗マニュアル',
+    pages: [{ page: 1, text: '## 休憩\n- 休憩は30分' }],
+    tokens: 10,
+    addedBy: { id: 'demo', name: 'demo' },
+    createdAt: '',
+  };
+  const ref = (materialId: string) => ({ materialId, title: '店舗マニュアル', page: 1, lineNo: 2 });
+  const base = { patchId: 'p', utteranceId: 'u', createdAt: '', sameLine: null, reason: 'x', ask, conflictLine: '- 休憩は30分' };
+  const decided = (text: string) => ({ utteranceId: 'a', patchId: null, decidedBy: '店長', decidedAt: '2026-11-07', text, note: '店長に聞いた' });
+  const checks: Check[] = [
+    { ...base, id: 'keep', kind: 'contradiction', materialRef: ref('mat-store'), resolution: decided('- 休憩は30分') },
+    { ...base, id: 'changed', kind: 'contradiction', materialRef: ref('mat-store'), resolution: decided('- 休憩は45分') },
+    // 消した資料の確定は、指せる行が無いので見せない
+    { ...base, id: 'gone', kind: 'contradiction', materialRef: ref('mat-deleted'), resolution: decided('- 休憩は45分') },
+    { ...base, id: 'open', kind: 'contradiction', materialRef: ref('mat-store'), resolution: null },
+    { ...base, id: 'same', kind: 'same', conflictLine: null, sameLine: '- 休憩は30分', ask: null, materialRef: ref('mat-store'), resolution: null },
+  ];
+  assert.deepEqual(materialContext([material], checks), {
+    materials: [{ id: 'mat-store', title: '店舗マニュアル', lines: [{ page: 1, text: '## 休憩' }, { page: 1, text: '- 休憩は30分' }] }],
+    materialConfirmations: [
+      { materialId: 'mat-store', lineNo: 2, page: 1, text: '2026-11-07 店長に確認：店長に聞いた（資料のとおり「- 休憩は30分」）' },
+      { materialId: 'mat-store', lineNo: 2, page: 1, text: '2026-11-07 店長に確認：店長に聞いた（資料「- 休憩は30分」→「- 休憩は45分」）' },
+    ],
+  });
+  // 同じ資料から作ったノートに同じ文の行があっても、資料の確定と「も同じ」を、その行のものとして出さない
+  const said = { id: 'u', text: 'x', speaker: '田中さん', saidAt: '2026-11-06', createdAt: '' };
+  assert.deepEqual(manualContext([{ text: '- 休憩は30分', patchId: null }], [], [said], checks), {
+    lines: [{ text: '- 休憩は30分', note: null }],
+    confirmations: [],
+  });
 });
 
 test('書き起こし：ファイルを添えて呼ぶ', async () => {
@@ -289,4 +452,27 @@ test('呼び出し：応答の形が崩れたら1回だけ呼び直す', async (
   const broken = await requestWith(['{}']);
   assert.equal(broken.calls, 2);
   assert.match(broken.res.message, /想定の形になりませんでした/);
+});
+
+test('呼び出し：使った応答のトークンと、何本目を使ったか・何本送ったかを返す（暗黙のキャッシュが効いているかを見る）', async () => {
+  let sent = 0;
+  const usageMetadata = { promptTokenCount: 7000, cachedContentTokenCount: 6144, candidatesTokenCount: 20, thoughtsTokenCount: 30 };
+  // 1本目は返事をせず、並べた2本目が返る
+  const fetch = (_url: unknown, init?: RequestInit) =>
+    ++sent === 1
+      ? new Promise<Response>((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))
+      : Promise.resolve(
+          new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: ok }] } }], usageMetadata }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+  const ai = new GoogleGenAI({ vertexai: true, apiKey: 'test', httpOptions: { ...httpOptions, fetch } });
+  const usages: Usage[] = [];
+  const schema = z.object({ text: z.string() });
+  await requestJson(ai, { system: 's', prompt: 'p', schema, hedgeMs: 10, label: 'assess', onUsage: (u) => usages.push(u) }, 1);
+  assert.deepEqual(
+    usages.map(({ seconds: _, ...u }) => u),
+    [{ label: 'assess', attempt: 2, sent: 2, ...usageMetadata }],
+  );
 });

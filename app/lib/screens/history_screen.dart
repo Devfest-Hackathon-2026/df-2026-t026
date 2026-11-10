@@ -15,8 +15,11 @@ import 'tab_bar.dart';
 /// ノートの履歴。版を幹、ノートに入らなかった記録を枝として、git のグラフのように新しい順に並べる。
 /// 広い画面では左にグラフ、右に選んだ版の差分を並べる。見るだけで、前の版には戻さない（spec）
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key, required this.c});
+  const HistoryScreen({super.key, required this.c, this.utteranceId});
   final ManualController c;
+
+  /// はじめに選んでおく版を作った記録（記録した発言の「が行を直した」から開いたとき。ADR 0020）
+  final String? utteranceId;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -40,6 +43,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       builder: (context, _) {
         final s = c.state!;
         final h = buildHistory(s);
+        _selected ??= h.rows
+            .map((r) => r.commit)
+            .where((x) => !x.onBranch && x.said != null && x.said!.id == widget.utteranceId)
+            .firstOrNull
+            ?.id;
         return Scaffold(
           extendBody: true,
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
@@ -47,7 +55,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             TopBar(crumbs: [s.title, '履歴']),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
-                if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, onOpen: _push));
+                if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, selected: _selected, onOpen: _push));
                 final commits = h.rows.map((r) => r.commit);
                 final selected = commits.where((x) => x.id == _selected).firstOrNull ?? commits.first;
                 // グラフが主役なので、確認リストのような細い一覧にせず、差分と半分ずつにする
@@ -348,7 +356,7 @@ class _Who extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
-    final r = x.onBranch ? null : x.check?.resolution;
+    final r = _decided(x);
     // 確定した版は、小さい確認印でなく、誰に確認したかを発言者と同じ形で見せる
     if (r != null) {
       return Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb);
@@ -360,7 +368,7 @@ class _Who extends StatelessWidget {
 
 /// グラフの1行に置く、誰が・いつ。アバターを外し、本文と一緒に省けるよう文の一部にする
 InlineSpan _whoSpan(AppTokens k, Commit x) {
-  final r = x.onBranch ? null : x.check?.resolution;
+  final r = _decided(x);
   // 確定した版は、小さい確認印でなく、誰に確認したかを文で添える
   if (r != null) {
     return TextSpan(children: [
@@ -376,6 +384,12 @@ InlineSpan _whoSpan(AppTokens k, Commit x) {
   }
   return TextSpan(text: _createdDay(x));
 }
+
+/// 版を作った確定。記録を見せて済ませた確定の版は、見せた人の行い（その発言）として見せるので null（#118）
+Resolution? _decided(Commit x) => switch (x.check?.resolution) {
+      final r? when !x.onBranch && r.shown == null => r,
+      _ => null,
+    };
 
 /// ノートを作った版の日付
 String _createdDay(Commit x) => fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(x.at).toLocal()));
@@ -415,7 +429,7 @@ class _Changes extends StatelessWidget {
 
 String _message(Commit x) => switch (x) {
       Commit(said: null) => 'ノートを作った',
-      Commit(onBranch: false, check: Check(resolution: final r?)) => r.note,
+      Commit(onBranch: false, check: Check(resolution: final r?)) when r.shown == null => r.note,
       // 直接編集の記録は書いた行そのもの（「- 」付き）なので、人に見せる形にする
       Commit(said: final u?) => plain(u.text),
     };
@@ -423,7 +437,10 @@ String _message(Commit x) => switch (x) {
 /// 枝の行の見出し。確認リストの比較と同じ「ノートの行 ／ 言われた行」の形
 String _conflict(Commit x) {
   final p = x.patch!;
-  return '${plain(x.check?.conflictLine ?? p.line ?? '')} ／ ${p.op == 'delete' ? '（消す）' : plain(p.text)}';
+  final chk = x.check;
+  // 相手が資料の行なら「資料「店舗マニュアル」p.3：…」（ADR 0019）
+  final left = chk?.conflictLine == null ? plain(p.line ?? '') : counterpartLine(chk!, chk.conflictLine!);
+  return '$left ／ ${p.op == 'delete' ? '（消す）' : plain(p.text)}';
 }
 
 /// 版に付ける、枝にしない記録の印。種類が1つならその名前、混ざっていれば件数だけ

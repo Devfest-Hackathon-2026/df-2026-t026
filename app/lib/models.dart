@@ -35,36 +35,48 @@ typedef Person = ({String id, String name});
 
 Person _person(Map<String, dynamic> j) => (id: j['id'] as String, name: j['name'] as String);
 
-/// ほかの人から共有されたノート（ADR 0013）
-class SharedManual {
-  SharedManual.fromJson(Map<String, dynamic> j)
+/// 自分が持ち主のノートで、共有した相手がしたこと（ADR 0020）
+class Notice {
+  Notice.fromJson(Map<String, dynamic> j)
       : id = j['id'],
+        kind = j['kind'],
+        manualId = j['manualId'],
         title = j['title'],
-        sharedBy = _person(j['sharedBy']),
-        openCount = j['openCount'];
+        by = _person(j['by']),
+        at = j['at'],
+        op = j['op'],
+        line = j['line'],
+        text = j['text'],
+        note = j['note'];
 
   final String id;
+
+  /// answer（確認に答えた）か edit（行を直した）
+  final String kind;
+  final String manualId;
+
+  /// ノートの題名
   final String title;
+  final Person by;
 
-  /// ノートの持ち主
-  final Person sharedBy;
+  /// ISO 8601
+  final String at;
 
-  /// 共有された人も確定できるので数える（ADR 0016）
-  final int openCount;
+  /// edit のときの直し方（insert・replace・delete）
+  final String? op;
+
+  /// answer では食い違っていたノートの行、edit では直した元の行（足したときは足した位置）
+  final String? line;
+
+  /// answer では決まった内容、edit では新しい行（消したときは空）
+  final String text;
+
+  /// answer のときのメモ
+  final String? note;
 }
 
-class ManualSummary {
-  ManualSummary.fromJson(Map<String, dynamic> j)
-      : id = j['id'],
-        title = j['title'],
-        utteranceCount = j['utteranceCount'],
-        openCount = j['openCount'];
-
-  final String id;
-  final String title;
-  final int utteranceCount;
-  final int openCount;
-}
+/// 通知と、通知を最後に見た時刻（ADR 0020）。見たことが無ければ seenAt は null。通知は新しい順
+typedef Notices = ({String? seenAt, List<Notice> items});
 
 /// 資料の一覧の1件（ADR 0019）。Flutter の Material とぶつからないよう、Material 単独の名前にしない
 class MaterialSummary {
@@ -101,6 +113,27 @@ class MaterialBody extends MaterialSummary {
   final List<({int? page, String text})> lines;
 }
 
+/// 食い違い・同じ内容の相手が資料の行のときの、その場所（ADR 0019）
+class MaterialRef {
+  MaterialRef.fromJson(Map<String, dynamic> j)
+      : materialId = j['materialId'],
+        title = j['title'],
+        page = j['page'],
+        lineNo = j['lineNo'];
+
+  final String materialId;
+
+  /// 取り込んだときの題名の写し。資料を消しても出せる
+  final String title;
+  final int? page;
+
+  /// 資料の行番号（1始まり、ページをまたいで通し）
+  final int lineNo;
+
+  /// 「資料「店舗マニュアル」p.3」。貼り付けた文ならページを付けない
+  String get label => '資料「$title」${page == null ? '' : 'p.$page'}';
+}
+
 class ManualLine {
   ManualLine(this.text, this.patchId);
 
@@ -113,6 +146,17 @@ class ManualLine {
 }
 
 class Utterance {
+  Utterance({
+    required this.id,
+    required this.text,
+    required this.speaker,
+    required this.saidAt,
+    required this.fromEdit,
+    required this.editedBy,
+    required this.recordedBy,
+    required this.createdAt,
+  });
+
   Utterance.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         text = j['text'],
@@ -144,6 +188,18 @@ class Utterance {
 }
 
 class Patch {
+  Patch({
+    required this.id,
+    required this.utteranceId,
+    required this.op,
+    required this.line,
+    required this.text,
+    required this.summary,
+    required this.status,
+    required this.createdAt,
+    required this.appliedAt,
+  });
+
   Patch.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         utteranceId = j['utteranceId'],
@@ -189,9 +245,13 @@ class Resolution {
         answeredBy = j['answeredBy'],
         decidedAt = j['decidedAt'],
         text = j['text'],
-        note = j['note'];
+        note = j['note'],
+        shown = switch (j['shown']) {
+          {'by': final Map<String, dynamic> by, 'at': final String at} => (by: _person(by), at: at),
+          _ => null,
+        };
 
-  /// 確認の答えとして記録した発言
+  /// 確認の答えとして記録した発言。記録を見せて済ませた確定では、見せた人が記録を見せたという発言
   final String utteranceId;
   final String? patchId;
   final String decidedBy;
@@ -204,6 +264,9 @@ class Resolution {
   final String decidedAt;
   final String text;
   final String note;
+
+  /// 聞き直さず、前の確定の記録を見せて済ませたときの、見せた人と日（#118）。ほかの中身は前の確定の写し
+  final ({Person by, String at})? shown;
 }
 
 class Check {
@@ -219,7 +282,8 @@ class Check {
           for (final c in (j['ask']?['candidates'] as List? ?? [])) AskCandidate.fromJson(c),
         ],
         question = j['ask']?['question'],
-        resolution = j['resolution'] == null ? null : Resolution.fromJson(j['resolution']);
+        resolution = j['resolution'] == null ? null : Resolution.fromJson(j['resolution']),
+        materialRef = j['materialRef'] == null ? null : MaterialRef.fromJson(j['materialRef']);
 
   final String id;
   final String patchId;
@@ -234,7 +298,13 @@ class Check {
   final String? question;
   final Resolution? resolution;
 
+  /// 相手（conflictLine・sameLine）が資料の行なら、その場所。ノートの行が相手なら null（前からある確認にも無い）
+  final MaterialRef? materialRef;
+
   bool get isOpen => kind == Kind.contradiction && resolution == null;
+
+  /// 確定して、その決定の元になった記録か。記録を見せて済ませた確定は元の確定を指すので、行の印や証拠にはしない（#118）
+  bool get isDecision => resolution != null && resolution!.shown == null;
 }
 
 /// 選んだ・撮った・貼り付けた・ドロップしたファイル。type はブラウザが付けた形式（分からなければ空）
@@ -298,7 +368,38 @@ class ManualState {
         checks = [for (final c in j['checks']) Check.fromJson(c)],
         owner = j['owner'],
         me = j['me'],
-        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
+        sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']),
+        asOf = j['asOf'];
+
+  ManualState._from(
+    ManualState s, {
+    required this.lines,
+    required this.utterances,
+    required this.patches,
+    required this.checks,
+  })  : id = s.id,
+        title = s.title,
+        base = s.base,
+        createdAt = s.createdAt,
+        owner = s.owner,
+        me = s.me,
+        sharedBy = s.sharedBy,
+        asOf = s.asOf;
+
+  /// 行・記録・差分・確認を差し替えた写し。サーバーの応答の前に、手元の編集を重ねて見せるときに使う
+  ManualState copyWith({
+    List<ManualLine>? lines,
+    List<Utterance>? utterances,
+    List<Patch>? patches,
+    List<Check>? checks,
+  }) =>
+      ManualState._from(
+        this,
+        lines: lines ?? this.lines,
+        utterances: utterances ?? this.utterances,
+        patches: patches ?? this.patches,
+        checks: checks ?? this.checks,
+      );
 
   final String id;
   final String title;
@@ -310,9 +411,25 @@ class ManualState {
   final String owner;
   final String me;
 
+  /// サーバーがこの状態を読み始める前の時刻（ISO 8601）。store は、今持っている状態より古いものを入れない（ADR 0021）。
+  /// 古いサーバーは付けない
+  final String? asOf;
+
   /// 記録を直す・書き込むかを決められるのは、記録した本人だけ。前からある記録は、共有された人の直接の編集ならその人、
   /// それ以外は持ち主の記録とみなす（ADR 0018）
   bool recordedByMe(Utterance u) => (u.recordedBy?.id ?? u.editedBy ?? owner) == me;
+
+  /// 発言者の候補に出す名前。記録を見せた答えは見せた人の名前で残るので、自分の名前（決めていなければログイン ID）を
+  /// ほかの人として並べない（#125）。自分のノートでは「自分」にまとめ、ログイン ID を打っても出るよう ID を添える。
+  /// 共有されたノートの「自分」は持ち主の直接の編集なので（ADR 0013）、まとめると持ち主と取り違える。そこでは自分を出さない
+  ({String name, String? id})? speakerCandidate(Utterance u) {
+    final n = u.speaker;
+    if (n == null) return null;
+    // 前からある、共有された人の直接の編集は、記録した人が無く発言者がその人の名前（ADR 0013）
+    final mine = n == me || (u.recordedBy?.id == me && n == u.recordedBy!.name) || u.editedBy == me;
+    if (sharedBy != null) return mine ? null : (name: n, id: null);
+    return mine || n == '自分' ? (name: '自分', id: me) : (name: n, id: null);
+  }
 
   /// 作ったときの本文。以後の変更はパッチとして積む（ADR 0001）
   final String base;
@@ -324,29 +441,85 @@ class ManualState {
   final List<Patch> patches;
   final List<Check> checks;
 
-  Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
+  // 索引。画面は行ごと・記録ごとに引くので、毎回先頭から探さず、最初に引いたときに1回だけ組む。
+  // 中身を変えるときは copyWith で別の状態を作るので、組み直しは要らない。同じ ID が並んだら、先頭から探したときと同じく先のもの
+  late final _utteranceById = _first(utterances, (u) => u.id);
+  late final _patchById = _first(patches, (p) => p.id);
+  late final _checkByPatch = _first(checks, (c) => c.patchId);
+  late final _patchesByUtterance = _group(patches, (p) => p.utteranceId);
+  late final _lineByText = _first(lines, (l) => l.text);
+
+  /// 確定した内容の文 → その文に決まった最後の確認
+  late final _decisionByText = {
+    for (final c in checks)
+      if (c.isDecision && !(c.materialRef != null && c.resolution!.text == c.conflictLine)) c.resolution!.text: c,
+  };
+
+  late final _sameByLine =
+      _group([for (final c in checks) if (c.kind == Kind.same && c.materialRef == null) c], (c) => c.sameLine);
+
+  /// まだ確認していない項目（openChecks の位置）を、付く行の文か、付く行の差分で引く。1件はどちらか一方にだけ入る
+  late final ({Map<String, List<int>> text, Map<String, List<int>> patch}) _openAt = () {
+    final text = <String, List<int>>{};
+    final patch = <String, List<int>>{};
+    for (final (i, c) in openChecks.indexed) {
+      final conflict = c.conflictLine;
+      if (c.materialRef == null && conflict != null && _lineByText.containsKey(conflict)) {
+        (text[conflict] ??= []).add(i);
+      } else {
+        (patch[c.patchId] ??= []).add(i);
+      }
+    }
+    return (text: text, patch: patch);
+  }();
+
+  late final _checksByMaterialLine = _group(
+      [for (final c in checks) if (c.materialRef != null) c], (c) => (c.materialRef!.materialId, c.materialRef!.lineNo));
+
+  static Map<K, T> _first<K, T>(List<T> xs, K Function(T) key) {
+    final m = <K, T>{};
+    for (final x in xs) {
+      m.putIfAbsent(key(x), () => x);
+    }
+    return m;
+  }
+
+  static Map<K, List<T>> _group<K, T>(List<T> xs, K Function(T) key) {
+    final m = <K, List<T>>{};
+    for (final x in xs) {
+      (m[key(x)] ??= []).add(x);
+    }
+    return {for (final e in m.entries) e.key: List.unmodifiable(e.value)};
+  }
+
+  Utterance utterance(String id) => _utteranceById[id] ?? (throw StateError('No element'));
 
   /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
-  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
-  Patch patch(String id) => patches.firstWhere((p) => p.id == id);
-  Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
-  List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();
+  late final List<Utterance> said = List.unmodifiable(utterances.where((u) => !u.fromEdit));
+  Patch patch(String id) => _patchById[id] ?? (throw StateError('No element'));
+  Check? checkOf(String patchId) => _checkByPatch[patchId];
+  List<Patch> patchesOf(String utteranceId) => _patchesByUtterance[utteranceId] ?? const [];
 
-  List<Check> get openChecks => checks.where((c) => c.isOpen).toList();
-  List<Check> get resolvedChecks => checks.where((c) => c.resolution != null).toList();
+  late final List<Check> openChecks = List.unmodifiable(checks.where((c) => c.isOpen));
+  late final List<Check> resolvedChecks = List.unmodifiable(checks.where((c) => c.resolution != null));
 
   /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く。
   /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ
   Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
 
-  Check? _confirmedAs(String text) => resolvedChecks.where((c) => c.resolution!.text == text).lastOrNull;
+  /// 「資料のまま」に決まった確定は資料の行のもの。同じ資料から作ったノートに同じ文の行があっても、そこには付けない
+  Check? _confirmedAs(String text) => _decisionByText[text];
 
   /// 確認待ちの食い違いの相手が確定済みの記録なら、その確認。相手の行がノートにあればその行の確認の印、
-  /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認
+  /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認。
+  /// 相手が資料の行なら、その資料の行に結び付いた確定（資料のまま・違う内容のどちらも）
   Check? confirmedRecordFor(Check c) {
     final conflict = c.conflictLine;
     if (!c.isOpen || conflict == null) return null;
-    final line = lines.where((l) => l.text == conflict).firstOrNull;
+    if (c.materialRef case final m?) {
+      return checksAt(m.materialId, m.lineNo).where((x) => x.isDecision).lastOrNull;
+    }
+    final line = _lineByText[conflict];
     return line == null ? _confirmedAs(conflict) : confirmationFor(line);
   }
 
@@ -367,13 +540,22 @@ class ManualState {
     return _beforeQualification(from?.id);
   }
 
-  /// この行と同じことを言った記録。行の裏付けとして見せる
-  List<Check> sameChecksFor(ManualLine line) =>
-      checks.where((c) => c.kind == Kind.same && c.sameLine == line.text).toList();
+  /// この行と同じことを言った記録。行の裏付けとして見せる。資料と同じ内容の記録は、ノートの行の裏付けにしない
+  List<Check> sameChecksFor(ManualLine line) => _sameByLine[line.text] ?? const [];
 
   /// この行と食い違っていて、まだ確認していない項目。相手の行がもうノートに無ければ
-  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける
-  List<Check> openChecksFor(ManualLine line) => openChecks
-      .where((c) => lines.any((l) => l.text == c.conflictLine) ? c.conflictLine == line.text : c.patchId == line.patchId)
-      .toList();
+  /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける。
+  /// 資料と食い違った確認は、同じ文の行がノートにあってもそこには付けない。直接書いた行が資料と食い違ったときだけ、書いた行に付く
+  List<Check> openChecksFor(ManualLine line) {
+    // 文で付くものと差分で付くものの両方を拾う行もあるので、openChecks の並びに戻す
+    final at = [...?_openAt.text[line.text], ...?_openAt.patch[line.patchId]]..sort();
+    return [for (final i in at) openChecks[i]];
+  }
+
+  /// 資料のその行が相手の確認（食い違い・確定・同じ内容）。資料の中の画面で使う
+  List<Check> checksAt(String materialId, int lineNo) => _checksByMaterialLine[(materialId, lineNo)] ?? const [];
+
+  /// その資料と食い違った、まだ確認していない項目
+  List<Check> openChecksIn(String materialId) =>
+      openChecks.where((c) => c.materialRef?.materialId == materialId).toList();
 }

@@ -6,7 +6,12 @@
 cd api
 pnpm eval                 # Gemini（Vertex AI）で回す。GOOGLE_CLOUD_PROJECT と ADC が必要
 pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだけ確かめる（数字に意味はない）
+pnpm eval -- --only plain       # 資料なしの cases.json（18件）だけ
+pnpm eval -- --only materials   # 資料つきの material-cases.json（24件）だけ
+pnpm eval -- --check      # 直接編集の確かめ（check）で回す。発言を1行の追記として渡し、待ち時間を見る
 ```
+
+何も付けなければ `cases.json` と `material-cases.json` の両方を回す。
 
 モデルは `GEMINI_MODEL=... pnpm eval` で変えられる。
 
@@ -25,6 +30,17 @@ pnpm eval -- --compare ../eval/results/<変更前>.json    # 変更後
 ```
 
 `--compare` を付けると、表が「変更前 ／ 変更後」の2列になり、判定が変わったケースと新しく足したケースも出る。
+
+### 資料をまぜる（ADR 0019、設計書 §11.3）
+
+`--with-material <ファイル>` で、すべてのケースのノートに関係の無い資料を足す。何冊でも重ねられ、ケースの資料の後ろに並ぶ（ケースの正解の M の番号は変わらない）。題名はファイル名。
+
+```sh
+pnpm eval -- --only plain --with-material ../eval/materials/long-kitchen.md --compare ../eval/results/<変更前>.json   # まぜる1
+pnpm eval -- --only plain --with-material ../eval/materials/long-kitchen.md --with-material ../eval/materials/long-hygiene.md --with-material ../eval/materials/long-store.md --compare ../eval/results/<変更前>.json   # まぜる2
+```
+
+資料つきのケースは資料を載せる前のブランチでは回せないので、変更前と比べるのは資料なしの18件と、まぜる1・2。
 
 ## 複数のマニュアルへの振り分け（`multi.mts`）
 
@@ -47,6 +63,14 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 - **衝突相手の行の正答率**：矛盾と正しく判定したケースのうち、衝突相手の行（`conflictLine`）が正解と同じ割合
 - **言った人・日付の正答率**：`speaker`・`saidAt` が正解と同じ割合。日付は、メモに書かれていなければ Gemini は null を返し、アプリは記録した日（`today`）を使うので、評価も同じように読む
 - **質問文の約束を破った数**：AI を使わずに確かめられる約束（責める言い方をしない、120字以内、判断を仰ぐ問いになっている）を破った質問文の数。「もう一方の指示を出した人の名前を出さない」は、いまのケースのマニュアルに出どころの人がいないので確かめていない
+
+衝突相手・同じ内容の相手が資料の行なら `M1 L38` の形にして正解と比べる。資料の行を指すべきところでノートの行を指した（またはその逆の）ものは誤りにする。`--check` では言った人・日付は判定しないので数えない。
+
+時間と費用（ADR 0019）：
+
+- **いちばん遅い時間**、**並べて送った件数**（返事が遅く、2本目以降を送った件。ADR 0002）
+- **入力トークン（うちキャッシュ）**・**出力トークン**：Gemini の応答の `usageMetadata` の合計。キャッシュは暗黙のコンテキストキャッシュが効いた分（設計書 §9 段階A）
+- 資料つきのケースは、場面（`scene`）ごとの取りこぼし率・誤って聞きに来た率も出す
 
 1つの発言から複数のパッチが出たときは、いちばん重い分類をその発言の判定にする（矛盾が1つでもあれば聞きに行くため）。パッチが出なかったときは `addition` 扱い（聞きに行かない）。
 
@@ -75,3 +99,57 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 | supplement（補足） | `addition` | 4 |
 | same（同じ） | `same` | 2 |
 | update（更新） | 入れていない（読み替えが分かれるため。[#10](https://github.com/df-dev-kuma/diff-note/issues/10)） | 6 |
+
+## 資料つきのケース（`material-cases.json`・`materials/`）
+
+ノートに付けた資料（ADR 0019、設計書 `docs/design/0019-reference-materials.md` の §11）の評価に使うデータ。`run.mts` が `cases.json` と一緒に読む（回し方は上）。`multi.mts` は振り分けの評価で、ケースに話題の節が要るので、これまで通り `cases.json` だけを読む。
+
+項目は `cases.json` と同じで、次を足す（どれも任意）。
+
+| 項目 | 内容 |
+|---|---|
+| `scene` | 場面。`kitchen`・`hall`・`office`（PC の前で働く人）。場面ごとに数字を分けて見るため |
+| `materials` | ノートに付けた資料。本文をそのまま書く `{ "title": "…", "text": "…" }` か、`{ "title": "…", "file": "materials/store-manual.md" }`（`eval/` からのパス）。並べた順に M1・M2 |
+| `lineNotes` | ノートの行の出どころ。`{ "- 味噌汁の塩は小さじ1/2": "店長（2026-11-07）に確認して確定" }`（行の後ろの〔〕に入る文） |
+| `confirmations` | ノートの確定済みの記録（今の文字列の形）。今のケースでは使っていない |
+| `materialConfirmations` | 資料の行に結び付いた確定。`[{ "material": 1, "lineNo": 6, "page": 1, "text": "2026-11-07 店長に確認：…" }]`。`text` は「資料M1 L6（p.1）について」の後ろに続く文 |
+| `conflictMaterialLine` | 矛盾の相手が資料の行のときの正解。`"M1 L38"`（相手がノートの行なら、今まで通り `conflictLine`） |
+| `sameMaterialLine` | 同じ内容の相手が資料の行のときの正解 |
+| `sameLine` | 同じ内容の相手がノートの行のときの正解（`conflictLine` と同じ書き方） |
+| `unsure` | `true` なら、正解が人によって分かれうる。理由は `note` に書き、基準（設計書 §11.5）の計算から外す。今は該当するケースが無い |
+
+資料の本文の読み方（正解の行番号はこの読み方で数えた）：
+
+- `〔p.3〕` だけの行は、そこから3ページ目の印で、行に数えない。印の無い資料（`coding-rules.md`）はページが null（貼り付けた文）
+- 行番号は資料ごとに1から、ページをまたいで通し。見出しの行も数える
+- 空行は数えない（資料のファイルには空行を入れていない）
+
+ケース（設計書 §11.2 の22件から MA を8件に増やした。数値・手順・担当・場所を、キッチン・ホールと PC で1件ずつにするため）：
+
+| 記号 | 種類 | 件数 | 正解 |
+|---|---|---|---|
+| MA | 資料の行とだけ矛盾（ノートに関係する行は無い） | 8 | `contradiction`・相手は資料の行 |
+| MB | 資料と同じ内容 | 2 | `same`・相手は資料の行 |
+| MC | 資料への条件付きの補足 | 3 | `qualification` |
+| MD | 資料の話題への追記 | 3 | `addition` |
+| ME | 確定が資料より優先 | 4 | ME1 `same`（ノートの行）、ME2 `contradiction`（ノートの行）、ME3・ME4 `contradiction`（資料の行） |
+| MF | 長い資料 | 4 | MF1 `contradiction`（資料の後ろのほうの行）、MF2〜4 `addition` |
+
+正解が矛盾は12件、矛盾でないのは12件。場面は kitchen・hall 16件、office 8件。
+
+資料（トークンは、プロンプトに載る形（〔p.N〕と `L1: ` 付き）を Gemma 3 のトークナイザーで数えた見当。Gemini の countTokens では測っていない）：
+
+| ファイル | 中身 | 使うケース | トークン |
+|---|---|---|---|
+| `store-manual.md` | 定食屋の店舗マニュアル（6ページ） | MA1〜4・MB1・MC1・MC2・MD1 | 約2,100 |
+| `coding-rules.md` | 社内のコーディング規約（ページなし） | office の8件（M1） | 約1,100 |
+| `expense-rules.md` | 経費精算の手順（3ページ） | office の8件（M2） | 約1,000 |
+| `long-kitchen.md` | キッチン業務マニュアル（30ページ） | MF1〜4、まぜる1・2 | 約28,200 |
+| `long-hygiene.md` | 衛生管理の手引き（30ページ） | まぜる2 | 約28,200 |
+| `long-store.md` | ホール・店舗運営マニュアル（30ページ） | まぜる2 | 約28,000 |
+
+まぜる1は `long-kitchen.md` の1冊（約2.8万）、まぜる2は `long-*.md` の3冊（合わせて約8.4万）を今の18件にまぜる。設計書の「約10万」より少ない。1冊の上限（3万）に収めたため。
+
+- ME の資料は短いので、ケースの中に本文をそのまま書いた。
+- 資料はすべてチームで書いた架空のもの（このリポジトリは公開するので、他人の文章を入れない）。店名・会社名・人名は出さず、発言者は仮名。
+- まぜる資料（`long-*.md`）は、上の18件の発言と食い違う事柄も同じ事柄も書かず、同じ物（味噌汁・唐揚げ・皿・レジ・おしぼりなど）の別の事柄にだけ触れる（設計書 §11.3）。まぜても18件の正解は変わらない。資料つきのケースで問う事柄も書いていない（MF の相手の3行だけは `long-kitchen.md` にある）。

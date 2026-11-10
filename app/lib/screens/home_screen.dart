@@ -20,21 +20,21 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<ManualSummary>> _manuals = widget.api.listManuals();
-
-  void _reload() => setState(() {
-        _manuals = widget.api.listManuals();
-      });
-
-  Future<void> _open(String id) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => ManualScreen(api: widget.api, manualId: id)));
-    _reload();
+  @override
+  void initState() {
+    super.initState();
+    widget.api.store.ensureLoaded();
   }
 
-  Future<void> _create() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
-    _reload();
+  void _reload() {
+    widget.api.store.load();
+    setState(() {});
   }
+
+  void _open(String id) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ManualScreen(api: widget.api, manualId: id)));
+
+  void _create() => Navigator.push(context, MaterialPageRoute(builder: (_) => NewManualScreen(api: widget.api)));
 
   Widget _createButton() => MoonFilledButton(
         label: const Text('ノートを作る'),
@@ -46,15 +46,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: WithSidebar(api: widget.api, place: Place.manuals, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const TopBar(crumbs: ['ノート']),
-        Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+        Expanded(child: ListenableBuilder(listenable: widget.api.store, builder: (context, _) => _body())),
       ]))),
     );
   }
 
-  Widget _body(AsyncSnapshot<List<ManualSummary>> snap) {
-    if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-    if (!snap.hasData) return const Loading();
-    final manuals = snap.data!;
+  Widget _body() {
+    final store = widget.api.store;
+    final notes = store.notes;
+    if (notes == null) {
+      return store.error == null ? const Loading() : LoadFailed(message: store.error.toString(), onRetry: _reload);
+    }
+    // 共有されたノートはサイドバーの「共有されたノート」に並べ、ここには自分のノートだけを出す
+    final manuals = [for (final m in notes) if (m.sharedBy == null) m];
 
     final k = context.tokens;
     return Narrow(
@@ -78,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// マニュアル1冊を、白い面1枚として見せる
-  Widget _sheet(ManualSummary m) {
+  Widget _sheet(ManualState m) {
     final k = context.tokens;
     final c = k.colors;
     return MouseRegion(
@@ -93,8 +97,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(m.title, style: k.text.title),
                 SizedBox(height: k.space.xs),
                 Wrap(spacing: k.space.md, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  Text('記録 ${m.utteranceCount} 件', style: k.text.small),
-                  if (m.openCount > 0) StatusTag('あとで確認 ${m.openCount} 件', bg: c.pendingBg, fg: c.pending),
+                  // 直接編集は口頭の記録ではないので数えない
+                  Text('記録 ${m.said.length} 件', style: k.text.small),
+                  if (m.openChecks.isNotEmpty)
+                    StatusTag('あとで確認 ${m.openChecks.length} 件', bg: c.pendingBg, fg: c.pending),
                 ]),
               ]),
             ),

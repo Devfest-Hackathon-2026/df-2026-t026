@@ -6,12 +6,13 @@ typedef Chunk = ({int start, int end});
 
 /// 音量（RMS）だけで声かどうかを決める簡易 VAD
 class EnergyVad {
-  const EnergyVad({this.threshold = 500});
+  const EnergyVad({this.threshold = 150});
 
   /// 判定の単位（16kHz で 20ms）
   static const frame = 320;
 
-  /// これ以上の RMS を声とみなす（16bit で約 -36dBFS）
+  /// これ以上の RMS を声とみなす（16bit で約 -47dBFS）。マイクから離れて話す人の声は -40dBFS 前後まで下がり、
+  /// それを下回る所を切り落とすと、書き起こしが言い終わりの数語だけになるため
   final double threshold;
 
   static double rms(Int16List s, int start, int end) {

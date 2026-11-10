@@ -41,6 +41,8 @@ jobs:
           gcloud run deploy diff-note-api --image "$IMAGE" --region "$REGION" --quiet
 
   web:
+    # 新しいアプリは新しい API の口（記録と同時の書き込みなど）を使うので、API を先に出す。API のデプロイが失敗したら Web も出さない
+    needs: api
     if: vars.WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     defaults:
@@ -64,4 +66,6 @@ jobs:
         run: |
           API_URL=$(gcloud run services describe diff-note-api --region "$REGION" --format 'value(status.url)')
           flutter build web --release --dart-define=API_URL="$API_URL"
+          # 使っていないフォントを外し、MoonIcons を使う字だけに絞り、index.html に API の URL を入れる。失敗したらデプロイしない（既定の bash -e で止まる）
+          dart run tool/web_postbuild.dart "$API_URL"
           npx --yes firebase-tools@15 deploy --only hosting --project "$PROJECT_ID" --non-interactive

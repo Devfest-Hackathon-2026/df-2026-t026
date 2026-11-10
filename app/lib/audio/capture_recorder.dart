@@ -115,6 +115,9 @@ class CaptureRecorder {
   var _lastVoice = -sampleRate * keepSeconds;
   ({int at, Completer<void> done})? _waiting;
 
+  /// 前に切り出した所の終わり（通しの位置）。書き起こしを待たずに続けて押せるので、同じ発話をまた送らないため
+  var _capturedUntil = 0;
+
   void _onData(Uint8List bytes) {
     final s = _samples(bytes);
     _buffer.add(s);
@@ -148,7 +151,8 @@ class CaptureRecorder {
     }
   }
 
-  /// 話し終わりを待ってから、押した時刻に最も近い発話と、そこから続く前の会話を WAV にする。声が無ければ null
+  /// 話し終わりを待ってから、押した時刻に最も近い発話と、そこから続く前の会話を WAV にする。
+  /// 前に切り出した所までは含めない。新しい声が無ければ null
   Future<Uint8List?> capture() async {
     final at = _written;
     if (_judged - _lastVoice < _endSilence) {
@@ -156,12 +160,15 @@ class CaptureRecorder {
       _waiting = (at: at, done: done);
       await done.future;
     }
-    final samples = _buffer.toList();
+    final all = _buffer.toList();
+    final from = max(0, _capturedUntil - (_written - all.length));
+    final samples = Int16List.sublistView(all, from);
     final pressed = at - (_written - samples.length);
     final chunks = EnergyVad(threshold: _noise.threshold).chunks(samples, gap: _gap, pad: _pad, minVoice: _minVoice);
     if (chunks.isEmpty) return null;
     // かたまりの間の無音は詰める。Speech-to-Text が無音を「はい。」などと書き起こすことがあるため
     final talk = conversation(chunks, pressed, gap: _conversationGap);
+    _capturedUntil = _written - samples.length + talk.last.end;
     final out = Int16List(talk.fold(0, (n, c) => n + c.end - c.start));
     var i = 0;
     for (final c in talk) {

@@ -55,6 +55,11 @@ void main() {
     expect(const EnergyVad().chunks(s, gap: f, pad: 0, minVoice: 2 * f), isEmpty);
   });
 
+  test('VAD は、マイクから離れて話す小さな声（RMS 300・約 -41dBFS）も声とみなす', () {
+    final s = Int16List.fromList(List.filled(EnergyVad.frame * 5, 300));
+    expect(const EnergyVad().chunks(s, gap: EnergyVad.frame, pad: 0, minVoice: EnergyVad.frame), [(start: 0, end: s.length)]);
+  });
+
   test('切り出しは、押した所に最も近いかたまりから、間が短く続く前のかたまりまでをまとめる', () {
     const chunks = [(start: 0, end: 10), (start: 30, end: 40), (start: 45, end: 50), (start: 52, end: 60)];
     // 返事のあとの無音で押しても、その前の言われたことまで取る

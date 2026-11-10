@@ -7,7 +7,6 @@ import 'package:record/record.dart';
 
 import '../api.dart';
 import '../audio/capture_recorder.dart';
-import '../models.dart';
 import '../theme.dart';
 import '../web/screen.dart';
 import 'common.dart';
@@ -19,14 +18,10 @@ class RewindPanel extends StatefulWidget {
     super.key,
     required this.api,
     required this.newRecorder,
-    required this.onMemo,
     required this.onCapturing,
   });
   final Api api;
   final AudioRecorder Function() newRecorder;
-
-  /// 書き起こせたメモを入力ページに渡す。トグルを OFF にした後に書き起こしが返っても取りこぼさないため
-  final ValueChanged<Memo> onMemo;
 
   /// 話し終わりを待っている間か。その間はトグルで待ち受けを止めさせない
   final ValueChanged<bool> onCapturing;
@@ -122,11 +117,12 @@ class _RewindPanelState extends State<RewindPanel> with AutomaticKeepAliveClient
     unawaited(_transcribe(wav, at));
   }
 
-  /// 書き起こせたら未整理メモにためる。書き起こせなければ音声は残さず知らせる
+  /// 書き起こせたら未整理メモにためる（Api が store に入れるので、トグルを OFF にした後に返っても取りこぼさない）。
+  /// 書き起こせなければ音声は残さず知らせる
   Future<void> _transcribe(Uint8List wav, DateTime at) async {
     setState(() => _transcribing++);
     try {
-      widget.onMemo(await widget.api.listen(wav, at));
+      await widget.api.listen(wav, at);
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {

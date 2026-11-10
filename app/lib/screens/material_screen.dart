@@ -6,19 +6,24 @@ import '../api.dart';
 import '../manual_controller.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'check_list_screen.dart';
 import 'common.dart';
 import 'materials_screen.dart';
 import 'sidebar.dart';
+import 'tab_bar.dart';
 
 /// 資料1冊の中（ADR 0019）。書き起こした文を、ページの区切りつきで1行ずつ見せる。
-/// 資料は書き換えないので、行を押しても編集の欄は開かない
+/// 資料は書き換えないので、行を押しても編集の欄は開かない。行には、ノートの行と同じ形で食い違い・確定・同じ内容の印を出す
 class MaterialScreen extends StatefulWidget {
-  const MaterialScreen({super.key, required this.c, required this.materialId, this.lineNo});
+  const MaterialScreen({super.key, required this.c, required this.materialId, this.lineNo, this.parentCrumbs});
   final ManualController c;
   final String materialId;
 
   /// 開いたときに送る行の番号（1始まり、ページをまたいで通し）。その行に薄い青の地を付ける
   final int? lineNo;
+
+  /// 下に積んだ画面のパンくず。省くと資料の一覧から開いた形（ノート / 資料）
+  final List<String>? parentCrumbs;
 
   @override
   State<MaterialScreen> createState() => _MaterialScreenState();
@@ -51,10 +56,11 @@ class _MaterialScreenState extends State<MaterialScreen> {
         return Scaffold(
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(
-              crumbs: [c.state!.title, '資料', m?.title ?? ''],
+              crumbs: [...(widget.parentCrumbs ?? [c.state!.title, '資料']), m?.title ?? ''],
               trailing: m == null ? null : _moreMenu(m),
             ),
-            Expanded(child: _body(snap)),
+            // 確認リストで確定すると印が変わるので、ノートの状態を聞く
+            Expanded(child: ListenableBuilder(listenable: c, builder: (context, _) => _body(snap))),
           ]))),
         );
       },
@@ -75,6 +81,7 @@ class _MaterialScreenState extends State<MaterialScreen> {
     if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
     if (!snap.hasData) return const Loading();
     final m = snap.data!;
+    final s = c.state!;
     if (_toLine) {
       _toLine = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -89,13 +96,13 @@ class _MaterialScreenState extends State<MaterialScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
-              child: PageTitle(m.title, meta: materialMeta(context, m)),
+              child: PageTitle(m.title, meta: materialMeta(context, m, open: s.openChecksIn(m.id).length)),
             ),
             SizedBox(height: k.space.xl),
             // ノートと同じく全行を並べる。送る行に GlobalKey を付けるため、ListView.builder にはしない
             for (final (i, l) in m.lines.indexed) ...[
               if (l.page case final page? when i == 0 || m.lines[i - 1].page != page) _pageMark(page, first: i == 0),
-              _line(l.text, i + 1),
+              _line(s, l.text, i + 1),
             ],
           ]),
         ),
@@ -115,18 +122,73 @@ class _MaterialScreenState extends State<MaterialScreen> {
     );
   }
 
-  /// 1行。見た目はノートの行にそろえる
-  Widget _line(String text, int lineNo) {
+  /// 1行。見た目と印はノートの行（manual_screen.dart の _line）にそろえる。
+  /// 左余白の色線は、確認待ちの食い違いがあれば黄、この行に結び付いた確定があれば緑
+  Widget _line(ManualState s, String text, int lineNo) {
     final k = context.tokens;
-    final row = Padding(
-      padding: isHeading(text)
-          ? EdgeInsets.fromLTRB(k.gutter, k.space.xl, 0, k.space.xs)
-          : EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.xs),
-      child: LineText(text),
+    final Widget row;
+    final open = <Check>[];
+    if (isHeading(text)) {
+      // 見出しは主張ではないので、食い違いの相手にならない
+      row = Padding(padding: EdgeInsets.fromLTRB(k.gutter, k.space.xl, 0, k.space.xs), child: LineText(text));
+    } else {
+      final here = s.checksAt(widget.materialId, lineNo);
+      open.addAll(here.where((x) => x.isOpen));
+      // 記録を見せて済ませた確定は元の確定を指すので、印は元の確定に付ける（#118）
+      final confirmed = here.where((x) => x.isDecision).lastOrNull;
+      final r = confirmed?.resolution;
+      final bar = open.isNotEmpty ? k.colors.pending : (confirmed != null ? k.colors.added : null);
+      final marks = <Widget>[
+        if (confirmed != null && r != null) ...[
+          Speaker(name: r.decidedBy, day: r.decidedAt, after: r.verb, onTap: () => _openCheck(confirmed)),
+          // 資料と違う内容に決まったら、資料の行が確定したと読めないよう、決まった内容を添える
+          if (r.text != text) Text('「${plain(r.text)}」に決まった', style: k.text.small),
+        ],
+        for (final x in here.where((x) => x.kind == Kind.same))
+          Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            Speaker(name: s.utterance(x.utteranceId).speaker, day: s.utterance(x.utteranceId).saidAt),
+            Text('も同じ', style: k.text.small),
+          ]),
+        // 「資料の行 ／ 誰（日付）：言われたこと」
+        for (final o in open)
+          Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            Text('／', style: k.text.body.copyWith(color: k.colors.pending)),
+            Text('${s.utterance(o.utteranceId).speaker ?? '発言者未入力'}（${fmtDay(s.utterance(o.utteranceId).saidAt)}）：',
+                style: k.text.small),
+            Text(plain(s.patch(o.patchId).text), style: k.text.body),
+            StatusTag('食い違い', bg: k.colors.pendingBg, fg: k.colors.pending),
+          ]),
+      ];
+      row = IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+            width: k.gutter,
+            child: Align(alignment: Alignment.centerLeft, child: Container(width: k.changeBar, color: bar)),
+          ),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: k.space.xs),
+              child: Wrap(
+                spacing: k.space.md,
+                runSpacing: k.space.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [LineText(text), ...marks],
+              ),
+            ),
+          ),
+        ]),
+      );
+    }
+    final shown = lineNo == widget.lineNo ? KeyedSubtree(key: _lineKey, child: ColoredBox(color: k.colors.found, child: row)) : row;
+    if (open.isEmpty) return shown;
+    // 食い違っている行は、どこを押しても確認リストを開き、その食い違いを選ぶ。その場では解決させない
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _openCheck(open.last), child: shown),
     );
-    if (lineNo != widget.lineNo) return row;
-    return KeyedSubtree(key: _lineKey, child: ColoredBox(color: k.colors.found, child: row));
   }
+
+  void _openCheck(Check check) => openCheckViaList(Navigator.of(context), c, check.id, settings: aboveNote(context));
 
   /// 上部バーの「…」（その他）。ノートのページの「…」と同じ形。共有された人にも出す
   Widget _moreMenu(MaterialBody m) {
