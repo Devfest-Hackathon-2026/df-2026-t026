@@ -165,6 +165,7 @@ export const checkRules = `kind は次のどれか1つ:
 - 聞かれすぎると新人はこの道具を使わなくなる。両立する読み方が自然にできるなら contradiction にしない
 - ただし、同じ状況で数値・手順・担当・場所が食い違うなら contradiction。「〜から変わった」と言われても、マニュアルと両立しなければ contradiction（どちらが正しいかはアプリが決めない）
 - 確認して確定した行や確定済みの記録と食い違うときは contradiction。reason にその確認（誰がいつ）を書く
+- 「〜しない」「〜は使わない」のように禁止している行に対して、ある条件のときはそれをしてよい・するように、と言われたら、条件付きでも contradiction（禁止の行は例外を書いていないので、その条件でも禁止と読む）
 
 conflictLineNo: contradiction のときだけ、衝突相手の行番号。それ以外は null
 sameLineNo: same のときだけ、同じ内容が書かれている行の番号。それ以外は null
