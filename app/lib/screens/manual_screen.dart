@@ -155,6 +155,9 @@ class _ManualScreenState extends State<ManualScreen> {
       return;
     }
     final failed = '保存できませんでした（${f.error}）。直した ${f.count} 行を元に戻しました';
+    // ほかの画面（確認リスト・履歴・資料・ダイアログ）が上に開いていれば、欄を開かず知らせるだけにする。
+    // 隠れた欄を開くと、閉じるまで store の状態が上の画面に入らず、上の画面で打った文字がその欄に入るおそれもある
+    if (ModalRoute.isCurrentOf(context) != true) return showError(context, '$failed。書き直してください');
     if (_editing case final e?) {
       // 書いている欄の文面はそのまま。戻した行の分だけ番号がずれるので、同じ行に合わせ直す
       _setEditing(_remap(e, f.shown, s.lines));

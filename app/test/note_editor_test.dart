@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:diff_note/api.dart';
+import 'package:diff_note/models.dart';
+import 'package:diff_note/screens/check_list_screen.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/manual_screen.dart';
 import 'package:diff_note/theme.dart';
@@ -442,6 +444,46 @@ void main() {
       ('replace', _salt, '- 塩 小さじ2'),
     ]);
     expect(_shownLines(tester), ['・塩 小さじ2']);
+  });
+
+  testWidgets('確認リストを開いている間に保存できなければ、下に隠れたノートの欄を開かずに知らせ、確認リストにはそのあとの変化も出す', (tester) async {
+    final server = _Server()..editGate = Completer();
+    final api = Api(client: server.client, baseUrl: 'http://api');
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 胡椒 少々');
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('保存する'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト'));
+    await tester.pumpAndSettle();
+    expect(find.byType(CheckListScreen), findsOneWidget);
+
+    server.failNext = 'network';
+    server.editGate!.complete();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('保存できませんでした（サーバーにつながりません）。直した 1 行を元に戻しました。書き直してください'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(ManualScreen, skipOffstage: false),
+            matching: find.byType(EditableText, skipOffstage: false),
+            skipOffstage: false),
+        findsNothing);
+
+    // ほかの画面の応答で、このノートに「あとで確認」が1件入った
+    final next = server.state;
+    (next['utterances'] as List).add({'id': 'u9', 'text': '塩は小さじ2', 'speaker': '田中さん', 'saidAt': '2026-11-10', 'createdAt': '2026-11-10T01:00:00Z'});
+    (next['patches'] as List).add({'id': 'p9', 'utteranceId': 'u9', 'op': 'replace', 'line': _salt, 'text': '- 塩 小さじ2', 'summary': '', 'status': 'proposed', 'createdAt': '2026-11-10T01:00:00Z', 'appliedAt': null});
+    (next['checks'] as List).add({'id': 'c9', 'patchId': 'p9', 'utteranceId': 'u9', 'kind': 'contradiction', 'conflictLine': _salt, 'reason': '量が違う', 'resolution': null});
+    api.store.put(ManualState.fromJson(next));
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(find.text('あとで確認（1）'), findsOneWidget);
   });
 
   testWidgets('続けて書いている途中で前の編集が届かなければ、後ろの編集もまとめて戻し、何行戻したかを出す', (tester) async {
