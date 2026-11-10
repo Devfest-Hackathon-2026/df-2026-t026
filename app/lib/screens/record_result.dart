@@ -144,27 +144,19 @@ class _RecordResultCardState extends State<RecordResultCard> {
     return LayoutBuilder(
       builder: (context, box) {
         final stacked = box.maxWidth < k.stackBelow;
-        // 食い違いはこのアプリの見せ場なので、見出しを大きくする。食い違いが無ければ落ち着いた見た目のまま
-        final title = Text(_title(decision), style: conflicts.isNotEmpty ? k.text.display : k.text.title);
+        // 題名（text.display）は入力ページの「言われたことを記録」だけにし、カードの見出しはそれより小さくする
+        final title = Text(_title(decision), style: k.text.title);
         final close = MoonButton.icon(
           semanticLabel: '結果を閉じる',
           icon: Icon(LucideIcons.x, color: k.colors.ink),
           onTap: widget.onClose,
         );
-        // 確定済みの記録と食い違ったら、誰の決定かを大きめの確認印で見出しに添える。狭い幅では見出しの上に置く
+        // 確定済みの記録と食い違ったら、誰の決定かを確認印で見出しに添える。狭い幅では見出しの上に置く
         final stamp = decision == null
             ? null
-            : SizedBox.square(
-                dimension: k.stampDiameterLarge,
-                child: FittedBox(
-                  child: ConfirmStamp(who: decision.decidedBy, day: decision.decidedAt, decided: decision.answeredBy != null),
-                ),
-              );
+            : ConfirmStamp(who: decision.decidedBy, day: decision.decidedAt, decided: decision.answeredBy != null);
         return PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.xl),
-          // まだ確認していない食い違いは黄の線で囲んで目立たせる。黄は付箋の色でもあるので面は塗らない（flutter-ui.md）。
-          // 全部決着したら、あとで確認の黄をやめる
-          outline: open.isNotEmpty ? k.colors.pending : null,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (stamp != null && stacked) ...[
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, const Spacer(), close]),
@@ -268,21 +260,29 @@ class _RecordResultCardState extends State<RecordResultCard> {
         ),
       ]),
       SizedBox(height: k.space.md),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: MoonFilledButton(
-          onTap: _settling == null ? () => _keepByRecord(r, chk, confirmed) : null,
-          leading: _settling == chk.id ? const ButtonLoader() : null,
-          // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
-          label: Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(keepByRecordLabel(_target(r).c.state!, chk, res)),
-            ),
-          ),
-        ),
-      ),
+      Align(alignment: Alignment.centerLeft, child: _keepButton(r, chk, confirmed)),
     ];
+  }
+
+  /// 主ボタンはカードに1つだけにする。決着できる食い違いが複数あれば、いちばん上のものだけを主にし、ほかは枠のボタンにする
+  Widget _keepButton(Recorded r, Check chk, Check confirmed) {
+    final first = _conflicts()
+        .where((x) => !_settled.containsKey(x.$2.id) && x.$1.state.confirmedRecordFor(x.$2) != null)
+        .firstOrNull;
+    final onTap = _settling == null ? () => _keepByRecord(r, chk, confirmed) : null;
+    final settling = _settling == chk.id;
+    final lead = first?.$2.id == chk.id;
+    final leading = settling ? ButtonLoader(onCanvas: !lead) : null;
+    // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
+    final label = Flexible(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(keepByRecordLabel(_target(r).c.state!, chk, confirmed.resolution!)),
+      ),
+    );
+    return lead
+        ? MoonFilledButton(onTap: onTap, leading: leading, label: label)
+        : MoonOutlinedButton(onTap: onTap, leading: leading, label: label);
   }
 
   /// カードで決着させた食い違い。確認リストの確認済みと同じ言い方で、見せたのは誰か・元の確定は何かを出す

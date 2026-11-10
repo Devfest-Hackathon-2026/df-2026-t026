@@ -115,7 +115,7 @@ class _OpenChecksScreenState extends State<OpenChecksScreen> {
       child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
         PageTitle('あとで確認', meta: [
           Text('ノートと食い違っていて、あとで人に聞くこと', style: k.text.small),
-          if (open > 0) StatusTag('全部で $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+          if (open > 0) Text('全部で $open 件', style: k.text.small),
         ]),
         SizedBox(height: k.space.xl),
         OpenChecksList(manuals: snap.data!, onOpen: _open),

@@ -262,23 +262,20 @@ Finder _inCard(Finder f) => find.descendant(of: _card, matching: f);
 
 final _k = appTheme().extension<AppTokens>()!;
 
-/// カードの見た目の要素。食い違いがあれば黄の線で囲んだ見せ場の形（面は白のまま）、無ければ線の無い落ち着いた形か。
+/// カードの見た目の要素。見出しはページの題名より小さく、カードを黄の線で囲まない（黄は面にも枠にも使わない）。
 /// 食い違いの主のボタンは primary（確定済みの記録と食い違ったら「記録を見せて、…」で、「確かめる」は文字のボタン）
 void _expectLook(WidgetTester tester, String title, {required bool conflicted, String primary = '確かめる'}) {
-  final sheet = tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first);
   final heading = tester.widget<Text>(_inCard(find.text(title)));
   final filled = _inCard(find.widgetWithText(MoonFilledButton, '確かめる'));
   final text = _inCard(find.widgetWithText(MoonTextButton, '確かめる'));
   if (conflicted) {
-    expect(sheet.outline, _k.colors.pending);
-    expect(heading.style, _k.text.display);
+    expect(heading.style, _k.text.title);
     // 主のボタンは1つだけ
     expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
     expect(_inCard(find.widgetWithText(MoonFilledButton, primary)), findsOneWidget);
     expect(filled, primary == '確かめる' ? findsOneWidget : findsNothing);
     expect(text, primary == '確かめる' ? findsNothing : findsOneWidget);
   } else {
-    expect(sheet.outline, isNull);
     expect(heading.style, _k.text.title);
     expect(filled, findsNothing);
     expect(text, findsOneWidget);
@@ -380,11 +377,10 @@ void main() {
       expect((pair.left, pair.rightLabel, pair.right), (_half, '佐藤さん（11/10）', _one));
       final stamp = tester.widget<ConfirmStamp>(_inCard(find.byType(ConfirmStamp)));
       expect((stamp.who, stamp.day, stamp.decided), ('店長', '2026-11-07', false));
-      // 確認印はほかより大きく、見出しの横（狭い幅では上）に押す
+      // 確認印はほかと同じ大きさで、見出しの横（狭い幅では上）に押す
       final stampRect = tester.getRect(_inCard(find.byType(ConfirmStamp)));
       final titleRect = tester.getRect(_inCard(find.text(title)));
-      expect(stampRect.width, moreOrLessEquals(_k.stampDiameterLarge, epsilon: 1));
-      expect(stampRect.width, greaterThan(_k.stampDiameter));
+      expect(stampRect.width, moreOrLessEquals(_k.stampDiameter, epsilon: 1));
       if (size == _wide) {
         expect(stampRect.left, greaterThan(titleRect.right));
         expect(stampRect.top, lessThan(titleRect.bottom));
@@ -472,7 +468,6 @@ void main() {
       final stamp = tester.widget<ConfirmStamp>(_inCard(find.byType(ConfirmStamp)));
       expect((stamp.who, stamp.day), ('店長', '2026-11-07'));
       expect(_inCard(find.text('店長に確認済みの決定と食い違っています')), findsOneWidget);
-      expect(tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first).outline, isNull);
       // 決着したので、見せる文・決着のボタン・「確認リストに入れました」は外し、「確かめる」は文字のボタンのまま
       expect(_inCard(find.text(_showText)), findsNothing);
       expect(_inCard(find.text(_record)), findsNothing);

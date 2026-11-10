@@ -367,9 +367,9 @@ class _CheckDetailState extends State<CheckDetail> {
   /// 聞き方の例・記録を見せる文。そのまま相手に送れるようコピーできる。lead なら、このページの主として文を大きく出す
   Widget _copyable(String label, String text, String copyLabel, {bool lead = false}) {
     final k = context.tokens;
-    return Container(
-      padding: EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.sm, k.space.md),
-      decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.control),
+    // 白い面の上に置くので、灰色の箱にせず、見出しと文とコピーのボタンだけにする（箱の中に箱を作らない）
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: k.space.xs),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
