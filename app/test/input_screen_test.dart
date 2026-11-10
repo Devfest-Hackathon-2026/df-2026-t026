@@ -240,7 +240,7 @@ Future<void> _captureOnce(WidgetTester tester, StreamController<Uint8List> mic) 
 }
 
 /// リワインドのトグルと、記録先：自動に添える一言
-const _rewindNote = 'リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その発話を切り出して文字にします';
+const _rewindNote = 'リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その声を切り出して文字にします';
 const _targetNote = '記録先が自動のままなら、どのノートの話かを AI が選びます';
 
 /// トーストが消えるまで進める（タイマーを残したまま終えない）
@@ -383,7 +383,7 @@ void main() {
     expect(find.descendant(of: modal, matching: find.text('ホール')), findsOneWidget);
     // 記録しても確認へ急がせない
     expect(find.text('確認リストに入れました。聞けるときに確認して、決まったら記録します'), findsOneWidget);
-    expect(find.text('ノートに関わる内容は見つかりませんでした。発言の記録だけ残しています。'), findsOneWidget);
+    expect(find.text('ノートに関わる内容は見つかりませんでした。ノートは変えずに、言われた記録として残しました'), findsOneWidget);
     // 発言者は1回だけ入れる
     expect(find.descendant(of: modal, matching: find.byType(MoonTextInput)), findsOneWidget);
 
@@ -509,7 +509,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.widgetWithText(MoonFilledButton, '記録先を決める'));
     await tester.pumpAndSettle();
-    expect(find.text('記録先：2冊'), findsOneWidget);
+    expect(find.text('記録先：2 冊'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -731,18 +731,18 @@ void main() {
     await tester.pump();
     // 言われたこと（1秒）と返事（0.4秒）に、それぞれ前後300msの余白を足し、間の無音を詰めてつなぐ（16kHz・16bit）
     expect(base64Decode(sent.single['data']).length, 44 + (1600 + 1000) * 16 * 2);
-    expect(find.text('書き起こし中 1 件'), findsOneWidget);
+    expect(find.text('文字にしています 1 件'), findsOneWidget);
 
     // 書き起こしを待たずに、もう一度切り出せる
     await _captureOnce(tester, mic);
     expect(sent, hasLength(2));
-    expect(find.text('書き起こし中 2 件'), findsOneWidget);
+    expect(find.text('文字にしています 2 件'), findsOneWidget);
 
     heard[1].complete(_json({'text': 'お冷やはすぐ出す'}));
     heard[0].complete(_json({'text': '塩は小さじ1/2'}));
     await tester.pumpAndSettle();
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
-    expect(find.textContaining('書き起こし中'), findsNothing);
+    expect(find.textContaining('文字にしています'), findsNothing);
     // 最近の記録にも同じ文面があるので、未整理メモの数で見る
     expect(find.bySemanticsLabel('メモを消す'), findsNWidgets(2));
     // 切り出した時刻を UTC で送り、サーバーにためる。画面には切り出した順に並べる
@@ -1522,7 +1522,7 @@ void main() {
     expect(sent, containsPair('write', true));
     expect(posted, isEmpty);
     expect(find.text('ノートに書き込む前の確認'), findsNothing);
-    expect(find.text('ノートに1行書き込みました'), findsOneWidget);
+    expect(find.text('ノートに 1 行書き込みました'), findsOneWidget);
     await _waitToast(tester);
   });
 

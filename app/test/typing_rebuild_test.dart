@@ -230,7 +230,7 @@ void main() {
     MoonButton button(String label) => tester.widget<MoonButton>(find.widgetWithText(MoonButton, label));
     expect(button('ノートに書き込む').onTap, isNull);
     expect(button('それでも書き込む').onTap, isNull);
-    expect(find.text('反映する前に入れてください'), findsOneWidget);
+    expect(find.text('書き込む前に入れてください'), findsOneWidget);
     expect(find.text('発言者未入力（11/3）'), findsOneWidget);
 
     final said = _widgets<StickyNote>(tester);
@@ -249,7 +249,7 @@ void main() {
     expect(find.bySemanticsLabel('発言者を佐藤店長にする'), findsNothing);
     expect(button('ノートに書き込む').onTap, isNotNull);
     expect(button('それでも書き込む').onTap, isNotNull);
-    expect(find.text('反映する前に入れてください'), findsNothing);
+    expect(find.text('書き込む前に入れてください'), findsNothing);
     expect(find.text('田中さん（11/3）'), findsOneWidget);
 
     _expectSameWidgets(said, _widgets<StickyNote>(tester), '言われたこと');
@@ -260,6 +260,6 @@ void main() {
     tester.testTextInput.enterText('');
     await tester.pump();
     expect(button('ノートに書き込む').onTap, isNull);
-    expect(find.text('反映する前に入れてください'), findsOneWidget);
+    expect(find.text('書き込む前に入れてください'), findsOneWidget);
   });
 }

@@ -162,7 +162,7 @@ void main() {
 
   testWidgets('共有された人：持ち主が分かり、サイドバーに件数つきで出る。共有と書き込む前の確認もでき、行も直せる。消すことはできない', (tester) async {
     final server = await _pump(tester, shared: true);
-    expect(find.text('かなで から共有'), findsOneWidget);
+    expect(find.text('かなでから共有'), findsOneWidget);
     expect(_outlined('履歴'), findsOneWidget);
     expect(find.bySemanticsLabel('その他'), findsNothing);
     // サイドバーの「共有されたノート」に、持ち主の名前と、あとで確認の件数つきで出る

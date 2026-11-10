@@ -762,7 +762,7 @@ class _InputScreenState extends State<InputScreen> {
     final k = context.tokens;
     final purpose = Text(appPurpose, style: k.text.small);
     // 音声は押すまで送らないが、切り出した発話は書き起こしのためにサーバーへ送る（ADR 0005）。「端末の中で文字にする」とは書かない
-    final rewind = Text('リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その発話を切り出して文字にします', style: k.text.small);
+    final rewind = Text('リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その声を切り出して文字にします', style: k.text.small);
     if (!wide) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [purpose, SizedBox(height: k.space.sm), rewind]);
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(child: purpose),
@@ -1155,7 +1155,7 @@ class _InputScreenState extends State<InputScreen> {
       // moon_design 1.1.0 はラベルを幅の決まらない Row に入れるので、Flexible で包まないと長い題名がはみ出す
       label: Flexible(
         child: Text(
-          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length}冊' }}',
+          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length} 冊' }}',
           style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
           overflow: TextOverflow.ellipsis,
         ),

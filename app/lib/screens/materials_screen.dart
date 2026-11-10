@@ -19,9 +19,9 @@ List<Widget> materialMeta(BuildContext context, MaterialSummary m, {int open = 0
   final k = context.tokens;
   final day = fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(m.createdAt).toLocal()));
   return [
-    Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount}ページ', style: k.text.small),
+    Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount} ページ', style: k.text.small),
     // 前からある資料には足した人が無い
-    Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name} が $day に足した', style: k.text.small),
+    Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name}が $day に足した', style: k.text.small),
     if (open > 0) StatusTag('あとで確認 $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
   ];
 }
@@ -56,7 +56,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     );
     if (added == null || !mounted) return;
     _reload();
-    showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount}ページ）'}');
+    showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount} ページ）'}');
   }
 
   Future<void> _open(MaterialSummary m) async {

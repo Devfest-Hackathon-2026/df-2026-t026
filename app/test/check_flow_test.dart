@@ -204,12 +204,12 @@ void main() {
     await tester.pumpAndSettle();
 
     // 広い画面では一覧の右にいちばん新しい食い違いの詳細が出ていて、画面を移らずに確認から記録までできる
-    expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
     expect(find.text('あとで確認すること'), findsOneWidget);
     await tester.tap(find.text('塩 小さじ1 ／ 塩 小さじ1/2'));
     await tester.pumpAndSettle();
 
-    expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
     expect(find.text('あとで確認すること'), findsOneWidget);
     expect(find.text('お店のやり方を決める立場なので'), findsOneWidget);
     expect(find.textContaining('どちらに合わせればよいですか'), findsOneWidget);
@@ -237,7 +237,7 @@ void main() {
     expect(resolveBody, containsPair('note', '1/2で統一'));
     expect(find.text('11/7 店長に確認：1/2で統一'), findsOneWidget);
     // 確定した内容は、確認済みの行と右の確認の記録の両方に出る
-    expect(find.text('確認済み（1）'), findsOneWidget);
+    expect(find.text('確認済み 1 件'), findsOneWidget);
     expect(find.text('確定した内容：塩 小さじ1/2'), findsNWidgets(2));
     await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
   });
@@ -251,7 +251,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('確認リスト'), findsWidgets);
-    expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
   });
 
   testWidgets('確定済みの行を書き換えた食い違いは、書き換えた行に印を出し、選択肢は「書き換える前の内容」にする', (tester) async {
@@ -332,11 +332,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('同じ内容'), findsWidgets);
-    expect(find.textContaining('と同じ内容です。本文は変えずに'), findsOneWidget);
+    expect(find.textContaining('と同じ内容です。ノートは変えずに'), findsOneWidget);
     await tester.tap(find.widgetWithText(MoonFilledButton, '書き込まない'));
     await tester.pumpAndSettle();
 
     expect(discarded, isTrue);
-    expect(find.text('記録だけ残しました'), findsOneWidget);
+    expect(find.text('書き込まない'), findsOneWidget);
   });
 }

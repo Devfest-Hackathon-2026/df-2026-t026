@@ -127,9 +127,9 @@ void main() {
     await tester.tap(_me);
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('通知')), findsOneWidget);
-    expect(find.text('佐藤店長がノートを編集しました'), findsOneWidget);
+    expect(find.text('佐藤店長が行を直しました'), findsOneWidget);
     expect(find.text('「炊けたら10分蒸らす」→「炊けたら15分蒸らす」'), findsOneWidget);
-    expect(find.text('佐藤店長が回答しました'), findsOneWidget);
+    expect(find.text('佐藤店長が確認に答えました'), findsOneWidget);
     expect(find.text('「塩 小さじ1」→「塩 小さじ1/2」（1/2で統一）'), findsOneWidget);
     // 前に見たときより後の、行の直しだけが新しい
     expect(find.text('新しい'), findsOneWidget);
@@ -140,7 +140,7 @@ void main() {
     // store の通知をすぐ出し、裏で1本読み直してから見たことにする
     expect(server.requests, ['GET /home', 'GET /home', 'POST /notices/seen']);
 
-    await tester.tap(find.text('佐藤店長がノートを編集しました'));
+    await tester.tap(find.text('佐藤店長が行を直しました'));
     await tester.pumpAndSettle();
     expect(find.byType(ManualScreen), findsOneWidget);
     expect(server.requests, contains('GET /manuals/m1'));
@@ -159,7 +159,7 @@ void main() {
     await tester.tap(_me);
     await tester.pump();
     // store にある通知はすぐ出す。読み直しが返るまでは、見たことにしない
-    expect(find.text('佐藤店長が回答しました'), findsOneWidget);
+    expect(find.text('佐藤店長が確認に答えました'), findsOneWidget);
     expect(find.text(_laterText), findsNothing);
     expect(server.requests, isNot(contains('POST /notices/seen')));
 
@@ -200,7 +200,7 @@ void main() {
         MaterialApp(theme: appTheme(), home: NoticesScreen(api: Api(client: server.client, baseUrl: 'http://api'))));
     await tester.pumpAndSettle();
     expect(server.requests, ['GET /home', 'POST /notices/seen']);
-    expect(find.text('佐藤店長がノートを編集しました'), findsOneWidget);
+    expect(find.text('佐藤店長が行を直しました'), findsOneWidget);
     expect(find.text('新しい'), findsOneWidget);
     expect(find.descendant(of: _me, matching: find.text('1')), findsNothing);
   });
@@ -256,7 +256,7 @@ void main() {
     await tester.tap(_me);
     await tester.pumpAndSettle();
     // 手元にある通知は出す。読み直せなかったので、最後に読めたあとに届いた通知があるかもしれず、見たことにしない
-    expect(find.text('佐藤店長がノートを編集しました'), findsOneWidget);
+    expect(find.text('佐藤店長が行を直しました'), findsOneWidget);
     expect(server.requests, isNot(contains('POST /notices/seen')));
     expect(find.descendant(of: _me, matching: find.text('1')), findsOneWidget);
   });

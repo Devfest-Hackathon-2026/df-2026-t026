@@ -244,8 +244,8 @@ void main() {
       await _pump(tester, size: size);
       expect(find.text('2 冊'), findsOneWidget);
       expect(find.text('店舗マニュアル'), findsOneWidget);
-      expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
+      expect(find.text('2 ページ'), findsOneWidget);
+      expect(find.text('かなでが 11/10 に足した'), findsOneWidget);
       expect(find.text('衛生の手引き'), findsOneWidget);
       expect(find.text('貼り付けた文'), findsOneWidget);
       expect(find.text('11/9 に足した'), findsOneWidget);
@@ -289,8 +289,8 @@ void main() {
       expect(find.byType(MaterialScreen), findsOneWidget);
       // 題名と、ページ数・足した日
       expect(find.descendant(of: find.byType(PageTitle), matching: find.text('店舗マニュアル')), findsOneWidget);
-      expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
+      expect(find.text('2 ページ'), findsOneWidget);
+      expect(find.text('かなでが 11/10 に足した'), findsOneWidget);
       expect(find.text('開店前'), findsOneWidget);
       expect(find.text('p.1'), findsOneWidget);
       expect(find.text('p.2'), findsOneWidget);
@@ -414,7 +414,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       expect(find.byType(MoonModal), findsNothing);
-      expect(find.text('資料「店舗マニュアル（秋）」を足しました（3ページ）'), findsOneWidget);
+      expect(find.text('資料「店舗マニュアル（秋）」を足しました（3 ページ）'), findsOneWidget);
       await _waitToast(tester);
     });
 

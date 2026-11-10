@@ -494,7 +494,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.byType(CheckListScreen), findsOneWidget);
-    expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('戻る'));
     await tester.pumpAndSettle();
