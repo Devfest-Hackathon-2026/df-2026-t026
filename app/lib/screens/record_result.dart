@@ -11,7 +11,8 @@ import 'common.dart';
 import 'review_dialog.dart';
 
 /// 書き込む前に利用者が確かめることが残っているか。誰が言ったか読み取れなかった（サーバーは書き込まない）か、
-/// まだ書き込んでいない行（ノートが変わっていて書き込めなかった行など）が残っている。入力ページは、このカードを次の結果が出ても消さない
+/// まだ書き込んでいない行（照らし合わせている間にノートが変わっていて書き込まなかった行など）が残っている。
+/// 入力ページは、このカードを次の結果が出ても消さない
 bool needsReview(List<Recorded> records) => records.any((r) => _speakerMissing(r) || _unwritten(r).isNotEmpty);
 
 bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == null;
@@ -21,16 +22,13 @@ Iterable<Patch> _unwritten(Recorded r) => r.state
     .patchesOf(r.utteranceId)
     .where((p) => p.status == 'proposed' && r.state.checkOf(p.id)?.kind != Kind.contradiction);
 
-/// 書き換える・後ろに足す行が、もうノートに無い。照らし合わせている間にノートが変わって、サーバーが書き込めなかった
-bool _targetGone(Recorded r, Patch p) => p.line != null && !r.state.lines.any((l) => l.text == p.line);
-
 /// 誰が言ったか分からないときの見出し。行ごとの印は付けず、見出しで言うだけにする
 const _unnamedTitle = '誰が言ったか分からないので、まだ書き込んでいません';
 
 /// 入力ページで照らし合わせた結果。入力欄のすぐ下に出し、次の結果が出るか、閉じるまで残す（#112）。
 /// 食い違いは「ノート ／ 言われたこと」で並べ、相手が確定済みの記録なら確認印と「記録を見せる」文を添え、
 /// その場で記録を見せて決着できるようにする（審査員の指摘4回目）。
-/// records はサーバーが書き込んだ後の状態。誰が言ったか分からない・書き込めなかった行が残ったときは、
+/// records はサーバーが書き込んだ後の状態。誰が言ったか分からない・まだ書き込んでいない行が残ったときは、
 /// 確認を割り込ませず、「確かめる」を主にしてそこから開く（設計書 0021 の C2）
 class RecordResultCard extends StatefulWidget {
   const RecordResultCard({
@@ -64,9 +62,12 @@ class _RecordResultCardState extends State<RecordResultCard> {
   /// 記録を見せて確定している食い違いの id。送っている間は、どの確定も押せない
   String? _settling;
 
+  /// 「確かめる」で書き込む前の確認を開いて閉じたか。閉じたあとに残った行は、利用者がまだ書き込んでいないもの
+  var _reviewed = false;
+
   ReviewTarget _target(Recorded r) => widget.targets.firstWhere((t) => t.c.manualId == r.manualId);
 
-  /// 照らし合わせた差分と、その分類。食い違い・書き込んだ（書き込めなかった）行・同じ内容の順に並べる。
+  /// 照らし合わせた差分と、その分類。食い違い・書き込んだ（まだの）行・同じ内容の順に並べる。
   /// 確かめて「書き込まない」にした行は出さない
   static List<(Patch, Check)> _items(Recorded r) => [
         for (final p in r.state.patchesOf(r.utteranceId))
@@ -103,9 +104,9 @@ class _RecordResultCardState extends State<RecordResultCard> {
     }
     final left = widget.records.where((r) => _unwritten(r).isNotEmpty);
     if (left.any(_speakerMissing)) return _unnamedTitle;
-    // 誰が言ったかを確かめで入れたあと、まだ書き込んでいない行は、ノートが変わったせいではない
-    if (left.any((r) => _unwritten(r).any((p) => _targetGone(r, p)))) return 'ノートが変わっていて、書き込めなかった行があります';
-    if (left.isNotEmpty) return 'まだ書き込んでいない行があります';
+    // 誰が言ったか分かっているのにサーバーが書き込まなかったのは、照らし合わせている間にノートが変わっていたとき
+    // （書き換える行が残っていても書き込まない）か、前の行の書き込みで当たらなくなったとき。確かめたあとは利用者の選択
+    if (left.isNotEmpty) return _reviewed ? 'まだ書き込んでいない行があります' : 'ノートが変わっていたので、まだ書き込んでいない行があります';
     final items = [
       for (final r in widget.records) ..._items(r),
     ];
@@ -122,12 +123,13 @@ class _RecordResultCardState extends State<RecordResultCard> {
     return 'ノートは変えずに、言われた記録として残しました';
   }
 
-  /// 「確かめる」。誰が言ったか分からない・書き込めなかった行が残ったときは、書き込む前の確認を開く。
+  /// 「確かめる」。誰が言ったか分からない・まだ書き込んでいない行が残ったときは、書き込む前の確認を開く。
   /// それ以外で食い違いがあれば、確認リストでその食い違いを選んだ形で開く（ノートの食い違っている行を押したときと同じ）。
   /// 中身がカードとほぼ同じ「記録した結果」は挟まない。無ければ「記録した結果」を開き、書き込んだ行を見せる
   Future<void> _review() async {
     if (needsReview(widget.records)) {
       await showReview(context, widget.targets);
+      if (mounted) setState(() => _reviewed = true);
       widget.onReviewed?.call();
       return;
     }
@@ -241,6 +243,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
     final s = r.state;
     final u = s.utterance(r.utteranceId);
     final items = _items(r);
+    final mixed = _unwritten(r).isNotEmpty && items.any((x) => x.$1.status != 'proposed' && x.$2.kind != Kind.contradiction);
     return [
       SizedBox(height: k.space.lg),
       Text(s.title, style: k.text.heading),
@@ -271,12 +274,10 @@ class _RecordResultCardState extends State<RecordResultCard> {
                   chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
                   style: k.text.body,
                 ),
-                // 誰が言ったか分かっているのに残った行は、どの行かを示す。分からないときは全部の行が残るので、
-                // 見出しで言うだけにする
-                if (p.status == 'proposed' && u.speaker != null) ...[
+                // 書き込んだ行とまだの行がまざるときだけ、どの行がまだかを示す。全部がまだなら見出しで言うだけにする
+                if (p.status == 'proposed' && chk.kind != Kind.contradiction && mixed) ...[
                   SizedBox(height: k.space.xs),
-                  StatusTag(_targetGone(r, p) ? '書き込めませんでした' : 'まだ書き込んでいません',
-                      bg: k.colors.shell, fg: k.colors.inkMuted),
+                  StatusTag('まだ書き込んでいません', bg: k.colors.shell, fg: k.colors.inkMuted),
                 ],
               ]),
             ),

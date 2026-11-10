@@ -191,6 +191,16 @@ Map<String, dynamic> _hall(List<String> kinds) {
       utterances: [_said('u2', '田中さん', '2026-11-04', 'お冷やはすぐ出す')], patches: patches, checks: checks);
 }
 
+/// 同じホールに続けて記録した、別の発言 u3 の追記を足す。前の発言 u2 の差分はそのまま残る
+/// （画面は1つの store を見るので、同じ発言 ID の状態を返すと前のカードの発言まで書き換わってしまう）
+Map<String, dynamic> _hallThenNext(List<String> kinds) {
+  final s = _hall(kinds);
+  (s['utterances'] as List).add(_said('u3', '田中さん', '2026-11-05', 'おしぼりは温める'));
+  (s['patches'] as List).add(_patch('p9', 'u3', '2026-11-05', 'insert', _hallLines.last, '- おしぼりは温める'));
+  (s['checks'] as List).add(_check('c9', 'p9', 'u3', 'addition'));
+  return s;
+}
+
 /// サーバーと同じく、発言者が分かれば追記・補足を書き込み、同じ内容は書き込まない（POST /utterances の write）。
 /// 書き換える行がノートに無い差分は、ノートが変わっていて当たらなかったものとして未反映のまま残す
 Map<String, dynamic> _write(Map<String, dynamic> s, String u) {
@@ -221,8 +231,11 @@ class _Server {
   /// POST /utterances で送った中身
   final intakeBodies = <Map<String, dynamic>>[];
 
+  /// 照らし合わせている間にノートが変わっていた。サーバーは何も書き込まない
+  var changedWhileMatching = false;
+
   /// GET /home と GET で返すノート。照らし合わせると、照らし合わせた直後の状態に置き換わる。
-  /// テストで書き換えると、ほかの人が確定した・ノートを消したことにできる
+  /// テストで書き換えると、ほかの画面で確定した・ノートを消したことにできる
   final notes = {'m1': _kitchen(), 'm2': _hall([])};
 
   /// 確定（POST …/resolve）で送った中身
@@ -245,7 +258,7 @@ class _Server {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       intakeBodies.add(body);
       final results = [
-        for (final (s, u) in intakes.removeAt(0)) (body['write'] == true ? _write(s, u) : s, u),
+        for (final (s, u) in intakes.removeAt(0)) (body['write'] == true && !changedWhileMatching ? _write(s, u) : s, u),
       ];
       for (final (s, _) in results) {
         notes[s['manual']['id']] = s;
@@ -683,6 +696,7 @@ void main() {
   }
 
   const unnamedTitle = '誰が言ったか分からないので、まだ書き込んでいません';
+  const changedTitle = 'ノートが変わっていたので、まだ書き込んでいない行があります';
 
   for (final size in const [_wide, _narrow]) {
     testWidgets('誰が言ったか分からなければ、確認を割り込ませず、カードの「確かめる」から書き込む前の確認を開く（$size）', (tester) async {
@@ -771,9 +785,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_inCard(find.text('まだ書き込んでいない行があります')), findsOneWidget);
-    expect(_inCard(find.text('まだ書き込んでいません')), findsOneWidget);
-    expect(find.text('ノートが変わっていて、書き込めなかった行があります'), findsNothing);
-    expect(find.text('書き込めませんでした'), findsNothing);
+    expect(find.text(changedTitle), findsNothing);
+    // 全部がまだなので、行ごとの印は付けない
+    expect(find.text('まだ書き込んでいません'), findsNothing);
     expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
   });
 
@@ -808,9 +822,41 @@ void main() {
     expect(_card, findsOneWidget);
   });
 
-  testWidgets('照らし合わせている間にノートが変わって書き込めなかった行は、見出しでそう言い、その行に印を付ける', (tester) async {
+  for (final size in const [_wide, _narrow]) {
+    testWidgets('照らし合わせている間にノートが変わっていて何も書き込まなかったら、見出しでそう言い、「確かめる」から開く（$size）',
+        (tester) async {
+      final server = await _pump(tester, [
+        [(_hall(['addition', 'same']), 'u2')],
+        [(_hallThenNext(['addition', 'same']), 'u3')],
+      ], size: size);
+      server.changedWhileMatching = true;
+      await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
+      expect(tester.takeException(), isNull);
+
+      // 誰が言ったかは分かっていて、書き換える行も残っているが、書き込んでいない
+      expect(_inCard(find.text(changedTitle)), findsOneWidget);
+      expect(find.textContaining('書き込みました'), findsNothing);
+      expect(find.text('まだ書き込んでいません'), findsNothing);
+      _expectLine(tester, '追記', 'おしぼりも一緒に出す');
+      _expectLine(tester, '同じ内容', 'お冷やはすぐ出す');
+      expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+      // 次の結果が出ても消さない
+      server.changedWhileMatching = false;
+      await _recordText(tester, '田中さんから、おしぼりは温めると言われた');
+      expect(find.text(changedTitle), findsOneWidget);
+      expect(find.text('ノートに1行書き込みました'), findsOneWidget);
+
+      await tester.tap(find.descendant(
+          of: find.ancestor(of: find.text(changedTitle), matching: _card),
+          matching: find.widgetWithText(MoonFilledButton, '確かめる')));
+      await tester.pumpAndSettle();
+      expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    });
+  }
+
+  testWidgets('書き込んだ行と、前の行の書き込みで当たらなくなった行がまざるときは、まだの行に印を付ける', (tester) async {
     final hall = _hall(['addition', 'qualification']);
-    // 補足で書き換える「レジは現金とカードのみ」の行が、照らし合わせている間に消えた
+    // 補足で書き換える「レジは現金とカードのみ」の行が、もう無い
     hall['lines'] = [
       {'text': _hallLines.last, 'patchId': null},
     ];
@@ -819,11 +865,11 @@ void main() {
     ]);
     await _recordText(tester, '田中さんから、おしぼりも一緒に。団体はまとめて会計');
 
-    expect(_inCard(find.text('ノートが変わっていて、書き込めなかった行があります')), findsOneWidget);
+    expect(_inCard(find.text(changedTitle)), findsOneWidget);
     expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
-    // 書き込めなかったのは補足の行だけ
-    expect(_inCard(find.text('書き込めませんでした')), findsOneWidget);
-    final tag = tester.getRect(_inCard(find.text('書き込めませんでした')));
+    // まだなのは補足の行だけ
+    expect(_inCard(find.text('まだ書き込んでいません')), findsOneWidget);
+    final tag = tester.getRect(_inCard(find.text('まだ書き込んでいません')));
     final line = tester.getRect(_inCard(find.text('レジは現金とカードのみ。団体はまとめて会計')));
     expect(tag.top, greaterThanOrEqualTo(line.bottom));
     expect(tag.top - line.bottom, lessThan(_k.space.md));
