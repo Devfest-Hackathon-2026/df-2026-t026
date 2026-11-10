@@ -393,7 +393,7 @@ void main() {
     expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
   });
 
-  test('ノートを消したあとに届いた書き込みの応答や、消す前に読み始めた読み直しでは、store にノートを戻さない', () async {
+  test('ノートを消したあとに届いた書き込みの応答や読み直しでは、store にノートを戻さない。戻すのは GET /home が返したときだけ', () async {
     final server = _Server();
     final store = server.api.store;
     await store.load();
@@ -409,13 +409,34 @@ void main() {
     server.noteGate!.complete();
     await reading;
     expect(store.note('m1'), isNull);
-
-    // 消したあとに読み始めた読み込みが返せば（共有され直した）、また入れ、そのあとの書き込みの応答も入れる
+    // 消したあとに読み始めた1冊の読み直しが返しても（共有され直した）、戻さない
     server.noteGate = null;
+    await store.refresh('m1');
+    expect(store.note('m1'), isNull);
+
+    // GET /home が返せば、また入れ、そのあとの書き込みの応答も入れる
     await store.load();
     expect(store.note('m1'), isNotNull);
     server.othersAddFirst('m1', '- 手を洗う');
     store.put(ManualState.fromJson(server._copy('m1')));
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+  });
+
+  test('読み直している間に、もっとあとに読んだ状態が入っていたら、読み直しの古い応答で戻さない', () async {
+    final server = _Server();
+    final store = server.api.store;
+    await store.load();
+    server.noteGate = Completer();
+    final reading = store.refresh('m1');
+    await Future<void>.delayed(Duration.zero);
+    expect(server.requests.last, 'GET /manuals/m1');
+
+    // 読み直しが返る前に、ほかの人が1行足し、アプリに戻ってきて GET /home で読んだ
+    server.othersAddFirst('m1', '- 手を洗う');
+    await store.load();
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+    server.noteGate!.complete();
+    await reading;
     expect(store.note('m1')!.lines.first.text, '- 手を洗う');
   });
 
@@ -480,6 +501,13 @@ void main() {
     expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
     expect(_shownLines(tester), isEmpty);
     expect(_sidebarItem('キッチン'), findsNothing);
+
+    // 共有され直していても、「もう一度読み込む」では古い中身を出さない（次の GET /home で出る）
+    server.gone.remove('m1');
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'もう一度読み込む'));
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
   });
 
   testWidgets('書いている欄を開いている間に「見つかりません」が届いたら、欄は残し、閉じてから知らせる', (tester) async {

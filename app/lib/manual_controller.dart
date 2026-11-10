@@ -113,8 +113,11 @@ class ManualController extends ChangeNotifier {
   Future<void> load() async {
     try {
       await api.store.refresh(manualId);
-      loadError = null;
-      gone = false;
+      // 外したノートは、読めても store に入らない（共有され直したら、次の GET /home で出る）。古い中身を出さない
+      if (api.store.note(manualId) != null) {
+        loadError = null;
+        gone = false;
+      }
     } on ApiException catch (e) {
       loadError = e.message;
       if (e.status == 404) gone = true;

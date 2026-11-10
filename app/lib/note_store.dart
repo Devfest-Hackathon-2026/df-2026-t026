@@ -47,8 +47,8 @@ class NoteStore extends ChangeNotifier {
   /// 直接書いた行の確かめで分かった確認（ADR 0007）。確かめより前に読まれた応答で消えないよう、応答に入るまで重ねる
   final _checked = <String, List<Check>>{};
 
-  /// 消した・共有を外した（外された）ノート。そのあとに届いた書き込みの応答で戻さない。
-  /// 外したあとに読み始めた読み込みが返したら（共有され直した）、また入れる
+  /// 消した・共有を外した（外された）ノート。そのあとに届いた書き込みの応答や、1冊の読み直しでは戻さない。
+  /// 外したあとに読み始めた GET /home が返したら（共有され直した）、また入れる
   final _removed = <String>{};
 
   ManualState? note(String id) => _notes.where((s) => s.id == id).firstOrNull;
@@ -92,8 +92,8 @@ class NoteStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだ・外したら、そちらを残す。
-  /// 見つからなければ（消された・共有を外された）外す
+  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだら、そちらを残す。
+  /// 見つからなければ（消された・共有を外された）外す。外したノートは、読めても入れない
   Future<void> refresh(String id) async {
     final since = _writes;
     final ManualState s;
@@ -103,8 +103,7 @@ class NoteStore extends ChangeNotifier {
       if (e.status == 404) remove(id);
       rethrow;
     }
-    if ((_noteWrittenAt[id] ?? 0) > since || _older(s)) return;
-    _removed.remove(id);
+    if ((_noteWrittenAt[id] ?? 0) > since || _removed.contains(id) || _older(s)) return;
     _replace(_withChecked(s));
     notifyListeners();
   }
