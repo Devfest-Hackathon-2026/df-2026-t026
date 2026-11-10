@@ -47,6 +47,10 @@ class NoteStore extends ChangeNotifier {
   /// 直接書いた行の確かめで分かった確認（ADR 0007）。確かめより前に読まれた応答で消えないよう、応答に入るまで重ねる
   final _checked = <String, List<Check>>{};
 
+  /// 消した・共有を外した（外された）ノート。そのあとに届いた書き込みの応答で戻さない。
+  /// 外したあとに読み始めた読み込みが返したら（共有され直した）、また入れる
+  final _removed = <String>{};
+
   ManualState? note(String id) => _notes.where((s) => s.id == id).firstOrNull;
 
   /// まだ1度も読めていなければ読む。入力ページ以外の画面をいきなり開いたときのため
@@ -72,6 +76,7 @@ class NoteStore extends ChangeNotifier {
         if ((_noteWrittenAt[s.id] ?? 0) > since && !next.any((x) => x.id == s.id)) _insert(next, s);
       }
       _notes = next;
+      _removed.removeAll([for (final s in next) s.id]);
       if (_meWrittenAt <= since) me = h.me;
       if (_memosWrittenAt <= since) memos = h.memos;
       // 読んでいる間に見たことにしても、通知そのものは古くならない。古くなるのは見た時刻だけなので、新しい方を残す
@@ -87,7 +92,7 @@ class NoteStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだら、書き込みの応答の方を残す。
+  /// 1冊を GET /manuals/:id で読み直す（ノートを開いたとき）。読んでいる間に書き込んだ・外したら、そちらを残す。
   /// 見つからなければ（消された・共有を外された）外す
   Future<void> refresh(String id) async {
     final since = _writes;
@@ -99,13 +104,14 @@ class NoteStore extends ChangeNotifier {
       rethrow;
     }
     if ((_noteWrittenAt[id] ?? 0) > since || _older(s)) return;
+    _removed.remove(id);
     _replace(_withChecked(s));
     notifyListeners();
   }
 
   /// 書き込みの応答の状態を入れる。Api が呼ぶ。応答の届く順は入れ替わるので、今持っている状態より前に読んだものは入れない
   ManualState put(ManualState s) {
-    if (_older(s)) return s;
+    if (_removed.contains(s.id) || _older(s)) return s;
     _noteWrittenAt[s.id] = ++_writes;
     _replace(_withChecked(s));
     notifyListeners();
@@ -114,6 +120,7 @@ class NoteStore extends ChangeNotifier {
 
   /// ノートを消した・共有を自分で外したとき。Api が呼ぶ
   void remove(String id) {
+    _removed.add(id);
     _noteWrittenAt[id] = ++_writes;
     _notes = [for (final s in _notes) if (s.id != id) s];
     notifyListeners();

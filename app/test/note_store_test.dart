@@ -393,6 +393,32 @@ void main() {
     expect(c.state!.lines.map((l) => l.text), [_salt, '- 醤油 大さじ1']);
   });
 
+  test('ノートを消したあとに届いた書き込みの応答や、消す前に読み始めた読み直しでは、store にノートを戻さない', () async {
+    final server = _Server();
+    final store = server.api.store;
+    await store.load();
+    // 消す前に読んだ、書き込みの応答
+    final late = ManualState.fromJson(server._copy('m1'));
+    server.noteGate = Completer();
+    final reading = store.refresh('m1');
+    await Future<void>.delayed(Duration.zero);
+
+    store.remove('m1');
+    store.put(late);
+    expect(store.note('m1'), isNull);
+    server.noteGate!.complete();
+    await reading;
+    expect(store.note('m1'), isNull);
+
+    // 消したあとに読み始めた読み込みが返せば（共有され直した）、また入れ、そのあとの書き込みの応答も入れる
+    server.noteGate = null;
+    await store.load();
+    expect(store.note('m1'), isNotNull);
+    server.othersAddFirst('m1', '- 手を洗う');
+    store.put(ManualState.fromJson(server._copy('m1')));
+    expect(store.note('m1')!.lines.first.text, '- 手を洗う');
+  });
+
   test('確かめの確認を足した写しにも読んだ時刻を引き継ぎ、それより前に読んだ状態は入れない。読んだ時刻の無い状態は入れる', () {
     final store = _Server().api.store;
     ManualState read(String? asOf, List<String> lines) =>
