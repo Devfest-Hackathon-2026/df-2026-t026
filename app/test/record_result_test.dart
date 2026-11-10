@@ -189,13 +189,35 @@ Map<String, dynamic> _hall(List<String> kinds) {
       utterances: [_said('u2', '田中さん', '2026-11-04', 'お冷やはすぐ出す')], patches: patches, checks: checks);
 }
 
-/// 入力ページのサーバーの代わり。POST /utterances は intakes を前から1つずつ返し、書き込み・記録の道を残す
+/// サーバーと同じく、発言者が分かれば追記・補足を書き込み、同じ内容は書き込まない（POST /utterances の write）。
+/// 書き換える行がノートに無い差分は、ノートが変わっていて当たらなかったものとして未反映のまま残す
+Map<String, dynamic> _write(Map<String, dynamic> s, String u) {
+  final said = (s['utterances'] as List).firstWhere((x) => x['id'] == u);
+  if (said['speaker'] == null) return s;
+  final lines = [for (final l in s['lines'] as List) l['text']];
+  for (final p in s['patches'] as List) {
+    if (p['utteranceId'] != u || p['status'] != 'proposed') continue;
+    final kind = (s['checks'] as List).firstWhere((c) => c['patchId'] == p['id'])['kind'];
+    if (kind == 'same') p['status'] = 'discarded';
+    if ((kind == 'addition' || kind == 'qualification') && (p['line'] == null || lines.contains(p['line']))) {
+      p['status'] = 'applied';
+      p['appliedAt'] = '2026-11-10T00:00:00Z';
+    }
+  }
+  return s;
+}
+
+/// 入力ページのサーバーの代わり。POST /utterances は intakes を前から1つずつ、サーバーが書き込んだ後の形で返し、
+/// 確定・確かめるの道を残す
 class _Server {
   _Server(this.intakes);
 
   /// 照らし合わせるたびに返す、1冊ごとの（照らし合わせた直後の状態, 記録した発言）
   final List<List<(Map<String, dynamic>, String)>> intakes;
   final posted = <String>[];
+
+  /// POST /utterances で送った中身
+  final intakeBodies = <Map<String, dynamic>>[];
 
   /// 一覧と GET で返すノート。照らし合わせると、照らし合わせた直後の状態に置き換わる。
   /// テストで書き換えると、ほかの画面で確定した・ノートを消したことにできる
@@ -214,9 +236,15 @@ class _Server {
       final id = req.url.pathSegments[1];
       return _json(notes[id] = _shownWith(notes[id]!, resolved!));
     }
+    if (req.method == 'POST' && path == '/memos') {
+      return _json({'id': 'memo${intakeBodies.length}', ...jsonDecode(req.body)}, 201);
+    }
     if (req.method == 'POST' && path == '/utterances') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
-      final results = intakes.removeAt(0);
+      intakeBodies.add(body);
+      final results = [
+        for (final (s, u) in intakes.removeAt(0)) (body['write'] == true ? _write(s, u) : s, u),
+      ];
       for (final (s, _) in results) {
         notes[s['manual']['id']] = s;
       }
@@ -569,7 +597,9 @@ void main() {
     await _recordText(tester, '田中さんから、お冷やはすぐ出す。おしぼりも一緒に');
     expect(tester.takeException(), isNull);
 
-    expect(server.posted, ['/manuals/m2/patches/p0/discard', '/manuals/m2/patches/p1/apply', '/manuals/m2/patches/p2/apply']);
+    // 書き込みはサーバーが照らし合わせと同じ呼び出しの中で済ませる。アプリは1行ずつ送らない
+    expect(server.intakeBodies.single['write'], isTrue);
+    expect(server.posted, isEmpty);
     expect(_inCard(find.text('ノートに2行書き込みました')), findsOneWidget);
     expect(_inCard(find.text('ホール')), findsOneWidget);
     _expectLine(tester, '追記', 'おしぼりも一緒に出す');
@@ -597,7 +627,7 @@ void main() {
     ]);
     await _recordText(tester, '田中さんから、お冷やはすぐ出す');
 
-    expect(server.posted, ['/manuals/m2/patches/p0/discard']);
+    expect(server.posted, isEmpty);
     expect(_inCard(find.text('ノートと同じ内容でした（記録として残しました）')), findsOneWidget);
     _expectLine(tester, '同じ内容', 'お冷やはすぐ出す');
     _expectLook(tester, 'ノートと同じ内容でした（記録として残しました）', conflicted: false);
@@ -649,19 +679,137 @@ void main() {
     expect(find.text('ノートに1行書き込みました'), findsNothing);
   });
 
-  testWidgets('発言者が分からず確認を開いたときは、今まで通り確認だけを出し、結果のカードは出さない', (tester) async {
-    final hall = _hall(['addition']);
+  /// 誰が言ったか読み取れなかった記録。サーバーは何も書き込まない
+  Map<String, dynamic> unnamed(List<String> kinds) {
+    final hall = _hall(kinds);
     (hall['utterances'] as List).first['speaker'] = null;
+    return hall;
+  }
+
+  const unnamedTitle = '誰が言ったか分からないので、まだ書き込んでいません';
+
+  for (final size in const [_wide, _narrow]) {
+    testWidgets('誰が言ったか分からなければ、確認を割り込ませず、カードの「確かめる」から書き込む前の確認を開く（$size）', (tester) async {
+      final server = await _pump(tester, [
+        [(unnamed(['addition', 'same']), 'u2')],
+      ], size: size);
+      await _recordText(tester, 'おしぼりも一緒に出す');
+      expect(tester.takeException(), isNull);
+
+      expect(find.byType(MoonModal), findsNothing);
+      expect(server.posted, isEmpty);
+      expect(_inCard(find.text(unnamedTitle)), findsOneWidget);
+      // まだ書き込んでいないので「書き込みました」とは言わない。行と分類は出す
+      expect(find.textContaining('書き込みました'), findsNothing);
+      _expectLine(tester, '追記', 'おしぼりも一緒に出す');
+      // 確かめることが残っているので、「確かめる」を主のボタンにする。食い違いではないので黄の線は付けない
+      expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+      expect(tester.widget<PaperSheet>(_inCard(find.byType(PaperSheet)).first).outline, isNull);
+
+      await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+      await tester.pumpAndSettle();
+      expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+      expect(find.byType(CheckListScreen), findsNothing);
+      // 何もせずに閉じれば、確かめることが残ったままカードも残る
+      await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
+      await tester.pumpAndSettle();
+      expect(_inCard(find.text(unnamedTitle)), findsOneWidget);
+    });
+  }
+
+  testWidgets('誰が言ったか分からない記録に食い違いがあっても、「確かめる」は書き込む前の確認を開き、主のボタンは1つ', (tester) async {
+    final kitchen = _confirmed();
+    (kitchen['utterances'] as List).last['speaker'] = null;
+    await _pump(tester, [
+      [(kitchen, 'u3')],
+    ]);
+    await _recordText(tester, '塩は小さじ1だよ');
+    expect(_inCard(find.text('店長に確認済みの決定と食い違っています')), findsOneWidget);
+    expect(_inCard(find.text('誰が言ったか分かりませんでした')), findsOneWidget);
+    expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonOutlinedButton, _keepLabel)), findsOneWidget);
+
+    await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    expect(find.byType(CheckListScreen), findsNothing);
+  });
+
+  testWidgets('確かめて書き込んだら、カードを今の状態に合わせ、書き込んだ行の数を言う', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamed(['addition']), 'u2')],
+    ]);
+    await _recordText(tester, 'おしぼりも一緒に出す');
+    final written = _hall(['addition']);
+    ((written['patches'] as List).first as Map<String, dynamic>)['status'] = 'applied';
+    ((written['patches'] as List).first as Map<String, dynamic>)['appliedAt'] = '2026-11-10T00:00:00Z';
+
+    await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+    await tester.pumpAndSettle();
+    await tester.enterText(_inModal(find.byType(MoonTextInput)), '田中さん');
+    await tester.pump();
+    server.notes['m2'] = written;
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートに書き込む'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
+    await tester.pumpAndSettle();
+
+    expect(server.posted, contains('/manuals/m2/patches/p0/apply'));
+    expect(_inCard(find.text('ノートに1行書き込みました')), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonTextButton, '確かめる')), findsOneWidget);
+  });
+
+  testWidgets('確かめることが残ったカードは、次の結果が出ても消さず、新しい結果を上に出す', (tester) async {
+    await _pump(tester, [
+      [(unnamed(['addition']), 'u2')],
+      [(_kitchen(), 'u1')],
+      [(_hall(['same']), 'u2')],
+    ]);
+    await _recordText(tester, 'おしぼりも一緒に出す');
+    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+
+    expect(_card, findsNWidgets(2));
+    final top = tester.getTopLeft(find.text('ノートと食い違っています')).dy;
+    expect(top, lessThan(tester.getTopLeft(find.text(unnamedTitle)).dy));
+
+    // 迷う所の無いカードは、次の結果で入れ替わる。確かめることが残ったカードは残る
+    await _recordText(tester, '田中さんから、お冷やはすぐ出すと言われた');
+    expect(_card, findsNWidgets(2));
+    expect(find.text('ノートと食い違っています'), findsNothing);
+    expect(find.text('ノートと同じ内容でした（記録として残しました）'), findsOneWidget);
+    expect(find.text(unnamedTitle), findsOneWidget);
+
+    // 閉じれば消える
+    final close = find.descendant(
+      of: find.ancestor(of: find.text(unnamedTitle), matching: _card),
+      matching: find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == '結果を閉じる'),
+    );
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(find.text(unnamedTitle), findsNothing);
+    expect(_card, findsOneWidget);
+  });
+
+  testWidgets('照らし合わせている間にノートが変わって書き込めなかった行は、見出しでそう言い、その行に印を付ける', (tester) async {
+    final hall = _hall(['addition', 'qualification']);
+    // 補足で書き換える「レジは現金とカードのみ」の行が、照らし合わせている間に消えた
+    hall['lines'] = [
+      {'text': _hallLines.last, 'patchId': null},
+    ];
     await _pump(tester, [
       [(hall, 'u2')],
     ]);
-    await _recordText(tester, 'おしぼりも一緒に出す');
-    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+    await _recordText(tester, '田中さんから、おしぼりも一緒に。団体はまとめて会計');
 
-    await tester.tap(find.descendant(of: find.byType(MoonModal), matching: find.widgetWithIcon(MoonButton, LucideIcons.x)));
-    await tester.pumpAndSettle();
-    expect(find.text('ノートに書き込む前の確認'), findsNothing);
-    expect(_card, findsNothing);
+    expect(_inCard(find.text('ノートが変わっていて、書き込めなかった行があります')), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+    // 書き込めなかったのは補足の行だけ
+    expect(_inCard(find.text('書き込めませんでした')), findsOneWidget);
+    final tag = tester.getRect(_inCard(find.text('書き込めませんでした')));
+    final line = tester.getRect(_inCard(find.text('レジは現金とカードのみ。団体はまとめて会計')));
+    expect(tag.top, greaterThanOrEqualTo(line.bottom));
+    expect(tag.top - line.bottom, lessThan(_k.space.md));
   });
 
   // #119：記録したらカードの所まで送る。古くなったカードは残さず、ほかの画面から戻ったら入力欄から始める

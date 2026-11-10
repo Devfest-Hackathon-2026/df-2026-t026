@@ -83,6 +83,8 @@ class _Server {
   MockClient client() => MockClient((req) async {
         final path = req.url.path;
         if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
+        // 照らし合わせる前に、文面を未整理メモに置く
+        if (req.method == 'POST' && path == '/memos') return _json({'id': 'memo1', ...jsonDecode(req.body)}, 201);
         if (path == '/shared' || path == '/memos') return _json([]);
         if (path == '/manuals') {
           if (failList) return _json({'error': '混んでいます'}, 500);

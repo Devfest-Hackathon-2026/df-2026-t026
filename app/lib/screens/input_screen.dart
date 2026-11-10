@@ -89,13 +89,13 @@ class _InputScreenState extends State<InputScreen> {
 
   final _memos = <Memo>[];
 
-  /// 確認を開かずに書き込んだ結果。入力欄の下にカードで出し、次に記録するか、閉じるか、
-  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）
-  ({List<Recorded> records, List<ReviewTarget> targets})? _result;
-  final _resultKey = GlobalKey();
+  /// 照らし合わせを待っている記録。押した順で、先頭から1件ずつ送る
+  final _queue = <_Pending>[];
+  var _sending = false;
 
-  /// 結果のカードで記録を見せて決着させた食い違い。ほかの画面での確定と違い、カードはそれを映しているので消さない
-  final _settledOnCard = <String>{};
+  /// 照らし合わせた結果。入力欄の下にカードで新しいものを上に並べる。迷う所の無いカードは次の結果が出るか、閉じるか、
+  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）。確かめることが残ったカードは、確かめるか閉じるまで残す
+  final _results = <_Result>[];
   final _scroll = ScrollController();
 
   /// ほかの画面がこのページの上に重なっているか。戻ってきたら入力欄の見える位置から始める（#119）
@@ -162,16 +162,18 @@ class _InputScreenState extends State<InputScreen> {
   /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
   Future<List<ManualState>> _load() async {
     // 読み始めより後に出したカードは、この読み込みより新しいので比べない
-    final shown = _result;
+    final shown = [..._results];
     // 失敗を ParallelWaitError で包まず、画面にそのまま出せる ApiException で受ける
     final ids = await Future.wait([
       widget.api.listManuals().then((l) => [for (final m in l) m.id]),
       widget.api.listShared().then((l) => [for (final m in l) m.id]),
     ]);
     final manuals = await Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
-    if (mounted && shown != null && shown == _result && _outdated(shown.records, manuals, _settledOnCard)) {
-      setState(() => _result = null);
-    }
+    final stale = [
+      for (final r in shown)
+        if (_results.contains(r) && _outdated(r.records, manuals, r.settled)) r,
+    ];
+    if (mounted && stale.isNotEmpty) setState(() => _results.removeWhere(stale.contains));
     return manuals;
   }
 
@@ -297,17 +299,23 @@ class _InputScreenState extends State<InputScreen> {
         _memoText.text = m.text;
       });
 
-  /// リワインドの合間に、書き直しているメモ1件だけを記録する。言われた日は切り出した日にする
-  Future<void> _sendMemo(List<ManualState> manuals) async {
+  /// リワインドの合間に、書き直しているメモ1件だけを記録する。言われた日は切り出した日にする。
+  /// 入力欄から送るのと同じ列に積み、欄はすぐ閉じる
+  void _sendMemo() {
     final m = _editingMemo;
     final text = _memoText.text.trim();
     if (m == null || text.isEmpty || _busy) return;
-    await _send(manuals,
-        text: text, files: const [], today: DateFormat('yyyy-MM-dd').format(m.at), memoIds: [m.id], onSaved: () {
-      _memos.remove(m);
-      _poured.remove(m);
-      if (_editingMemo == m) _editingMemo = null;
-    });
+    final p = _Pending(text: text, today: DateFormat('yyyy-MM-dd').format(m.at), memo: m);
+    if (text != m.text) {
+      // 書き直した文面を先にメモに残す。途中でタブを閉じても、直した文面が残る
+      _keep(p, () => widget.api.editMemo(m.id, text), onFailed: () {
+        if (_editingMemo != null) return;
+        _editingMemo = m;
+        _memoText.text = text;
+      });
+    }
+    setState(() => _editingMemo = null);
+    _enqueue(p);
   }
 
   /// 書き直したメモに差し替える。入力欄に入れた後でも、入力欄の文面は変えない
@@ -412,78 +420,146 @@ class _InputScreenState extends State<InputScreen> {
 
   bool get _dictating => _dictationSocket != null;
 
-  Future<void> _submit(List<ManualState> manuals) async {
+  /// 入力を控えて入力欄をすぐ空け、裏で照らし合わせる。文面はすぐ未整理メモに置き、途中でタブを閉じても残す（ADR 0015）
+  void _submit(List<ManualState> manuals) {
     if (!_ready || _busy || _dictating) return;
     final poured = [..._poured];
+    final earliest = poured.isEmpty ? null : poured.map((m) => m.at).reduce((a, b) => a.isBefore(b) ? a : b);
     // メモから書いたときは、言われた日を切り出した日にする（後日まとめて整理しても日付がずれない）
-    final saidOn = poured.isEmpty
-        ? today()
-        : DateFormat('yyyy-MM-dd').format(poured.map((m) => m.at).reduce((a, b) => a.isBefore(b) ? a : b));
+    final saidOn = earliest == null ? today() : DateFormat('yyyy-MM-dd').format(earliest);
     final targets = [for (final m in manuals) if (_targets.contains(m.id)) m.id];
-    await _send(manuals,
-        text: _text.text.trim(),
-        files: _files,
-        manualIds: targets.isEmpty ? null : targets,
-        today: saidOn,
-        memoIds: [for (final m in poured) m.id], onSaved: () {
+    final text = _text.text.trim();
+    final p = _Pending(
+      text: text,
+      files: [..._files],
+      manualIds: targets.isEmpty ? null : targets,
+      today: saidOn,
+      poured: poured,
+    );
+    // メモは文字しか持てないので、ファイルは送り終えるまでアプリの中に持つ
+    if (text.isNotEmpty) {
+      // 失敗して送り直すときも言われた日がずれないよう、流し込んだメモの時刻を引き継ぐ
+      _keep(p, () => widget.api.addMemo(earliest ?? DateTime.now(), text), onFailed: () {
+        // 待っている間に書き始めた文は消さず、その前に戻す
+        _text.text = [text, _text.text.trim()].where((t) => t.isNotEmpty).join('\n');
+        _files.insertAll(0, p.files);
+        _poured.addAll(poured);
+      });
+    }
+    setState(() {
       _text.clear();
       _files.clear();
-      _memos.removeWhere(poured.contains);
       _poured.clear();
     });
+    _enqueue(p);
   }
 
-  /// 記録して、関係したマニュアルに書き込むか確認を出す。onSaved は記録できたとき、その前に呼ぶ。
-  /// memoIds は文面の元にした未整理メモで、記録できたらサーバーが消す
-  Future<void> _send(List<ManualState> manuals,
-      {required String text,
-      required List<Attachment> files,
-      List<String>? manualIds,
-      required String today,
-      List<String> memoIds = const [],
-      VoidCallback? onSaved}) async {
-    setState(() => _busy = true);
-    try {
-      var r = await widget.api.intake(text: text, files: files, manualIds: manualIds, today: today, memoIds: memoIds);
-      if (r.results.isEmpty) {
-        setState(() => _busy = false);
-        final ids = await _pickManuals(manuals, heard: r.text);
-        if (ids == null) return;
-        setState(() => _busy = true);
-        // ファイルや録音はもう読み取ったので、読み取った文面だけを送り直す
-        r = await widget.api.intake(text: r.text, manualIds: ids, today: today, memoIds: memoIds);
+  /// 文面を未整理メモに置く（書き直す）。置けなければ送らず、書いていた所へ戻して知らせる
+  void _keep(_Pending p, Future<Memo> Function() save, {required VoidCallback onFailed}) {
+    p.saved = () async {
+      try {
+        final m = await save();
+        if (!mounted) return false;
+        setState(() {
+          p.memo = m;
+          // 書き直したメモは同じ id なので置き換わる
+          _memos
+            ..remove(m)
+            ..add(m)
+            ..sort((a, b) => a.at.compareTo(b.at));
+        });
+        return true;
+      } on ApiException catch (e) {
+        if (!mounted) return false;
+        showError(context, e);
+        setState(() {
+          _queue.remove(p);
+          onFailed();
+        });
+        return false;
       }
-      setState(() {
-        onSaved?.call();
-        _result = null;
-        _busy = false;
-      });
-      if (r.results.isNotEmpty && mounted) {
-        final targets = [
-          for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
-        ];
-        if (await writeOrReview(context, targets) && mounted) {
-          setState(() {
-            _result = (records: r.results, targets: targets);
-            _settledOnCard.clear();
-          });
-          WidgetsBinding.instance.addPostFrameCallback((_) => _revealResult());
+    }();
+  }
+
+  void _enqueue(_Pending p) {
+    setState(() => _queue.add(p));
+    unawaited(_drain());
+  }
+
+  /// 待っている記録を、押した順に1件ずつ照らし合わせる。並べて送ると、続けて書いた2つが互いに照らされず、
+  /// 食い違いを取りこぼす（設計書 0020 §3）
+  Future<void> _drain() async {
+    if (_sending) return;
+    _sending = true;
+    try {
+      while (mounted && _queue.isNotEmpty) {
+        final p = _queue.first;
+        try {
+          await _process(p);
+        } finally {
+          if (mounted) setState(() => _queue.remove(p));
         }
       }
-    } on ApiException catch (e) {
-      if (mounted) showError(context, e);
     } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-        _reload();
-      }
+      _sending = false;
     }
+  }
+
+  /// 1件を記録し、サーバーが書き込んだ結果をカードで出す。関係するノートが無ければ、記録先を選ぶカードを出す
+  Future<void> _process(_Pending p) async {
+    if (!await p.saved) return;
+    final IntakeResult r;
+    try {
+      r = await widget.api.intake(
+        text: p.text,
+        files: p.files,
+        manualIds: p.manualIds,
+        today: p.today,
+        memoIds: p.memoIds,
+        write: true,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showError(context, e);
+      // 文面は待ちを外せば未整理メモに出る。ファイルはメモに置けないので入力欄に戻す
+      if (p.files.isNotEmpty) setState(() => _files.insertAll(0, p.files));
+      return;
+    }
+    if (!mounted) return;
+    final result = r.results.isEmpty
+        // ファイルや録音はもう読み取ったので、選び直したら読み取った文面だけを送る。メモはサーバーに残っている
+        ? _Result.missed(_Pending(text: r.text, today: p.today, poured: p.poured, memo: p.memo))
+        : _Result(r.results, [
+            for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
+          ]);
+    setState(() {
+      if (r.results.isNotEmpty) {
+        _memos.removeWhere((m) => p.memoIds.contains(m.id));
+        _poured.removeWhere((m) => p.memoIds.contains(m.id));
+      }
+      _results
+        ..removeWhere((x) => !x.kept)
+        ..insert(0, result);
+    });
+    // 次を書いている途中なら、書いている所を動かさない
+    if (!_writing) WidgetsBinding.instance.addPostFrameCallback((_) => _revealResult(result.key));
+  }
+
+  bool get _writing => _text.text.trim().isNotEmpty || _files.isNotEmpty || _editingMemo != null;
+
+  /// 関係するノートが見つからなかった記録を、選んだノートと照らし合わせる
+  Future<void> _pickFor(_Result result, List<ManualState> manuals) async {
+    final m = result.missed!;
+    final ids = await _pickManuals(manuals, heard: m.text);
+    if (ids == null || !mounted) return;
+    setState(() => _results.remove(result));
+    _enqueue(_Pending(text: m.text, manualIds: ids, today: m.today, poured: m.poured, memo: m.memo));
   }
 
   /// 結果のカードを、見出しから下の端まで見える所へ送る。画面より高いカードは見出しを上の端に合わせる。
   /// 見えていれば動かさない。動きを減らす設定（Web では prefers-reduced-motion）なら、動かさずに移る
-  void _revealResult() {
-    final card = _resultKey.currentContext?.findRenderObject();
+  void _revealResult(GlobalKey key) {
+    final card = key.currentContext?.findRenderObject();
     if (!mounted || card == null || !_scroll.hasClients) return;
     final viewport = RenderAbstractViewport.of(card);
     final top = viewport.getOffsetToReveal(card, 0).offset;
@@ -628,18 +704,20 @@ class _InputScreenState extends State<InputScreen> {
                 onMemo: _addMemo,
                 onCapturing: (v) => setState(() => _capturing = v),
               ),
-              // リワインドの間に未整理メモを記録したときも、結果は待ち受けの面の下に出す
-              ..._resultCard(),
+              // リワインドの間に未整理メモを記録したときも、待っている記録と結果は待ち受けの面の下に出す
+              ..._pending(noteWidth: noteWidth),
+              ..._resultCards(manuals),
             ]
           : [
-              ..._unsorted(manuals, noteWidth: noteWidth),
+              ..._unsorted(noteWidth: noteWidth),
               _composer(manuals, wide: wide),
-              ..._resultCard(),
+              ..._pending(noteWidth: noteWidth),
+              ..._resultCards(manuals),
               SizedBox(height: k.space.xxl),
               ..._openChecks(manuals),
             ];
       List<Widget> side({double? noteWidth}) =>
-          _rewind ? _unsorted(manuals, noteWidth: noteWidth) : _recent(manuals, noteWidth: noteWidth);
+          _rewind ? _unsorted(noteWidth: noteWidth) : _recent(manuals, noteWidth: noteWidth);
       return Narrow(
         maxWidth: wide ? k.readableWidth + k.space.xxl + k.panelWidth : null,
         child: ListView(controller: _scroll, padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
@@ -701,23 +779,26 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   /// リワインドでためた未整理メモ。リワインドが OFF なら押すと入力欄に入り、無ければ何も出さない。
-  /// ON なら押すとその場で書き直して1件ずつ記録でき、無くても見出しを出して右の列を空けない
-  List<Widget> _unsorted(List<ManualState> manuals, {double? noteWidth}) {
+  /// ON なら押すとその場で書き直して1件ずつ記録でき、無くても見出しを出して右の列を空けない。
+  /// 照らし合わせを待っている記録のメモは、押した瞬間に入力欄がずれないよう出さない（入力欄の下に付箋で出す）
+  List<Widget> _unsorted({double? noteWidth}) {
     final k = context.tokens;
-    if (_memos.isEmpty && !_rewind) return [];
+    final waiting = {for (final p in _queue) ...p.memoIds};
+    final memos = [for (final m in _memos) if (!waiting.contains(m.id)) m];
+    if (memos.isEmpty && !_rewind) return [];
     return [
       Text('未整理メモ', style: k.text.title),
-      if (_memos.isEmpty) ...[
+      if (memos.isEmpty) ...[
         SizedBox(height: k.space.xs),
         Text('いま言われたことをメモすると、ここにたまります', style: k.text.small),
       ],
       Padding(
         padding: EdgeInsets.only(top: k.space.sm),
         child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
-          for (final m in _memos)
+          for (final m in memos)
             SizedBox(
               width: noteWidth ?? k.stickyWidth,
-              child: m == _editingMemo ? _memoEditor(m, manuals) : _memoNote(m),
+              child: m == _editingMemo ? _memoEditor(m) : _memoNote(m),
             ),
         ]),
       ),
@@ -755,7 +836,7 @@ class _InputScreenState extends State<InputScreen> {
   }
 
   /// リワインドの間に付箋のまま書き直す欄。そのまま記録するか、直した文だけ残す
-  Widget _memoEditor(Memo m, List<ManualState> manuals) {
+  Widget _memoEditor(Memo m) {
     final k = context.tokens;
     final filled = _memoText.text.trim().isNotEmpty;
     return StickyNote(
@@ -776,9 +857,8 @@ class _InputScreenState extends State<InputScreen> {
         Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
           MoonFilledButton(
             buttonSize: MoonButtonSize.sm,
-            onTap: filled && !_busy ? () => _sendMemo(manuals) : null,
-            leading: _busy ? const ButtonLoader() : null,
-            label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+            onTap: filled && !_busy ? _sendMemo : null,
+            label: const Text('ノートと照らし合わせる'),
           ),
           MoonOutlinedButton(
             buttonSize: MoonButtonSize.sm,
@@ -886,10 +966,10 @@ class _InputScreenState extends State<InputScreen> {
           SizedBox(height: k.space.lg),
           Align(
             alignment: Alignment.centerLeft,
+            // 照らし合わせは裏で進むので、押したあとも止めない
             child: MoonFilledButton(
               onTap: _ready && !_busy && !_dictating ? submit : null,
-              leading: _busy ? const ButtonLoader() : null,
-              label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+              label: const Text('ノートと照らし合わせる'),
             ),
           ),
         ]),
@@ -897,20 +977,89 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// 記録した結果のカード。トーストのように消えず、下の「あとで確認」にも重ならない
-  List<Widget> _resultCard() {
-    final r = _result;
-    if (r == null) return [];
+  /// 照らし合わせを待っている記録。結果のカードが出る所に、言われたことの付箋で新しいものを上にして並べる
+  List<Widget> _pending({double? noteWidth}) {
+    final k = context.tokens;
+    if (_queue.isEmpty) return [];
     return [
-      SizedBox(height: context.tokens.space.lg),
-      RecordResultCard(
-        key: _resultKey,
-        records: r.records,
-        targets: r.targets,
-        onSettling: _settledOnCard.add,
-        onClose: () => setState(() => _result = null),
-      ),
+      SizedBox(height: k.space.lg),
+      Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
+        for (final p in _queue.reversed)
+          SizedBox(
+            width: noteWidth ?? k.stickyWidth,
+            child: StickyNote(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (p.text.isNotEmpty) Text(p.text, style: k.text.body),
+                if (p.files.isNotEmpty) ...[
+                  if (p.text.isNotEmpty) SizedBox(height: k.space.xs),
+                  Text(p.files.map((f) => f.name).join('、'), style: k.text.small),
+                ],
+                SizedBox(height: k.space.sm),
+                StatusTag('照らし合わせています…', bg: k.colors.shell, fg: k.colors.inkMuted),
+              ]),
+            ),
+          ),
+      ]),
     ];
+  }
+
+  /// 記録した結果のカード。トーストのように消えず、下の「あとで確認」にも重ならない
+  List<Widget> _resultCards(List<ManualState> manuals) => [
+        for (final r in _results) ...[
+          SizedBox(height: context.tokens.space.lg),
+          if (r.missed != null)
+            _missedCard(r, manuals)
+          else
+            RecordResultCard(
+              key: r.key,
+              records: r.records,
+              targets: r.targets,
+              onSettling: r.settled.add,
+              onClose: () => setState(() => _results.remove(r)),
+              // 確かめたあとの書き込み・発言者を、カードに映す
+              onReviewed: () => setState(() => r.records = [
+                    for (final t in r.targets) (manualId: t.c.manualId, utteranceId: t.utteranceId, state: t.c.state!),
+                  ]),
+            ),
+        ],
+      ];
+
+  /// 関係するノートが見つからなかったときのカード。書いている途中に記録先の選択を割り込ませず、ここから開く
+  Widget _missedCard(_Result r, List<ManualState> manuals) {
+    final k = context.tokens;
+    final m = r.missed!;
+    return PaperSheet(
+      key: r.key,
+      padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.xl),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: k.space.xs),
+              child: Text('関係するノートが見つかりませんでした', style: k.text.title),
+            ),
+          ),
+          SizedBox(width: k.space.sm),
+          MoonButton.icon(
+            semanticLabel: '結果を閉じる',
+            icon: Icon(LucideIcons.x, color: k.colors.ink),
+            onTap: () => setState(() => _results.remove(r)),
+          ),
+        ]),
+        SizedBox(height: k.space.md),
+        Text('「${m.text}」', style: k.text.body),
+        SizedBox(height: k.space.xl),
+        Wrap(
+          spacing: k.space.md,
+          runSpacing: k.space.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            MoonFilledButton(onTap: () => _pickFor(r, manuals), label: const Text('記録先を選ぶ')),
+            if (m.memoIds.isNotEmpty) Text('未整理メモに残しています', style: k.text.small),
+          ],
+        ),
+      ]),
+    );
   }
 
   /// 添えたもの。画像はサムネイルで、ほかは名前で見せる
@@ -1094,6 +1243,47 @@ class _InputScreenState extends State<InputScreen> {
       ]),
     );
   }
+}
+
+/// 「ノートと照らし合わせる」を押して、照らし合わせを待っている記録
+class _Pending {
+  _Pending({required this.text, this.files = const [], this.manualIds, required this.today, this.poured = const [], this.memo});
+  final String text;
+  final List<Attachment> files;
+  final List<String>? manualIds;
+  final String today;
+
+  /// 入力欄に流し込んだ未整理メモ
+  final List<Memo> poured;
+
+  /// 文面を置いた未整理メモ。置き終わるまでと、文面が無い（ファイルだけの）ときは null
+  Memo? memo;
+
+  /// 文面をメモに置く呼び出し。置けなければ false になり、送らない
+  Future<bool> saved = Future.value(true);
+
+  /// 記録できたらサーバーが消すメモ
+  List<String> get memoIds => [?memo?.id, for (final m in poured) m.id];
+}
+
+/// 結果のカード1枚。missed があれば、関係するノートが見つからなかった記録（text は読み取った文面）
+class _Result {
+  _Result(this.records, this.targets) : missed = null;
+  _Result.missed(_Pending this.missed)
+      : records = const [],
+        targets = const [];
+
+  /// サーバーが書き込んだ後の状態。確かめたあとは今の状態に合わせ直す
+  List<Recorded> records;
+  final List<ReviewTarget> targets;
+  final _Pending? missed;
+
+  /// カードで記録を見せて決着させた食い違い。ほかの画面での確定と違い、カードはそれを映しているので消さない
+  final settled = <String>{};
+  final key = GlobalKey();
+
+  /// 次の結果が出ても消さない。確かめること・記録先を選ぶことが残っている
+  bool get kept => missed != null || needsReview(records);
 }
 
 class _LoginForm extends StatefulWidget {

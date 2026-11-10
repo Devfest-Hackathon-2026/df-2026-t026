@@ -10,10 +10,22 @@ import 'check_list_screen.dart';
 import 'common.dart';
 import 'review_dialog.dart';
 
-/// 入力ページで、確認を開かずに書き込んだ結果。入力欄のすぐ下に出し、次に記録するか、閉じるまで残す（#112）。
+/// 書き込む前に利用者が確かめることが残っているか。誰が言ったか読み取れなかった（サーバーは書き込まない）か、
+/// ノートが変わっていて書き込めなかった行が残っている。入力ページは、このカードを次の結果が出ても消さない
+bool needsReview(List<Recorded> records) => records.any((r) => _speakerMissing(r) || _unwritten(r).isNotEmpty);
+
+bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == null;
+
+/// まだ書き込んでいない行。食い違いは確認リストに入っているので数えない
+Iterable<Patch> _unwritten(Recorded r) => r.state
+    .patchesOf(r.utteranceId)
+    .where((p) => p.status == 'proposed' && r.state.checkOf(p.id)?.kind != Kind.contradiction);
+
+/// 入力ページで照らし合わせた結果。入力欄のすぐ下に出し、次の結果が出るか、閉じるまで残す（#112）。
 /// 食い違いは「ノート ／ 言われたこと」で並べ、相手が確定済みの記録なら確認印と「記録を見せる」文を添え、
 /// その場で記録を見せて決着できるようにする（審査員の指摘4回目）。
-/// records は照らし合わせた直後（書き込む前）の状態。書き込むたびに状態が置き換わるので、分類はこちらから読む
+/// records はサーバーが書き込んだ後の状態。誰が言ったか分からない・書き込めなかった行が残ったときは、
+/// 確認を割り込ませず、「確かめる」を主にしてそこから開く（設計書 0020 の C2）
 class RecordResultCard extends StatefulWidget {
   const RecordResultCard({
     super.key,
@@ -21,6 +33,7 @@ class RecordResultCard extends StatefulWidget {
     required this.targets,
     required this.onSettling,
     required this.onClose,
+    this.onReviewed,
   });
   final List<Recorded> records;
 
@@ -30,6 +43,9 @@ class RecordResultCard extends StatefulWidget {
   /// カードで記録を見せて決着させる食い違いの id。入力ページは、これをほかの画面での確定と取り違えてカードを消さない
   final ValueChanged<String> onSettling;
   final VoidCallback onClose;
+
+  /// 確かめることが残ったカードの「確かめる」で開いた確認を閉じたとき。入力ページは records を今の状態に合わせ直す
+  final VoidCallback? onReviewed;
 
   @override
   State<RecordResultCard> createState() => _RecordResultCardState();
@@ -42,20 +58,17 @@ class _RecordResultCardState extends State<RecordResultCard> {
   /// 記録を見せて確定している食い違いの id。送っている間は、どの確定も押せない
   String? _settling;
 
-  @override
-  void didUpdateWidget(RecordResultCard old) {
-    super.didUpdateWidget(old);
-    // 次に記録すると同じカードの中身が入れ替わるので、前の決着は持ち越さない
-    if (old.records != widget.records) _settled.clear();
-  }
-
   ReviewTarget _target(Recorded r) => widget.targets.firstWhere((t) => t.c.manualId == r.manualId);
 
-  /// 照らし合わせた差分と、その分類。食い違い・書き込んだ行・同じ内容の順に並べる
+  /// 照らし合わせた差分と、その分類。食い違い・書き込んだ（書き込めなかった）行・同じ内容の順に並べる。
+  /// 確かめて「書き込まない」にした行は出さない
   static List<(Patch, Check)> _items(Recorded r) => [
         for (final p in r.state.patchesOf(r.utteranceId))
-          if (r.state.checkOf(p.id) case final chk? when p.status == 'proposed') (p, chk),
+          if (r.state.checkOf(p.id) case final chk? when !(p.status == 'discarded' && _writes(chk.kind))) (p, chk),
       ]..sort((a, b) => _order(a.$2.kind).compareTo(_order(b.$2.kind)));
+
+  /// ノートに書き込む分類（追記・補足）
+  static bool _writes(Kind k) => k == Kind.addition || k == Kind.qualification;
 
   static int _order(Kind k) => switch (k) {
         Kind.contradiction => 0,
@@ -82,14 +95,19 @@ class _RecordResultCardState extends State<RecordResultCard> {
           ? '${decision.decidedBy}に確認済みの決定と食い違っています'
           : '${decision.decidedBy}が決めたことと食い違っています';
     }
-    final checks = [
-      for (final r in widget.records)
-        for (final (_, chk) in _items(r)) chk,
+    final left = widget.records.where((r) => _unwritten(r).isNotEmpty);
+    if (left.isNotEmpty) {
+      return left.any(_speakerMissing) ? '誰が言ったか分からないので、まだ書き込んでいません' : 'ノートが変わっていて、書き込めなかった行があります';
+    }
+    final items = [
+      for (final r in widget.records) ..._items(r),
     ];
+    final checks = [for (final (_, chk) in items) chk];
     final conflicts = checks.where((chk) => chk.kind == Kind.contradiction);
     // 相手がどれも資料の行なら、ノートでなく資料と言う（ADR 0019）
     if (conflicts.isNotEmpty) return '${conflicts.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
-    final written = checks.where((chk) => chk.kind == Kind.addition || chk.kind == Kind.qualification).length;
+    // 実際に書き込めた行だけを数える
+    final written = items.where((x) => x.$1.status == 'applied' && _writes(x.$2.kind)).length;
     if (written > 0) return 'ノートに$written行書き込みました';
     if (checks.isNotEmpty) {
       return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
@@ -97,9 +115,15 @@ class _RecordResultCardState extends State<RecordResultCard> {
     return 'ノートは変えずに、言われた記録として残しました';
   }
 
-  /// 「確かめる」。食い違いがあれば、確認リストでその食い違いを選んだ形で開く（ノートの食い違っている行を押したときと同じ）。
+  /// 「確かめる」。誰が言ったか分からない・書き込めなかった行が残ったときは、書き込む前の確認を開く。
+  /// それ以外で食い違いがあれば、確認リストでその食い違いを選んだ形で開く（ノートの食い違っている行を押したときと同じ）。
   /// 中身がカードとほぼ同じ「記録した結果」は挟まない。無ければ「記録した結果」を開き、書き込んだ行を見せる
-  void _review() {
+  Future<void> _review() async {
+    if (needsReview(widget.records)) {
+      await showReview(context, widget.targets);
+      widget.onReviewed?.call();
+      return;
+    }
     final conflicts = _conflicts();
     if (conflicts.isEmpty) {
       showReview(context, widget.targets);
@@ -138,8 +162,10 @@ class _RecordResultCardState extends State<RecordResultCard> {
     final k = context.tokens;
     final conflicts = _conflicts();
     final open = conflicts.where((x) => !_settled.containsKey(x.$2.id));
-    // 記録を見せて決着できる食い違いがあれば、そのボタンを主にし、「確かめる」は二番手にする
-    final settleable = open.any((x) => x.$1.state.confirmedRecordFor(x.$2) != null);
+    final review = needsReview(widget.records);
+    // 記録を見せて決着できる食い違いがあれば、そのボタンを主にし、「確かめる」は二番手にする。
+    // ただし確かめることが残っていれば、書き込む前の確認を開く「確かめる」を主にする
+    final settleable = !review && open.any((x) => x.$1.state.confirmedRecordFor(x.$2) != null);
     final decision = _decision();
     return LayoutBuilder(
       builder: (context, box) {
@@ -185,11 +211,14 @@ class _RecordResultCardState extends State<RecordResultCard> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 // 記録した時点では解決を求めない。確認リストに入ったことだけを伝え、中身は「確かめる」で見せる
-                if (open.isNotEmpty && !settleable)
+                if (review || (open.isNotEmpty && !settleable))
                   MoonFilledButton(onTap: _review, label: const Text('確かめる'))
                 else
                   MoonTextButton(onTap: _review, label: const Text('確かめる')),
                 if (open.isNotEmpty) Text('確認リストに入れました', style: k.text.small),
+                // 書き込む行が無くても、誰が言ったかは確かめて入れられる。書き込む行があれば見出しで言っている
+                if (widget.records.any((r) => _speakerMissing(r) && _unwritten(r).isEmpty))
+                  Text('誰が言ったか分かりませんでした', style: k.text.small),
               ],
             ),
           ]),
@@ -221,7 +250,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
           if (_settled[chk.id] case final line?)
             ..._settledLine(context, line)
           else if (s.confirmedRecordFor(chk) case final confirmed?)
-            ..._evidence(context, r, chk, confirmed),
+            ..._evidence(context, r, chk, confirmed, primary: !needsReview(widget.records)),
         ] else ...[
           SizedBox(height: k.space.sm),
           // 行が折り返しても、分類のタグは1行目にそろえる
@@ -229,10 +258,18 @@ class _RecordResultCardState extends State<RecordResultCard> {
             Padding(padding: EdgeInsets.only(top: k.space.xs), child: KindTag(chk.kind)),
             SizedBox(width: k.space.sm),
             Expanded(
-              child: Text(
-                chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
-                style: k.text.body,
-              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
+                  style: k.text.body,
+                ),
+                // 誰が言ったか分かっているのに残った行は、ノートが変わっていて当たらなかった。どの行かを示す。
+                // 分からないときは全部の行が残るので、見出しで言うだけにする
+                if (p.status == 'proposed' && u.speaker != null) ...[
+                  SizedBox(height: k.space.xs),
+                  StatusTag('書き込めませんでした', bg: k.colors.shell, fg: k.colors.inkMuted),
+                ],
+              ]),
             ),
           ]),
         ],
@@ -244,11 +281,18 @@ class _RecordResultCardState extends State<RecordResultCard> {
   }
 
   /// 食い違った相手の確定の記録と、相手に見せる文と、記録を見せて決着させるボタン。
-  /// 確認印は見出しに添えたので、ここでは見せる文を主にしてコピーできるようにする
-  List<Widget> _evidence(BuildContext context, Recorded r, Check chk, Check confirmed) {
+  /// 確認印は見出しに添えたので、ここでは見せる文を主にしてコピーできるようにする。
+  /// primary でなければ（「確かめる」が主のカード）、決着のボタンは枠にする
+  List<Widget> _evidence(BuildContext context, Recorded r, Check chk, Check confirmed, {required bool primary}) {
     final k = context.tokens;
     final res = confirmed.resolution!;
     final show = showRecordText(res);
+    final settle = _settling == null ? () => _keepByRecord(r, chk, confirmed) : null;
+    final loading = _settling == chk.id;
+    // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
+    final label = Flexible(
+      child: FittedBox(fit: BoxFit.scaleDown, child: Text(keepByRecordLabel(_target(r).c.state!, chk, res))),
+    );
     return [
       SizedBox(height: k.space.md),
       Text('${fmtDay(res.decidedAt)} ${res.decidedBy}${res.verb}：${res.note}', style: k.text.body),
@@ -270,17 +314,15 @@ class _RecordResultCardState extends State<RecordResultCard> {
       SizedBox(height: k.space.md),
       Align(
         alignment: Alignment.centerLeft,
-        child: MoonFilledButton(
-          onTap: _settling == null ? () => _keepByRecord(r, chk, confirmed) : null,
-          leading: _settling == chk.id ? const ButtonLoader() : null,
-          // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
-          label: Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(keepByRecordLabel(_target(r).c.state!, chk, res)),
-            ),
-          ),
-        ),
+        child: primary
+            ? MoonFilledButton(onTap: settle, leading: loading ? const ButtonLoader() : null, label: label)
+            : MoonOutlinedButton(
+                onTap: settle,
+                leading: loading
+                    ? MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s)
+                    : null,
+                label: label,
+              ),
       ),
     ];
   }

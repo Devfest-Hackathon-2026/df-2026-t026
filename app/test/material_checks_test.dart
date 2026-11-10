@@ -766,7 +766,8 @@ void main() {
         tester,
         _state(
           utterances: [_said('u1', '田中さん', '2026-11-03', '味噌汁の塩は小さじ1')],
-          patches: [_patch('p1', 'u1', '2026-11-03', _mat)],
+          // カードはサーバーが書き込んだ後の状態を受ける。同じ内容は書き込まない
+          patches: [_patch('p1', 'u1', '2026-11-03', _mat, status: 'discarded')],
           checks: [_check('c1', 'p1', 'u1', kind: 'same')],
         ),
         'u1',

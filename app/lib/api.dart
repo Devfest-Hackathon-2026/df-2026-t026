@@ -117,13 +117,15 @@ class Api {
   List<Person> _people(dynamic json) => [for (final p in json) (id: p['id'] as String, name: p['name'] as String)];
 
   /// 入力ページから記録する。manualIds を省くと、関係するマニュアルをバックエンドが選ぶ。
-  /// memoIds は入力欄に入れた未整理メモで、記録できたらサーバーが消す
+  /// memoIds は入力欄に入れた未整理メモで、記録できたらサーバーが消す。
+  /// write なら、発言者が分かれば追記・補足の書き込みまでサーバーが済ませ、書き込んだ後の状態を返す（ADR 0006）
   Future<IntakeResult> intake({
     required String text,
     List<Attachment> files = const [],
     List<String>? manualIds,
     required String today,
     List<String> memoIds = const [],
+    bool write = false,
   }) async =>
       IntakeResult.fromJson(await _send('POST', '/utterances', {
         'text': text,
@@ -133,6 +135,7 @@ class Api {
         'manualIds': ?manualIds,
         'today': today,
         if (memoIds.isNotEmpty) 'memoIds': memoIds,
+        if (write) 'write': true,
       }));
 
   /// リワインドで切り出した WAV を書き起こし、未整理メモにためる。ノートには記録しない。at は切り出した時刻
