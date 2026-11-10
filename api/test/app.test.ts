@@ -1635,3 +1635,44 @@ test('記録を見せて済ませる：資料と違う内容に決まった確�
   const again = await record('佐藤さんからご飯は保温4時間までと言われた');
   assert.deepEqual(texts((await showRecord(again.check.id, rice.check.id)).json), settled);
 });
+
+test('通知：自分のノートで、共有した相手が答えた・行を直したことを新しい順に返し、見た時刻より後を新しいとする', async () => {
+  await withAccounts();
+  await call('POST', '/manuals/demo-kitchen/shares', { userId: 'sato' });
+  const r = await record('田中さんから塩は小さじ1/2でいいと言われた');
+  assert.deepEqual((await call('GET', '/notices')).json, { seenAt: null, items: [] });
+
+  await callAs('sato', 'POST', `/manuals/demo-kitchen/checks/${r.check.id}/resolve`, { decidedAt: '2026-11-10', text: '- 塩 小さじ1/2', note: '1/2で統一' });
+  // 時刻はミリ秒までなので、答えと直しが同じ時刻になって並びが決まらなくならないよう少し待つ
+  await new Promise((r) => setTimeout(r, 5));
+  await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'replace', line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす', today: '2026-11-10' });
+  // 持ち主が自分で直した行は知らせない
+  await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- 自分で足した行', today: '2026-11-10' });
+
+  const { json } = await call('GET', '/notices');
+  assert.equal(json.seenAt, null);
+  assert.deepEqual(
+    json.items.map(({ id, at, ...x }: any) => x),
+    [
+      { kind: 'edit', manualId: 'demo-kitchen', title: 'キッチンマニュアル（定食屋 みのり）', by: { id: 'sato', name: '佐藤店長' }, op: 'replace', line: '- 炊けたら10分蒸らす', text: '- 炊けたら15分蒸らす' },
+      { kind: 'answer', manualId: 'demo-kitchen', title: 'キッチンマニュアル（定食屋 みのり）', by: { id: 'sato', name: '佐藤店長' }, line: '- 塩 小さじ1', text: '- 塩 小さじ1/2', note: '1/2で統一' },
+    ],
+  );
+  assert.ok(json.items[0].at >= json.items[1].at);
+
+  // 共有された人には、共有されたノートでの出来事を知らせない（持ち主だけ）
+  assert.deepEqual((await callAs('sato', 'GET', '/notices')).json.items, []);
+
+  // 見たら、見た時刻を覚える。通知は残り、それより後のものだけが新しい
+  assert.equal((await call('POST', '/notices/seen')).status, 204);
+  const seen = (await call('GET', '/notices')).json;
+  assert.equal(seen.items.length, 2);
+  assert.ok(seen.items.every((x: any) => x.at <= seen.seenAt));
+  // 時刻はミリ秒までなので、見た時刻と同じ時刻にならないよう少し待つ
+  await new Promise((r) => setTimeout(r, 5));
+  await callAs('sato', 'POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 炊けたら15分蒸らす', today: '2026-11-10' });
+  const after = (await call('GET', '/notices')).json;
+  assert.deepEqual([after.items[0].op, after.items[0].line, after.items[0].at > after.seenAt], ['delete', '- 炊けたら15分蒸らす', true]);
+  // 見た時刻は人ごと
+  assert.equal((await callAs('sato', 'GET', '/notices')).json.seenAt, null);
+});

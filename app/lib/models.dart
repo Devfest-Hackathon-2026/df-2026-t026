@@ -53,6 +53,46 @@ class SharedManual {
   final int openCount;
 }
 
+/// 自分が持ち主のノートで、共有した相手がしたこと（ADR 0020）
+class Notice {
+  Notice.fromJson(Map<String, dynamic> j)
+      : id = j['id'],
+        kind = j['kind'],
+        manualId = j['manualId'],
+        title = j['title'],
+        by = _person(j['by']),
+        at = j['at'],
+        op = j['op'],
+        line = j['line'],
+        text = j['text'],
+        note = j['note'];
+
+  final String id;
+
+  /// answer（確認に答えた）か edit（行を直した）
+  final String kind;
+  final String manualId;
+
+  /// ノートの題名
+  final String title;
+  final Person by;
+
+  /// ISO 8601
+  final String at;
+
+  /// edit のときの直し方（insert・replace・delete）
+  final String? op;
+
+  /// answer では食い違っていたノートの行、edit では直した元の行（足したときは足した位置）
+  final String? line;
+
+  /// answer では決まった内容、edit では新しい行（消したときは空）
+  final String text;
+
+  /// answer のときのメモ
+  final String? note;
+}
+
 class ManualSummary {
   ManualSummary.fromJson(Map<String, dynamic> j)
       : id = j['id'],
