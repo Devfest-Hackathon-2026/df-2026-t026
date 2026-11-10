@@ -20,6 +20,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'home.dart';
+
 // 入力ページで記録した後、トーストの代わりに入力欄の下に出す結果のカード（#112）
 
 const _half = '- 塩 小さじ1/2';
@@ -219,8 +221,8 @@ class _Server {
   /// POST /utterances で送った中身
   final intakeBodies = <Map<String, dynamic>>[];
 
-  /// 一覧と GET で返すノート。照らし合わせると、照らし合わせた直後の状態に置き換わる。
-  /// テストで書き換えると、ほかの画面で確定した・ノートを消したことにできる
+  /// GET /home と GET で返すノート。照らし合わせると、照らし合わせた直後の状態に置き換わる。
+  /// テストで書き換えると、ほかの人が確定した・ノートを消したことにできる
   final notes = {'m1': _kitchen(), 'm2': _hall([])};
 
   /// 確定（POST …/resolve）で送った中身
@@ -256,13 +258,7 @@ class _Server {
       }, 201);
     }
     if (req.method == 'POST') posted.add(path);
-    if (path == '/shared' || path == '/memos') return _json([]);
-    if (path == '/manuals') {
-      return _json([
-        for (final s in notes.values)
-          {'id': s['manual']['id'], 'title': s['manual']['title'], 'utteranceCount': 1, 'openCount': 0},
-      ]);
-    }
+    if (path == '/home') return _json(homeJson([...notes.values]));
     return _json(notes[req.url.pathSegments[1]]!);
   }
 }
@@ -904,7 +900,7 @@ void main() {
     await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
 
     // 読み直しても、食い違いがまだ確認待ちなら残す
-    server.api.changes.value++;
+    await server.api.store.load();
     await tester.pumpAndSettle();
     expect(_card, findsOneWidget);
 
@@ -919,7 +915,7 @@ void main() {
       'note': '1/2で統一',
     };
     server.notes['m1'] = settled;
-    server.api.changes.value++;
+    await server.api.store.load();
     await tester.pumpAndSettle();
     expect(_card, findsNothing);
     expect(find.text('ノートと食い違っています'), findsNothing);
@@ -932,12 +928,12 @@ void main() {
     await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
 
     // 食い違いの無いカードは、読み直しても残す
-    server.api.changes.value++;
+    await server.api.store.load();
     await tester.pumpAndSettle();
     expect(_card, findsOneWidget);
 
     server.notes.remove('m2');
-    server.api.changes.value++;
+    await server.api.store.load();
     await tester.pumpAndSettle();
     expect(_card, findsNothing);
   });

@@ -13,18 +13,22 @@ import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'home.dart';
+
 // #92: 入力ページの「あとで確認」とサイドバーの件数が食い違う
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
-/// キッチンに食い違いが2件。resolve を受けた分は確認済みにし、一覧の openCount も同じ所から数える。
-/// POST /utterances は intake が返すまで待たせる（記録の処理中）。failList が true の間は一覧が 500 になる
+/// キッチンに食い違いが2件。resolve を受けた分は確認済みにする。
+/// POST /utterances は intake が返すまで待たせる（記録の処理中）。failList が true の間は GET /home が 500 になる
 class _Server {
   final resolved = <String>{};
   Completer<void>? intake;
   var failList = false;
 
-  int get open => 2 - resolved.length;
+  /// 受けた GET のパス。届いた順
+  final reads = <String>[];
+  int get homes => reads.where((r) => r == '/home').length;
 
   Map<String, dynamic> state({bool recorded = false}) => {
         'owner': 'demo',        'me': 'demo',        'manual': {'id': 'm1', 'title': 'キッチン', 'base': '- 塩 小さじ1', 'createdAt': '2026-11-01T00:00:00Z'},
@@ -82,15 +86,12 @@ class _Server {
 
   MockClient client() => MockClient((req) async {
         final path = req.url.path;
-        if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
+        if (req.method == 'GET') reads.add(path);
         // 照らし合わせる前に、文面を未整理メモに置く
         if (req.method == 'POST' && path == '/memos') return _json({'id': 'memo1', ...jsonDecode(req.body)}, 201);
-        if (path == '/shared' || path == '/memos') return _json([]);
-        if (path == '/manuals') {
+        if (path == '/home') {
           if (failList) return _json({'error': '混んでいます'}, 500);
-          return _json([
-            {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 2, 'openCount': open, 'createdAt': '2026-11-01T00:00:00Z'},
-          ]);
+          return _json(homeJson([state()], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
         }
         if (req.method == 'POST' && path.endsWith('/resolve')) {
           resolved.add(req.url.pathSegments[3]);
@@ -154,7 +155,11 @@ void main() {
     expect(_row(2), findsOneWidget);
     expect(_sidebar(2), findsNWidgets(2));
 
+    // 「あとで確認」・確認リストを開き、確定して戻るまで、ノートは読み直さない（確定の応答でそろえる）。
+    // 読むのは、確認の画面の「誰に確認する？」の候補（共有している人）だけ
+    server.reads.clear();
     await _resolveElsewhere(tester);
+    expect(server.reads, ['/manuals/m1/shares']);
 
     expect(server.resolved, ['c1']);
     expect(_sidebar(1), findsNWidgets(2));
@@ -183,16 +188,34 @@ void main() {
     await tester.pump(const Duration(seconds: 10)); // 記録のトーストが消えるのを待つ
   });
 
-  testWidgets('ほかの画面での変更のあと読み直せなくても、入力ページは書きかけを残したまま前の表示を出す', (tester) async {
+  testWidgets('ほかの画面で確定すると、読み直さずに確定の応答で件数がそろい、書きかけも残る', (tester) async {
     final server = _Server();
     final api = await _pump(tester, server);
     await tester.enterText(find.byType(MoonTextArea), '書きかけ');
     await tester.pump();
 
-    server.failList = true;
+    server.reads.clear();
     await api.resolve('m1', 'c0', decidedBy: '店長', decidedAt: '2026-11-07', text: '- 塩 0', note: '塩 0');
     await tester.pumpAndSettle();
 
+    expect(server.reads, isEmpty);
+    expect(_row(1), findsOneWidget);
+    expect(_sidebar(1), findsNWidgets(2));
+    expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text, '書きかけ');
+  });
+
+  testWidgets('アプリに戻ってきたときの読み直しに失敗しても、入力ページは書きかけを残したまま前の表示を出す', (tester) async {
+    final server = _Server();
+    await _pump(tester, server);
+    await tester.enterText(find.byType(MoonTextArea), '書きかけ');
+    await tester.pump();
+
+    server.failList = true;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(server.homes, 2);
     expect(find.byType(LoadFailed), findsNothing);
     expect(_row(2), findsOneWidget);
     expect(tester.widget<MoonTextArea>(find.byType(MoonTextArea)).controller!.text, '書きかけ');

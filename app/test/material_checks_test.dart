@@ -19,6 +19,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // 確認で資料の箇所を見せる（ADR 0019 の設計書 §8.4・§10.4〜§10.6、PR4）。
 // 田中さんの「味噌汁の塩は小さじ1/2」が、資料「店舗マニュアル」p.2 の「味噌汁の塩は小さじ1」（60行目）と食い違う
 
@@ -219,9 +221,7 @@ class _Server {
   late final api = Api(
     client: MockClient((req) async {
       final path = req.url.path;
-      if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
-      if (path == '/shared') return _json([]);
-      if (path == '/manuals') return _json([{'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1}]);
+      if (path == '/home') return _json(homeJson([state], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
       if (path == '/manuals/m1/materials') return _json([for (final m in materials) _summary(m)]);
       if (path.startsWith('/manuals/m1/materials/')) {
         final m = materials.where((m) => m['id'] == path.split('/').last).firstOrNull;

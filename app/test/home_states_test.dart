@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 http.Response _json(Object body, int status) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 Future<void> _pumpHome(WidgetTester tester, MockClient client) async {
@@ -19,7 +21,7 @@ Future<void> _pumpHome(WidgetTester tester, MockClient client) async {
 
 void main() {
   testWidgets('マニュアルが無いときは、登録への案内を出す', (tester) async {
-    await _pumpHome(tester, MockClient((_) async => _json([], 200)));
+    await _pumpHome(tester, MockClient((_) async => _json(homeJson([]), 200)));
 
     expect(find.text('まだノートがありません'), findsOneWidget);
     expect(find.text('$appPurpose\n今あるマニュアルを貼り付けても、白紙から始めてもかまいません。'), findsOneWidget);
@@ -32,9 +34,7 @@ void main() {
       tester,
       MockClient((_) async => ++calls == 1
           ? _json({'error': 'サーバーの調子が悪いです'}, 500)
-          : _json([
-              {'id': 'm1', 'title': 'キッチン', 'utteranceCount': 2, 'openCount': 1},
-            ], 200)),
+          : _json(homeJson([noteJson('m1', 'キッチン', said: 2, open: 1)]), 200)),
     );
     expect(find.text('読み込めませんでした：サーバーの調子が悪いです'), findsOneWidget);
 
