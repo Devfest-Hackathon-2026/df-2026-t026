@@ -31,8 +31,53 @@
 
   <title>DiffNote</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Flutter が起動すると同じ内容に差し替える。それまでの読み込み中の画面を、スマホでも端末の幅で描くため -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+
+  <!-- canvaskit は gstatic から import() と fetch()（資格情報なしの CORS）で取るので crossorigin を付ける -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+
+  <!-- デプロイのとき tool/web_postbuild.dart が API の URL を入れる。手元では空のままで、API を呼ばない -->
+  <meta name="diffnote-api" content="">
+  <script>
+    // 止まっていたサーバーの起動を、アプリの読み込みと重ねる（設計書 0021 §4.5）。応答は使わない
+    (() => {
+      const api = document.querySelector('meta[name="diffnote-api"]').content;
+      if (api) fetch(api + '/health', { mode: 'no-cors' }).catch(() => {});
+    })();
+  </script>
+
+  <style>
+    /* 読み込み中の画面を消してから CanvasKit が最初の絵を出すまでの間も、白くせず地の色（shell）にする */
+    html, body {
+      background: #F2F2F4;
+    }
+
+    /* 読み込み中の画面。色と方眼の間隔は lib/theme.dart の shell・grid・ink と space.xl に合わせる。書体はまだ届いていないので OS のものを使う */
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      background-color: #F2F2F4;
+      background-image:
+        linear-gradient(#E4E4EA 1px, transparent 1px),
+        linear-gradient(90deg, #E4E4EA 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: #17173D;
+      font: 700 20px/1.4 "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    }
+  </style>
 </head>
 <body>
+  <div id="loading">DiffNote</div>
+  <script>
+    // Flutter の最初のフレームが出たら消す。イベント名は main.dart.js が window に送るもの（tool/web_postbuild.dart で確かめる）
+    window.addEventListener('flutter-first-frame', () => document.getElementById('loading').remove(), { once: true });
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

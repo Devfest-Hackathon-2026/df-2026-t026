@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -30,6 +31,13 @@ bool isHeading(String line) => _heading.hasMatch(line);
 
 /// 区切り線の行か（「---」など）
 bool isRule(String line) => _rule.hasMatch(line);
+
+/// 直接の編集が何をしたかを1文にする。通知と、記録した発言の細い札で使う（ADR 0020）
+String editSummary(String op, String? line, String text) => switch (op) {
+      'replace' => '「${plain(line ?? '')}」→「${plain(text)}」',
+      'delete' => '「${plain(line ?? '')}」を消した',
+      _ => '「${plain(text)}」を足した',
+    };
 
 /// 行頭と行の中のマークダウンの印を外した、文の中に出す形。パッチは複数行のこともあるので1行ずつ外す
 String plain(String text) => text.split('\n').map((line) {
@@ -779,3 +787,28 @@ void showToast(BuildContext context, String message,
 }
 
 void showError(BuildContext context, Object e) => showToast(context, e.toString(), error: true);
+
+/// 中で書いている欄の外を押したら onTapOutside を呼ぶ。スクロールの指で書きかけを閉じないよう、ほぼ動かさずに離したときだけ
+class TapOutside extends StatefulWidget {
+  const TapOutside({super.key, required this.onTapOutside, required this.child});
+  final VoidCallback onTapOutside;
+  final Widget child;
+
+  @override
+  State<TapOutside> createState() => _TapOutsideState();
+}
+
+class _TapOutsideState extends State<TapOutside> {
+  Offset? _down;
+
+  @override
+  Widget build(BuildContext context) => TapRegion(
+        onTapOutside: (e) => _down = e.position,
+        onTapUpOutside: (e) {
+          final down = _down;
+          _down = null;
+          if (down != null && (e.position - down).distance <= kTouchSlop) widget.onTapOutside();
+        },
+        child: widget.child,
+      );
+}

@@ -63,12 +63,36 @@ export function applyPatch(lines: ManualLine[], patch: PatchDraft & { id: string
   return [...head, ...added, ...lines.slice(i + 1)];
 }
 
+/** 反映済みのパッチを反映順に並べる。反映日時が同じなら渡した順のまま（sort は安定） */
+const inAppliedOrder = (patches: Patch[]) =>
+  patches.filter((p) => p.status === 'applied').sort((a, b) => a.appliedAt!.localeCompare(b.appliedAt!));
+
+// 白紙から始めたマニュアルは、空行1行ではなく行なしにする
+const baseLines = (base: string): ManualLine[] => (base ? base.split('\n') : []).map((text) => ({ text, patchId: null }));
+
 /** 反映済みのパッチを反映順に base へ当て、各行がどのパッチから来たかを返す */
 export function render(base: string, patches: Patch[]): ManualLine[] {
-  const applied = patches
-    .filter((p) => p.status === 'applied')
-    .sort((a, b) => a.appliedAt!.localeCompare(b.appliedAt!));
-  // 白紙から始めたマニュアルは、空行1行ではなく行なしにする
-  const lines = (base ? base.split('\n') : []).map((text) => ({ text, patchId: null }));
-  return applied.reduce<ManualLine[]>((acc, p) => applyPatch(acc, p), lines);
+  return inAppliedOrder(patches).reduce<ManualLine[]>((acc, p) => applyPatch(acc, p), baseLines(base));
+}
+
+/**
+ * render と同じ順に当てるが、当てられないパッチは投げずに飛ばす。
+ *
+ * 書き込みが重なると、反映順に並べたときに当たらないパッチが残ることがある。そのノートを開けなくしないため。
+ * 飛ばしたパッチが入れるはずだった行を指す後ろのパッチも、同じく当たらずに飛ぶ。
+ *
+ * @returns lines: 当てた結果の行。skipped: 飛ばしたパッチの id（反映順）
+ */
+export function renderSkipping(base: string, patches: Patch[]): { lines: ManualLine[]; skipped: string[] } {
+  const skipped: string[] = [];
+  const lines = inAppliedOrder(patches).reduce<ManualLine[]>((acc, p) => {
+    try {
+      return applyPatch(acc, p);
+    } catch (e) {
+      if (!(e instanceof PatchError)) throw e;
+      skipped.push(p.id);
+      return acc;
+    }
+  }, baseLines(base));
+  return { lines, skipped };
 }

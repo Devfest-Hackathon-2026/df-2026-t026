@@ -46,6 +46,17 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # 後処理は本番のデプロイで初めて動き、MoonIcons を差し替えられなくてもデプロイは止めない（元のフォントで出る）。
+      # 差し替えを諦めたことに気づけるよう、ここでビルドして流し、差し替えていなければ落とす
+      - name: Web をビルドして後処理を流す
+        run: |
+          flutter build web --release --dart-define=API_URL=https://example.invalid
+          out=$(dart run tool/web_postbuild.dart https://example.invalid)
+          echo "$out"
+          if ! grep -qF '絞ったものに差し替えた' <<<"$out"; then
+            echo "::error::MoonIcons.ttf を絞ったフォントに差し替えられなかった（理由は上の出力）。app/tool/moon_icons/README.md の「CI で落ちたとき」を見て直す"
+            exit 1
+          fi
 
   infra:
     runs-on: ubuntu-latest

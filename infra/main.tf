@@ -61,6 +61,16 @@ resource "google_cloud_run_v2_service" "api" {
     containers {
       # 初回だけ置くイメージ。以後は GitHub Actions がビルドしたイメージに差し替える
       image = "us-docker.pkg.dev/cloudrun/container/hello"
+      # 止まっていたサーバーの起動を速くするため、起動時だけ CPU を上乗せする。resources を書くと cpu_idle の既定が外れるので、
+      # 今の値（1 vCPU・512MiB・リクエストの外では CPU を絞る）も書く
+      resources {
+        limits = {
+          cpu    = "1000m"
+          memory = "512Mi"
+        }
+        cpu_idle          = true
+        startup_cpu_boost = true
+      }
       env {
         name  = "AI"
         value = "gemini"

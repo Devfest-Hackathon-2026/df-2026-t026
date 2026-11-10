@@ -20,5 +20,6 @@ description: 「ローカルで起動して」「動かして」と頼まれた�
    - API: `curl -s http://127.0.0.1:8787/health` が `{"ok":true}`
    - アプリ: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/` が `200`
 5. 利用者に `http://127.0.0.1:8080` と、ログインの ID `demo`・パスワード `demo`、作業結果を確かめるならどの画面で何をすれば見えるかを伝える
+   - 起動時から、新人（ID `newbie`・パスワード `demo`）のノート「閉店作業メモ」が `demo` に共有され、`demo` が答える確認が2件待っている。答えた後に `newbie` で入ると通知に出る
 
 止め方：この会話で起動したものは TaskStop、それ以外は `lsof -ti tcp:8080 -sTCP:LISTEN | xargs kill`（API は 8787）

@@ -1,12 +1,14 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:moon_design/moon_design.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../web/files.dart';
 import 'common.dart';
+import 'input_screen.dart';
 import 'sidebar.dart';
 
 /// アイコンにできる形式（ブラウザで切り抜けるもの）
@@ -31,29 +33,45 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  late Future<Me> _me = _load();
   final _name = TextEditingController();
   IconImage? _icon;
   var _busy = false;
+  var _leaving = false;
+
+  /// 欄に今の名前とアイコンを入れたか。入れたあとは、保存するまで書き換えない
+  var _filled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.api.store
+      ..addListener(_fill)
+      ..ensureLoaded();
+    _fill();
+  }
 
   @override
   void dispose() {
+    widget.api.store.removeListener(_fill);
     _name.dispose();
     super.dispose();
   }
 
-  Future<Me> _load() async {
-    final me = await widget.api.me();
+  /// 自分（store にある）が読めたら、欄に入れる
+  void _fill() {
+    final me = widget.api.store.me;
+    if (_filled || me == null) return;
+    _filled = true;
     _name.text = me.name;
     _icon = me.icon;
-    return me;
   }
 
-  void _reload() => setState(() {
-        _me = _load();
-      });
+  void _reload() {
+    widget.api.store.load();
+    setState(() {});
+  }
 
-  bool get _ready => _name.text.trim().isNotEmpty && !_busy;
+  bool get _ready => _name.text.trim().isNotEmpty && !_busy && !_leaving;
 
   Future<void> _pick() async {
     final f = await widget.pickImage();
@@ -78,6 +96,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _logout() async {
+    setState(() => _leaving = true);
+    try {
+      await widget.api.logout();
+    } on ApiException catch (e) {
+      if (mounted) {
+        showError(context, e);
+        setState(() => _leaving = false);
+      }
+      return;
+    }
+    await (await SharedPreferences.getInstance()).remove(tokenKey);
+    if (!mounted) return;
+    // 画面を全部閉じ、待ち受けや書きかけを前の人のまま残さない。入力ページはトークンが無いのでログインの欄を出す
+    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => InputScreen(api: widget.api)), (_) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -87,12 +122,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const TopBar(crumbs: ['名前とアイコン']),
           Expanded(
-            child: FutureBuilder(
-              future: _me,
-              builder: (context, snap) {
-                if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-                if (!snap.hasData) return const Loading();
-                return _form(snap.data!);
+            child: ListenableBuilder(
+              listenable: widget.api.store,
+              builder: (context, _) {
+                final store = widget.api.store;
+                if (store.me case final me?) return _form(me);
+                if (store.error case final e?) return LoadFailed(message: e.toString(), onRetry: _reload);
+                return const Loading();
               },
             ),
           ),
@@ -136,46 +172,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             label: Text(_busy ? '保存しています…' : '保存する'),
           ),
         ),
+        SizedBox(height: k.space.xxl),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: MoonOutlinedButton(
+            onTap: _busy || _leaving ? null : _logout,
+            label: Text(_leaving ? 'ログアウトしています…' : 'ログアウトする'),
+          ),
+        ),
       ]),
     );
   }
-}
-
-/// 自分の名前とアイコンを読み、データが変わるたびに読み直して出す。読めない（ログインする前など）ときは何も出さない
-class MeBuilder extends StatefulWidget {
-  const MeBuilder({super.key, required this.api, required this.builder});
-  final Api api;
-  final Widget Function(BuildContext context, Me me) builder;
-
-  @override
-  State<MeBuilder> createState() => _MeBuilderState();
-}
-
-class _MeBuilderState extends State<MeBuilder> {
-  late Future<Me?> _me = _load();
-
-  @override
-  void initState() {
-    super.initState();
-    widget.api.changes.addListener(_reload);
-  }
-
-  @override
-  void dispose() {
-    widget.api.changes.removeListener(_reload);
-    super.dispose();
-  }
-
-  // FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
-  Future<Me?> _load() => widget.api.me().then<Me?>((m) => m, onError: (Object _) => null);
-
-  void _reload() => setState(() {
-        _me = _load();
-      });
-
-  @override
-  Widget build(BuildContext context) => FutureBuilder(
-        future: _me,
-        builder: (context, snap) => snap.data == null ? const SizedBox.shrink() : widget.builder(context, snap.data!),
-      );
 }

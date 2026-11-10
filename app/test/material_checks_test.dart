@@ -19,6 +19,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
+
 // 確認で資料の箇所を見せる（ADR 0019 の設計書 §8.4・§10.4〜§10.6、PR4）。
 // 田中さんの「味噌汁の塩は小さじ1/2」が、資料「店舗マニュアル」p.2 の「味噌汁の塩は小さじ1」（60行目）と食い違う
 
@@ -211,14 +213,15 @@ class _Server {
   /// 直接編集の確かめ（POST /patches/:id/check）で返す状態
   Map<String, dynamic>? afterEdit;
   Map<String, dynamic>? afterCheck;
+  var _sentIds = <String, String>{};
+  Map<String, dynamic> _withSentIds(Map<String, dynamic> s) =>
+      jsonDecode(_sentIds.entries.fold(jsonEncode(s), (j, e) => j.replaceAll(e.key, e.value)));
   final materials = _materials();
 
   late final api = Api(
     client: MockClient((req) async {
       final path = req.url.path;
-      if (path == '/me') return _json({'id': 'kanade', 'name': 'かなで', 'icon': null});
-      if (path == '/shared') return _json([]);
-      if (path == '/manuals') return _json([{'id': 'm1', 'title': 'キッチン', 'utteranceCount': 1, 'openCount': 1}]);
+      if (path == '/home') return _json(homeJson([state], me: {'id': 'kanade', 'name': 'かなで', 'icon': null}));
       if (path == '/manuals/m1/materials') return _json([for (final m in materials) _summary(m)]);
       if (path.startsWith('/manuals/m1/materials/')) {
         final m = materials.where((m) => m['id'] == path.split('/').last).firstOrNull;
@@ -229,8 +232,13 @@ class _Server {
         if (afterResolve != null) state = afterResolve!(resolved!);
         return _json(state);
       }
-      if (path == '/manuals/m1/edits') return _json(state = afterEdit!, 201);
-      if (path.endsWith('/check')) return _json(state = afterCheck!);
+      // 直接編集の発言と差分の ID はアプリが作って送るので、用意した状態の u1・p1 を送られた ID にする
+      if (path == '/manuals/m1/edits') {
+        final body = jsonDecode(req.body) as Map<String, dynamic>;
+        _sentIds = {'"u1"': '"${body['utteranceId']}"', '"p1"': '"${body['patchId']}"'};
+        return _json(state = _withSentIds(afterEdit!), 201);
+      }
+      if (path.endsWith('/check')) return _json(state = _withSentIds(afterCheck!));
       if (path == '/manuals/m1') return _json(state);
       return _json([]);
     }),
@@ -684,7 +692,7 @@ void main() {
       await tester.tap(find.text('・塩 小さじ1'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(EditableText).first, _half);
-      await tester.tap(find.widgetWithText(MoonFilledButton, '保存する'));
+      await tester.tap(find.bySemanticsLabel('保存する'));
       await tester.pumpAndSettle();
       expect(find.text('$_where の「味噌汁の塩は小さじ1」と食い違っています。確認リストに入れました'), findsOneWidget);
       await tester.pump(const Duration(seconds: 10));
@@ -766,7 +774,8 @@ void main() {
         tester,
         _state(
           utterances: [_said('u1', '田中さん', '2026-11-03', '味噌汁の塩は小さじ1')],
-          patches: [_patch('p1', 'u1', '2026-11-03', _mat)],
+          // カードはサーバーが書き込んだ後の状態を受ける。同じ内容は書き込まない
+          patches: [_patch('p1', 'u1', '2026-11-03', _mat, status: 'discarded')],
           checks: [_check('c1', 'p1', 'u1', kind: 'same')],
         ),
         'u1',

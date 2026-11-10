@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8.encode(jsonEncode(body)), status);
@@ -19,15 +20,15 @@ http.Response _json(Object body, [int status = 200]) => http.Response.bytes(utf8
 // 1×1 の PNG
 final _png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
 
-/// 自分は kanade（名前は未設定）、ノートは無い。PUT /me は送った内容を sent に残して返す
+/// 自分は kanade（名前は未設定）、ノートと通知は無い。PUT /me は送った内容を sent に残して返す
 MockClient _client(List<Map<String, dynamic>> sent) => MockClient((req) async {
       if (req.url.path == '/me' && req.method == 'PUT') {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
         sent.add(body);
         return _json({'id': 'kanade', ...body});
       }
-      if (req.url.path == '/me') return _json({'id': 'kanade', 'name': 'kanade', 'icon': null});
-      if (req.url.path == '/manuals') return _json([]);
+      if (req.url.path == '/home') return _json(homeJson([], me: {'id': 'kanade', 'name': 'kanade', 'icon': null}));
+      if (req.url.path == '/notices/seen') return http.Response('', 204);
       return _json({'error': '見つかりません'}, 404);
     });
 
@@ -76,7 +77,7 @@ void main() {
     expect(tester.widget<MoonFilledButton>(find.widgetWithText(MoonFilledButton, '保存する')).onTap, isNull);
   });
 
-  testWidgets('広い画面ではサイドバーのいちばん上の自分の名前から開く', (tester) async {
+  testWidgets('広い画面ではサイドバーのいちばん下の自分の名前から、通知のページを通って開く', (tester) async {
     tester.view.physicalSize = const Size(1400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -86,10 +87,13 @@ void main() {
 
     await tester.tap(find.widgetWithText(MoonMenuItem, 'kanade'));
     await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byType(PageTitle), matching: find.text('通知')), findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '名前とアイコンを変える'));
+    await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('名前とアイコン')), findsOneWidget);
   });
 
-  testWidgets('狭い画面では、上部バーの三本線から出るメニューのいちばん下の自分の名前から開く', (tester) async {
+  testWidgets('狭い画面では、上部バーの三本線から出るメニューのいちばん下の自分の名前から、通知のページを通って開く', (tester) async {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -101,6 +105,8 @@ void main() {
     await tester.tap(find.byWidgetPredicate((w) => w is MoonButton && w.semanticLabel == 'メニュー'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(MoonMenuItem, 'kanade'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '名前とアイコンを変える'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(PageTitle), matching: find.text('名前とアイコン')), findsOneWidget);
   });
