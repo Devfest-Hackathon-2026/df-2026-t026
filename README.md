@@ -32,7 +32,7 @@ fvm install
 fvm flutter run -d chrome
 ```
 
-アプリを開いたら、ID `demo`・パスワード `demo` でログインする。本番に配ったのと同じ ID（`kanade`・`haruto`・`hikaru`・`chinatsu`）でも入れるが、パスワードはどれもローカル専用の `demo`。どれもメモリ上のデータで動かすときだけ起動時に作り、デモの記録が入っているのは `demo` だけ。
+アプリを開いたら、ID `demo`・パスワード `demo` でログインする。本番に配ったのと同じ ID（`kanade`・`haruto`・`hikaru`・`chinatsu`）でも入れるが、パスワードはどれもローカル専用の `demo`。どれもメモリ上のデータで動かすときだけ起動時に作り、デモの記録が入っているのは `demo` だけ。`demo` には、新人（ID `newbie`・パスワード `demo`）のノート「閉店作業メモ」が共有されていて、答える確認が2件待っている。`demo` で答えたあと `newbie` で入ると、通知で確かめられる（ADR 0017・0020）。
 
 アプリが呼ぶ API の URL は `--dart-define=API_URL=...` で変えられる（既定は `http://localhost:8787`）。
 
