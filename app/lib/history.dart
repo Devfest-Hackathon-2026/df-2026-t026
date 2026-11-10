@@ -99,7 +99,7 @@ History buildHistory(ManualState s) {
   final trunk = [Commit(id: 'root', at: s.createdAt, said: null, diff: _diff(const [], lines))];
   for (final e in events) {
     final before = lines;
-    lines = e.patches.fold(lines, _apply);
+    lines = e.patches.fold(lines, patchLines);
     trunk.add(Commit(
       id: e.patches.firstOrNull?.id ?? e.said.id,
       at: e.at,
@@ -192,8 +192,9 @@ History buildHistory(ManualState s) {
   return History(rows.reversed.toList(), laneEnds.length + 1);
 }
 
-/// バックエンドの applyPatch と同じ当て方。反映済みのパッチはバックエンドで当てられることを確かめてある
-List<ManualLine> _apply(List<ManualLine> lines, Patch p) {
+/// バックエンドの applyPatch と同じ当て方。反映済みのパッチはバックエンドで当てられることを確かめてある。
+/// 直接の編集を、サーバーの応答を待たずに画面へ出すときにも使う（manual_controller.dart）
+List<ManualLine> patchLines(List<ManualLine> lines, Patch p) {
   final added = p.op == 'delete' ? <ManualLine>[] : [for (final t in p.text.split('\n')) ManualLine(t, p.id)];
   if (p.op == 'insert' && p.line == null) return [...lines, ...added];
   final i = lines.indexWhere((l) => l.text == p.line);

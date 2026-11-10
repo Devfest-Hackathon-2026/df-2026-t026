@@ -211,6 +211,9 @@ class _Server {
   /// 直接編集の確かめ（POST /patches/:id/check）で返す状態
   Map<String, dynamic>? afterEdit;
   Map<String, dynamic>? afterCheck;
+  var _sentIds = <String, String>{};
+  Map<String, dynamic> _withSentIds(Map<String, dynamic> s) =>
+      jsonDecode(_sentIds.entries.fold(jsonEncode(s), (j, e) => j.replaceAll(e.key, e.value)));
   final materials = _materials();
 
   late final api = Api(
@@ -229,8 +232,13 @@ class _Server {
         if (afterResolve != null) state = afterResolve!(resolved!);
         return _json(state);
       }
-      if (path == '/manuals/m1/edits') return _json(state = afterEdit!, 201);
-      if (path.endsWith('/check')) return _json(state = afterCheck!);
+      // 直接編集の発言と差分の ID はアプリが作って送るので、用意した状態の u1・p1 を送られた ID にする
+      if (path == '/manuals/m1/edits') {
+        final body = jsonDecode(req.body) as Map<String, dynamic>;
+        _sentIds = {'"u1"': '"${body['utteranceId']}"', '"p1"': '"${body['patchId']}"'};
+        return _json(state = _withSentIds(afterEdit!), 201);
+      }
+      if (path.endsWith('/check')) return _json(state = _withSentIds(afterCheck!));
       if (path == '/manuals/m1') return _json(state);
       return _json([]);
     }),

@@ -134,6 +134,17 @@ class ManualLine {
 }
 
 class Utterance {
+  Utterance({
+    required this.id,
+    required this.text,
+    required this.speaker,
+    required this.saidAt,
+    required this.fromEdit,
+    required this.editedBy,
+    required this.recordedBy,
+    required this.createdAt,
+  });
+
   Utterance.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         text = j['text'],
@@ -165,6 +176,18 @@ class Utterance {
 }
 
 class Patch {
+  Patch({
+    required this.id,
+    required this.utteranceId,
+    required this.op,
+    required this.line,
+    required this.text,
+    required this.summary,
+    required this.status,
+    required this.createdAt,
+    required this.appliedAt,
+  });
+
   Patch.fromJson(Map<String, dynamic> j)
       : id = j['id'],
         utteranceId = j['utteranceId'],
@@ -334,6 +357,35 @@ class ManualState {
         owner = j['owner'],
         me = j['me'],
         sharedBy = j['sharedBy'] == null ? null : _person(j['sharedBy']);
+
+  ManualState._from(
+    ManualState s, {
+    required this.lines,
+    required this.utterances,
+    required this.patches,
+    required this.checks,
+  })  : id = s.id,
+        title = s.title,
+        base = s.base,
+        createdAt = s.createdAt,
+        owner = s.owner,
+        me = s.me,
+        sharedBy = s.sharedBy;
+
+  /// 行・記録・差分・確認を差し替えた写し。サーバーの応答の前に、手元の編集を重ねて見せるときに使う
+  ManualState copyWith({
+    List<ManualLine>? lines,
+    List<Utterance>? utterances,
+    List<Patch>? patches,
+    List<Check>? checks,
+  }) =>
+      ManualState._from(
+        this,
+        lines: lines ?? this.lines,
+        utterances: utterances ?? this.utterances,
+        patches: patches ?? this.patches,
+        checks: checks ?? this.checks,
+      );
 
   final String id;
   final String title;
