@@ -52,11 +52,12 @@ List<String> _assets(List<Object?> manifest) => [
 
 const _firstFrame = 'i.initEvent("flutter-first-frame",!0,!0)';
 
-/// dart2js が出す MoonIcons の IconData（moon_design 1.1.0 の MoonErrorMessage が描く generic_info_16_light）
-const _infoIcon = 'B.P8=new A.de(60745,"MoonIcons","moon_icons",!1)';
+/// dart2js が出す MoonIcons の IconData（moon_design 1.1.0 の MoonErrorMessage が描く generic_info_16_light）。
+/// `A.dg` は IconData の縮めた名前の一例で、ビルドごとに変わる
+const _infoIcon = 'B.P8=new A.dg(60745,"MoonIcons","moon_icons",!1)';
 
 /// 絞ったフォントに無い字の IconData
-const _otherIcon = 'B.P9=new A.de(60746,"MoonIcons","moon_icons",!1)';
+const _otherIcon = 'B.P9=new A.dg(60746,"MoonIcons","moon_icons",!1)';
 
 const _originalMoonIcons = '元の MoonIcons';
 
@@ -93,7 +94,7 @@ void main() {
     expect(() => dropUnusedFonts(manifest), throwsStateError);
   });
 
-  // 太さ違いのフォントを外してよいのは、アプリが LucideIcons（既定の太さ）しか使わないから。CI は Web をビルドしないので、ここで確かめる
+  // 太さ違いのフォントを外してよいのは、アプリが LucideIcons（既定の太さ）しか使わないから。Web をビルドしなくても分かるよう、ここで確かめる
   test('アプリが lucide_icons_flutter から読むのは lucide_icons.dart だけ', () {
     final imports = RegExp(r'''package:lucide_icons_flutter/[^'"]+''');
     final found = {
@@ -140,7 +141,7 @@ void main() {
 
   test('main.dart.js が Lucide の太さ違いを使っていたら、何も変えずに失敗にする', () {
     _expectFailsUnchanged(
-        _fakeWeb(mainJs: '$_firstFrame\n$_infoIcon\nB.x=new A.de(57808,"Lucide300","lucide_icons_flutter",!1)'));
+        _fakeWeb(mainJs: '$_firstFrame\n$_infoIcon\nB.x=new A.dg(57808,"Lucide300","lucide_icons_flutter",!1)'));
   });
 
   test('消すはずのフォントが1つでも無ければ、何も変えずに失敗にする', () {
@@ -157,7 +158,7 @@ void main() {
 
   test('main.dart.js の MoonIcons の字が絞ったフォントに全部あれば、差し替えてよい', () {
     expect(moonIconsSubsetBlocker('$_firstFrame;$_infoIcon'), isNull);
-    expect(moonIconsSubsetBlocker('$_infoIcon;B.Q1=new A.de(60745,"MoonIcons","moon_icons",!0)'), isNull);
+    expect(moonIconsSubsetBlocker('$_infoIcon;B.Q1=new A.ab(60745,"MoonIcons","moon_icons",!0)'), isNull); // 縮めた名前が違っても拾う
   });
 
   test('絞ったフォントに無い字を使っていれば、その字を挙げて差し替えない', () {
@@ -167,8 +168,8 @@ void main() {
   test('main.dart.js の MoonIcons を拾い漏らしたかもしれなければ、差し替えない', () {
     for (final js in [
       _firstFrame, // 1つも拾えない
-      'B.P8=new A.de(0xed49,"MoonIcons","moon_icons",!1)', // 番号の書き方が変わった
-      'B.s="MoonIcons";B.P8=new A.de(60745,B.s,"moon_icons",!1)', // 文字列を1か所にまとめた
+      'B.P8=new A.dg(0xed49,"MoonIcons","moon_icons",!1)', // 番号の書き方が変わった
+      'B.s="MoonIcons";B.P8=new A.dg(60745,B.s,"moon_icons",!1)', // 文字列を1か所にまとめた
       '$_infoIcon;B.t=A.H("packages/moon_icons/MoonIcons")', // IconData の外で使う
     ]) {
       expect(moonIconsSubsetBlocker(js), contains('読み切れない'), reason: js);

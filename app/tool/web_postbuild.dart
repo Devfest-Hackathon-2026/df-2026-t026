@@ -25,7 +25,8 @@ const moonIconsSubset = 'tool/moon_icons/MoonIcons.ttf';
 /// 絞ったフォントに入っている字。作り直すときは pyftsubset の --unicodes と揃える
 const moonIconsCodePoints = {0xED49};
 
-/// main.dart.js の MoonIcons の IconData。dart2js は `new A.de(60745,"MoonIcons","moon_icons",!1)` の形で出す
+/// main.dart.js の MoonIcons の IconData。dart2js は `new A.dg(60745,"MoonIcons","moon_icons",!1)` のように出す。
+/// `A.dg` は IconData の縮めた名前で、ビルドごとに変わるので見ない
 final _moonIconData = RegExp(r'\((\d+),"MoonIcons","moon_icons"');
 
 /// index.html の、API の URL を入れる所。空のままなら index.html は API を呼ばない
