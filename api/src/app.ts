@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { upgradeWebSocket } from '@hono/node-server';
 import { Hono } from 'hono';
+import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
@@ -190,6 +191,21 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   const app = new Hono<Env>();
   // どの呼び出しにも Authorization が付いてプリフライトが走るので、ブラウザに結果を覚えさせる（上限はブラウザごとに切られる）
   app.use(cors({ origin: allowOrigin ? allowOrigin.split(',') : '*', maxAge: 86400 }));
+  // 音声入力の WebSocket（/dictation）には圧縮をかけない
+  const compressed = compress();
+  app.use((c, next) =>
+    c.req.path === '/dictation'
+      ? next()
+      : compressed(c, async () => {
+          await next();
+          // c.json は Content-Length を付けず、それが無いと compress の下限（1024 バイト）が効かないので付ける
+          if (c.res.body && !c.res.headers.has('Content-Length')) {
+            const body = await c.res.arrayBuffer();
+            c.res = new Response(body, c.res);
+            c.res.headers.set('Content-Length', String(body.byteLength));
+          }
+        }),
+  );
   // ログインで渡したトークンから、誰のデータを読み書きするかを決める（ADR 0009）
   app.use(async (c, next) => {
     if (c.req.path === '/health' || c.req.path === '/login') return next();
