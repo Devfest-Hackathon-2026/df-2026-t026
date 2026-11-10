@@ -34,7 +34,9 @@
 ## アーキテクチャ
 
 <div align="center">
-<img src="docs/architecture.png" width="900" alt="アーキテクチャ図。端末の Flutter Web アプリが Firebase Hosting から読み込まれ、Cloud Run の API が Firestore・Vertex AI の Gemini・Speech-to-Text を呼ぶ">
+<img src="docs/architecture.png" width="720" alt="アーキテクチャ図。利用者の端末では、直前60秒の音声から切り出した部分だけが Flutter Web のアプリに渡る。アプリは Firebase Hosting から読み込まれ、Cloud Run の API（Hono）に HTTPS と WebSocket でつなぐ。API は Firestore を読み書きし、Vertex AI の Gemini を記録1件につき1回呼び、音声は Speech-to-Text v2 で文字にする。確定の記録は Gemini を通らず Firestore にだけ書く。GitHub Actions が Firebase Hosting と Artifact Registry 経由で Cloud Run にデプロイし、Terraform がリソースと権限を作る">
+<br>
+<sub>アイコン：svgl・gilbarbara/logos・Google Cloud product icons・Lucide。ロゴは各社の商標。<a href="https://github.com/caru-ini/stack-diagram">stack-diagram</a> で作成</sub>
 </div>
 
 ### 設計の要点
