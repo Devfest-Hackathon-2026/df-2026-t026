@@ -161,6 +161,8 @@ class _ManualScreenState extends State<ManualScreen> {
       showError(context, '$failed。書き直してください');
       return;
     }
+    // 消されたノートには書けないので、欄を開き直さない
+    if (c.gone) return showError(context, failed);
     // 欄を閉じていれば、届かなかった行の文面をその場所の欄に入れ直す
     final at = p.line == null ? null : s.lines.indexWhere((l) => l.text == p.line);
     if (p.op == 'delete' || at == -1) return showError(context, '$failed。書き直してください');
@@ -267,7 +269,8 @@ class _ManualScreenState extends State<ManualScreen> {
     return ListenableBuilder(
       listenable: c,
       builder: (context, _) {
-        final s = c.state;
+        // 消された・共有を外されたノートは、古い内容を出さずに「見つかりません」を出す。書いている欄は閉じるまで残す
+        final s = c.gone && _editing == null ? null : c.state;
         final open = s?.openChecks.length ?? 0;
         if (s != null && _toFound) {
           _toFound = false;

@@ -61,6 +61,10 @@ class ManualController extends ChangeNotifier {
   ManualState? _state;
   String? loadError;
 
+  /// 読み直したら見つからなかった（消された・共有を外された）か。出していた状態は消さない。
+  /// 同じコントローラーを使う上の画面（確認リスト・履歴・資料）は今の状態のまま出し、ノートの画面はこれを見て「見つかりません」を出す
+  var gone = false;
+
   /// 画面の土台にしているサーバーの状態
   ManualState? _base;
 
@@ -105,15 +109,15 @@ class ManualController extends ChangeNotifier {
     api.store.removeListener(listener);
   }
 
-  /// このノートを読み直す（ノートを開いたとき）。出せる状態が無いときだけ、読めなかったことを画面に出す
+  /// このノートを読み直す（ノートを開いたとき）。出せる状態が無いか、見つからなかったときに、読めなかったことを画面に出す
   Future<void> load() async {
     try {
       await api.store.refresh(manualId);
       loadError = null;
+      gone = false;
     } on ApiException catch (e) {
       loadError = e.message;
-      // 消された・共有を外されたノートは、手元の古い内容を出さずに「見つかりません」を出す
-      if (e.status == 404 && _local.isEmpty && !_editorOpen) _base = _state = _held = null;
+      if (e.status == 404) gone = true;
     }
     _notify();
   }
@@ -307,7 +311,7 @@ class ManualController extends ChangeNotifier {
 
   /// 土台に、まだ入っていない自分の編集と確かめの結果を重ねる
   void _rebuild() {
-    // 消されたノートで、出す状態をもう外した
+    // まだ1度も読めていない
     final base = _base;
     if (base == null) return;
     var lines = base.lines;

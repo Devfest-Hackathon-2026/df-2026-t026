@@ -80,15 +80,15 @@ class _Server {
     if (path == '/home') return _json(homeJson([for (final id in notes.keys) _copy(id)]));
     final id = req.url.pathSegments.length > 1 ? req.url.pathSegments[1] : '';
     if (req.method == 'GET' && path == '/manuals/$id') {
-      if (gone.contains(id)) return _json({'error': 'ノートが見つかりません'}, 404);
-      final read = _copy(id);
+      final read = gone.contains(id) ? null : _copy(id);
       await noteGate?.future;
-      return _json(read);
+      return read == null ? _json({'error': 'ノートが見つかりません'}, 404) : _json(read);
     }
     if (path == '/manuals/$id/edits') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       edits.add(body);
       await editGate?.future;
+      if (gone.contains(id)) return _json({'error': 'ノートが見つかりません'}, 404);
       final n = notes[id]!;
       final at = _at();
       final lines = n['lines'] as List;
@@ -377,6 +377,86 @@ void main() {
     expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
     expect(_shownLines(tester), isEmpty);
     expect(_sidebarItem('キッチン'), findsNothing);
+  });
+
+  testWidgets('開いた直後の裏の読み直しが「見つかりません」でも、上に開いた確認リストは今の状態のまま出し、ノートに戻ると知らせる', (tester) async {
+    final server = _Server();
+    server.notes['m1'] = _Server._plain(noteJson('m1', 'キッチン', lines: [_salt], open: 1));
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // 入力ページを開いたあとと同じく、store にもう読んである
+    await server.api.store.load();
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    final nav = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), navigatorKey: nav, home: const SizedBox()));
+    nav.currentState!.push(MaterialPageRoute<void>(builder: (_) => ManualScreen(api: server.api, manualId: 'm1')));
+    await tester.pumpAndSettle();
+    expect(_shownLines(tester), ['・塩 小さじ1']);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+    await tester.pumpAndSettle();
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(CheckListScreen), findsOneWidget);
+    expect(find.text('あとで確認（1）'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+    expect(_sidebarItem('キッチン'), findsNothing);
+  });
+
+  testWidgets('書いている欄を開いている間に「見つかりません」が届いたら、欄は残し、閉じてから知らせる', (tester) async {
+    final server = _Server();
+    await _pumpInput(tester, server);
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    await _openFromSidebar(tester, 'キッチン');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('・胡椒 少々'));
+    await tester.pumpAndSettle();
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MoonTextInput, _pepper), findsOneWidget);
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    expect(_shownLines(tester), isEmpty);
+  });
+
+  testWidgets('送っている編集があるときに「見つかりません」が届いても知らせ、その編集が届かなくても欄を開き直さない', (tester) async {
+    final server = _Server();
+    await _pumpInput(tester, server);
+    server.gone.add('m1');
+    server.noteGate = Completer();
+    server.editGate = Completer();
+    await _openFromSidebar(tester, 'キッチン');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), '- 醤油 大さじ1');
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('保存する'));
+    await tester.pump();
+    expect(_shownLines(tester), ['・塩 小さじ1', '・胡椒 少々', '・醤油 大さじ1']);
+
+    server.noteGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+
+    server.editGate!.complete();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('保存できませんでした（ノートが見つかりません）。直した 1 行を元に戻しました'), findsOneWidget);
+    expect(find.byType(EditableText), findsNothing);
+    expect(find.text('読み込めませんでした：ノートが見つかりません'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
   });
 
   testWidgets('画面を閉じれば、閉じずに捨てたコントローラー（入力ページから開いた確認リスト）も store に残らない', (tester) async {
