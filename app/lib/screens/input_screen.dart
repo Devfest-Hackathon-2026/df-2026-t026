@@ -447,7 +447,7 @@ class _InputScreenState extends State<InputScreen> {
         return true;
       } catch (e) {
         if (!mounted) return false;
-        showError(context, _failure(e));
+        showError(context, _failure(e, 'もう一度送ってください'));
         setState(() {
           _queue.remove(p);
           onFailed();
@@ -474,7 +474,7 @@ class _InputScreenState extends State<InputScreen> {
           await _process(p);
         } catch (e) {
           // 想定外の失敗でも、後ろの記録は止めずに送る
-          if (mounted) showError(context, _failure(e));
+          if (mounted) showError(context, _failure(e, _recordUnknown));
         } finally {
           if (mounted) setState(() => _queue.remove(p));
         }
@@ -499,7 +499,7 @@ class _InputScreenState extends State<InputScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      showError(context, _failure(e));
+      showError(context, _failure(e, _recordUnknown));
       setState(() {
         // 文面は待ちを外せば未整理メモに出る。ファイルはメモに置けないので入力欄に戻す
         _files.insertAll(0, p.files);
@@ -1240,8 +1240,11 @@ class _InputScreenState extends State<InputScreen> {
   }
 }
 
-/// 失敗を知らせる文。応答の形が違ったとき（TypeError など）に、英語の例外の文を出さない
-Object _failure(Object e) => e is ApiException ? e : 'サーバーの応答を読めませんでした。もう一度送ってください';
+/// 失敗を知らせる文。応答の形が違ったとき（TypeError など）に、英語の例外の文を出さない。then はどうすればいいか
+Object _failure(Object e, String then) => e is ApiException ? e : 'サーバーの応答を読めませんでした。$then';
+
+/// 照らし合わせの応答を読めなかったとき。サーバーは記録できているかもしれないので、送り直しは勧めない
+const _recordUnknown = '記録できていなければ、文面は未整理メモに残ります';
 
 /// 「ノートと照らし合わせる」を押して、照らし合わせを待っている記録
 class _Pending {

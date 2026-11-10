@@ -792,6 +792,22 @@ void main() {
     expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
   });
 
+  testWidgets('ノートの画面の発言から、誰が言ったかだけを入れても、ノートが変わったとは言わず、まだ書き込んでいない行として残す', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamed(['addition']), 'u2')],
+    ]);
+    await _recordText(tester, 'おしぼりも一緒に出す');
+    expect(_inCard(find.text(unnamedTitle)), findsOneWidget);
+
+    // ノートの画面の発言の付箋から開いた確認で、発言者だけを入れて閉じた。行はまだ書き込んでいない
+    server.notes['m2'] = _hall(['addition']);
+    await server.api.editUtterance('m2', 'u2', speaker: '田中さん');
+    await tester.pumpAndSettle();
+    expect(_inCard(find.text('まだ書き込んでいない行があります')), findsOneWidget);
+    expect(find.text(changedTitle), findsNothing);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+  });
+
   testWidgets('確かめることが残ったカードは、次の結果が出ても消さず、新しい結果を上に出す', (tester) async {
     await _pump(tester, [
       [(unnamed(['addition']), 'u2')],

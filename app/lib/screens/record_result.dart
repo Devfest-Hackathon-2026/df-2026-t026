@@ -65,6 +65,16 @@ class _RecordResultCardState extends State<RecordResultCard> {
   /// 「確かめる」で書き込む前の確認を開いて閉じたか。閉じたあとに残った行は、利用者がまだ書き込んでいないもの
   var _reviewed = false;
 
+  /// 照らし合わせた時点で、誰が言ったか分かっていたか。分からなかった記録は、あとでほかの画面から発言者だけを入れても、
+  /// 書き込まなかったのはノートが変わったせいではない（入力ページはほかの画面でしたことをカードに映す）
+  late final bool _namedAtFirst;
+
+  @override
+  void initState() {
+    super.initState();
+    _namedAtFirst = !widget.records.any(_speakerMissing);
+  }
+
   ReviewTarget _target(Recorded r) => widget.targets.firstWhere((t) => t.c.manualId == r.manualId);
 
   /// 照らし合わせた差分と、その分類。食い違い・書き込んだ（まだの）行・同じ内容の順に並べる。
@@ -106,7 +116,9 @@ class _RecordResultCardState extends State<RecordResultCard> {
     if (left.any(_speakerMissing)) return _unnamedTitle;
     // 誰が言ったか分かっているのにサーバーが書き込まなかったのは、照らし合わせている間にノートが変わっていたとき
     // （書き換える行が残っていても書き込まない）か、前の行の書き込みで当たらなくなったとき。確かめたあとは利用者の選択
-    if (left.isNotEmpty) return _reviewed ? 'まだ書き込んでいない行があります' : 'ノートが変わっていたので、まだ書き込んでいない行があります';
+    if (left.isNotEmpty) {
+      return _reviewed || !_namedAtFirst ? 'まだ書き込んでいない行があります' : 'ノートが変わっていたので、まだ書き込んでいない行があります';
+    }
     final items = [
       for (final r in widget.records) ..._items(r),
     ];

@@ -340,7 +340,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.takeException(), isNull);
-    expect(find.text('サーバーの応答を読めませんでした。もう一度送ってください'), findsOneWidget);
+    expect(find.text('サーバーの応答を読めませんでした。記録できていなければ、文面は未整理メモに残ります'), findsOneWidget);
     expect(server.intakes, hasLength(2));
     expect(find.text(_waiting), findsOneWidget);
 
