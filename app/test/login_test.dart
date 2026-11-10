@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:diff_note/api.dart';
 import 'package:diff_note/screens/common.dart';
 import 'package:diff_note/screens/input_screen.dart';
+import 'package:diff_note/screens/profile_screen.dart';
 import 'package:diff_note/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,5 +98,33 @@ void main() {
     await tester.tap(find.widgetWithText(MoonFilledButton, 'ログインする'));
     await tester.pumpAndSettle();
     expect(find.descendant(of: find.byType(MoonMenuItem), matching: find.text('キッチン')), findsOneWidget);
+  });
+
+  testWidgets('名前とアイコンのページでログアウトすると、サーバーでトークンを止め、ブラウザからも消して、ログインの欄に戻る', (tester) async {
+    SharedPreferences.setMockInitialValues({tokenKey: 'token-1'});
+    var live = true;
+    final client = MockClient((req) async {
+      if (req.url.path == '/logout' && req.headers['Authorization'] == 'Bearer token-1') {
+        live = false;
+        return _json({'ok': true}, 200);
+      }
+      if (!live || req.headers['Authorization'] != 'Bearer token-1') return _json({'error': 'ログインしてください'}, 401);
+      if (req.url.path == '/me') return _json({'id': 'taro', 'name': 'たろう', 'icon': null}, 200);
+      return _json([], 200);
+    });
+    final api = Api(client: client, baseUrl: 'http://api', token: 'token-1');
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: api)));
+    await tester.pumpAndSettle();
+    tester.state<NavigatorState>(find.byType(Navigator)).push(MaterialPageRoute(builder: (_) => ProfileScreen(api: api)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, 'ログアウトする'));
+    await tester.pumpAndSettle();
+    expect(live, isFalse);
+    expect(api.token, isNull);
+    expect((await SharedPreferences.getInstance()).getString(tokenKey), isNull);
+    expect(find.text('ログインしてください'), findsOneWidget);
+    // 前の画面には戻れない
+    expect(tester.state<NavigatorState>(find.byType(Navigator)).canPop(), isFalse);
   });
 }

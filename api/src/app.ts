@@ -39,7 +39,7 @@ export interface Deps {
   allowOrigin?: string;
 }
 
-type Env = { Variables: { userId: string } };
+type Env = { Variables: { userId: string; sessionId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
@@ -212,9 +212,11 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     if (c.req.path === '/health' || c.req.path === '/login') return next();
     // ブラウザの WebSocket はヘッダーを付けられないので、音声入力だけはクエリでも受ける
     const token = c.req.header('Authorization')?.match(/^Bearer (.+)$/)?.[1] ?? (c.req.path === '/dictation' ? c.req.query('token') : undefined);
-    const userId = token ? await userIdOf(sessionIdOf(token)) : null;
-    if (!userId) throw new HTTPException(401, { message: 'ログインしてください' });
+    const sessionId = token ? sessionIdOf(token) : null;
+    const userId = sessionId ? await userIdOf(sessionId) : null;
+    if (!sessionId || !userId) throw new HTTPException(401, { message: 'ログインしてください' });
     c.set('userId', userId);
+    c.set('sessionId', sessionId);
     await next();
   });
   app.onError((e, c) => {
@@ -318,6 +320,13 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const token = newToken();
     await store.putSession({ id: sessionIdOf(token), userId: account.id, createdAt: now() });
     return c.json({ token });
+  });
+
+  // 使っているトークンだけを止める。ほかの端末でのログインはそのまま。覚えたセッションも消す。ほかのインスタンスが覚えた分は、最長5分そのまま使える
+  app.post('/logout', async (c) => {
+    sessions.delete(c.var.sessionId);
+    await store.removeSession(c.var.sessionId);
+    return c.json({ ok: true });
   });
 
   // 名前を決めていなければ ID を名前にする（ADR 0010）
