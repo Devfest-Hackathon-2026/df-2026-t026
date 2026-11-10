@@ -50,18 +50,31 @@ List<String> _assets(List<Object?> manifest) => [
         for (final f in (e as Map)['fonts'] as List) (f as Map)['asset'] as String,
     ];
 
+const _firstFrame = 'i.initEvent("flutter-first-frame",!0,!0)';
+
+/// dart2js が出す MoonIcons の IconData（moon_design 1.1.0 の MoonErrorMessage が描く generic_info_16_light）
+const _infoIcon = 'B.P8=new A.de(60745,"MoonIcons","moon_icons",!1)';
+
+/// 絞ったフォントに無い字の IconData
+const _otherIcon = 'B.P9=new A.de(60746,"MoonIcons","moon_icons",!1)';
+
+const _originalMoonIcons = '元の MoonIcons';
+
 /// ビルドの成果物を真似た build/web を作る
-Directory _fakeWeb() {
+Directory _fakeWeb({String mainJs = _firstFrame}) {
   final web = Directory.systemTemp.createTempSync('web_postbuild_test');
   addTearDown(() => web.deleteSync(recursive: true));
   for (final asset in _assets(_manifest())) {
     File('${web.path}/assets/$asset').createSync(recursive: true);
   }
+  File('${web.path}/assets/$moonIconsAsset').writeAsStringSync(_originalMoonIcons);
   File('${web.path}/assets/FontManifest.json').writeAsStringSync(jsonEncode(_manifest()));
   File('${web.path}/index.html').writeAsStringSync(File('web/index.html').readAsStringSync());
-  File('${web.path}/main.dart.js').writeAsStringSync('i.initEvent("flutter-first-frame",!0,!0)');
+  File('${web.path}/main.dart.js').writeAsStringSync(mainJs);
   return web;
 }
+
+File _moonIcons(Directory web) => File('${web.path}/assets/$moonIconsAsset');
 
 void main() {
   test('Lucide の太さ違いだけを外し、既定の Lucide・MoonIcons・本文の書体は残す', () {
@@ -122,12 +135,64 @@ void main() {
   });
 
   test('main.dart.js に最初のフレームのイベントが無ければ、何も変えずに失敗にする', () {
-    final web = _fakeWeb();
-    File('${web.path}/main.dart.js').writeAsStringSync('');
+    final web = _fakeWeb(mainJs: _infoIcon);
     final before = File('${web.path}/assets/FontManifest.json').readAsStringSync();
 
     expect(() => postBuild(web, apiUrl: 'https://api.example.com'), throwsStateError);
     expect(File('${web.path}/assets/FontManifest.json').readAsStringSync(), before);
     expect(_assets(_manifest()).every((a) => File('${web.path}/assets/$a').existsSync()), isTrue);
+    expect(_moonIcons(web).readAsStringSync(), _originalMoonIcons);
+  });
+
+  test('main.dart.js の MoonIcons の字が絞ったフォントに全部あれば、差し替えてよい', () {
+    expect(moonIconsSubsetBlocker('$_firstFrame;$_infoIcon'), isNull);
+    expect(moonIconsSubsetBlocker('$_infoIcon;B.Q1=new A.de(60745,"MoonIcons","moon_icons",!0)'), isNull);
+  });
+
+  test('絞ったフォントに無い字を使っていれば、その字を挙げて差し替えない', () {
+    expect(moonIconsSubsetBlocker('$_infoIcon;$_otherIcon'), contains('U+ED4A'));
+  });
+
+  test('main.dart.js の MoonIcons を拾い漏らしたかもしれなければ、差し替えない', () {
+    for (final js in [
+      _firstFrame, // 1つも拾えない
+      'B.P8=new A.de(0xed49,"MoonIcons","moon_icons",!1)', // 番号の書き方が変わった
+      'B.s="MoonIcons";B.P8=new A.de(60745,B.s,"moon_icons",!1)', // 文字列を1か所にまとめた
+      '$_infoIcon;B.t=A.H("packages/moon_icons/MoonIcons")', // IconData の外で使う
+    ]) {
+      expect(moonIconsSubsetBlocker(js), contains('読み切れない'), reason: js);
+    }
+  });
+
+  test('ビルドの MoonIcons.ttf を、マニフェストの family と道はそのままで、絞ったフォントに差し替える', () {
+    final web = _fakeWeb(mainJs: '$_firstFrame;$_infoIcon');
+    expect(postBuild(web).moonIconsKept, isNull);
+
+    expect(_moonIcons(web).readAsBytesSync(), File(moonIconsSubset).readAsBytesSync());
+    final manifest = jsonDecode(File('${web.path}/assets/FontManifest.json').readAsStringSync()) as List<Object?>;
+    expect(_families(manifest), contains('packages/moon_icons/MoonIcons'));
+    expect(_assets(manifest), contains(moonIconsAsset));
+  });
+
+  test('差し替えないときは、元の MoonIcons.ttf のまま残して理由を返す', () {
+    for (final js in [_firstFrame, '$_firstFrame;$_infoIcon;$_otherIcon']) {
+      final web = _fakeWeb(mainJs: js);
+      expect(postBuild(web).moonIconsKept, isNotNull, reason: js);
+      expect(_moonIcons(web).readAsStringSync(), _originalMoonIcons, reason: js);
+    }
+  });
+
+  test('ビルドに MoonIcons.ttf が無ければ、作らずに理由を返す', () {
+    final web = _fakeWeb(mainJs: '$_firstFrame;$_infoIcon');
+    _moonIcons(web).deleteSync();
+    expect(postBuild(web).moonIconsKept, contains(moonIconsAsset));
+    expect(_moonIcons(web).existsSync(), isFalse);
+  });
+
+  // 絞ったフォントは moon_icons 1.1.0 から作った。版を上げると同じ番号で字の形が変わりうるので、作り直してからここを直す
+  test('moon_icons は、絞ったフォントを作った版（1.1.0）のまま', () {
+    final lock = File('pubspec.lock').readAsStringSync();
+    final version = RegExp(r'^  moon_icons:\n(?:    .*\n)*?    version: "([^"]+)"', multiLine: true).firstMatch(lock)?[1];
+    expect(version, '1.1.0');
   });
 }
