@@ -129,12 +129,12 @@ export async function assessWithGemini(input: AssessInput, generate: GenerateJso
   // 資料の番号はプロンプトの中で通しに振る（マニュアルの順、その中は取り込んだ順）
   const mats: Mats = input.manuals.flatMap((m, manual) => m.materials.map((ctx) => ({ manual, ctx })));
   const no = (manual: number, id: string) => mats.findIndex((x) => x.manual === manual && x.ctx.id === id) + 1;
-  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、暗黙のコンテキストキャッシュに乗せる。
-  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置く
+  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、コンテキストキャッシュに乗せる。
+  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置き、指示文と合わせて明示のキャッシュに入れる
   const head = mats.length
     ? `# 資料\n${mats.map((x, k) => `## 資料M${k + 1}: ${x.ctx.title}（マニュアル${x.manual + 1}の資料）\n${numberedMaterial(x.ctx.lines)}`).join('\n\n')}\n\n`
     : '';
-  const prompt = `${head}${input.manuals
+  const prompt = `${input.manuals
     .map(
       (m, i) => `# マニュアル${i + 1}: ${m.title}
 ${numbered(manuals[i], (n) => m.lines[n].note)}
@@ -153,7 +153,7 @@ ${input.today}
 # 新人のメモ
 ${input.text}`;
   // ふだんは5〜15秒で返り、遅い1本は25秒を過ぎても返らない。12秒で並べると遅い件が約6秒縮む（ADR 0002）
-  const out = await generate({ system: system(mats.length > 0), prompt, schema: schema(manuals, mats), hedgeMs: 12_000, label: 'assess' });
+  const out = await generate({ system: system(mats.length > 0), ...(head && { prefix: head }), prompt, schema: schema(manuals, mats), hedgeMs: 12_000, label: 'assess' });
   return {
     speaker: out.speaker,
     saidAt: out.saidAt,
