@@ -110,6 +110,8 @@ const NewIntake = z
     today: date.optional(),
     /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0015） */
     memoIds: z.array(z.string().min(1)).default([]),
+    /** 迷う所の無い差分を、この呼び出しの中で書き込む（入力ページ。ADR 0006） */
+    write: z.boolean().default(false),
   })
   .refine((b) => b.text || b.files.length > 0, '言われたことを書くか、ファイルか録音を添えてください')
   .refine(
@@ -530,7 +532,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   // 取り込み → 振り分け・差分化（土台）・分類（衝突検知）。Gemini は1回（ADR 0006）
   // materials: states と同じ順の、それぞれのノートの資料（materialsFor）
   // keepAll: 利用者が記録先を選んだときは、パッチが無くても発言を残す
-  async function record(userId: string, states: State[], materials: Material[][], text: string, today: string, keepAll: boolean) {
+  // write: 発言者が分かれば、迷う所の無い差分をそのまま書き込む（writeClear）
+  async function record(userId: string, states: State[], materials: Material[][], text: string, today: string, keepAll: boolean, write = false) {
     if (states.length === 0) return [];
     const draft = await assess({ manuals: states.map((s, i) => contextOf(s, materials[i])), text, today, speakers: speakersOf(states) });
     const targets = states.filter((_, i) => keepAll || draft.items.some((x) => x.manual === i));
@@ -546,10 +549,43 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           createdAt: now(),
         };
         const items = draft.items.filter((x) => x.manual === states.indexOf(s));
-        await propose(s.owner, s.manual.id, utterance, items);
+        const patches = await propose(s.owner, s.manual.id, utterance, items);
+        if (write && utterance.speaker) {
+          await writeClear(userId, s.manual.id, patches.map((p, i) => ({ patch: p, kind: items[i].check.kind })));
+        }
         return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
       }),
     );
+  }
+
+  /**
+   * 発言者の分かった記録の差分を、アプリが1本ずつ apply・discard していたのと同じ決まりで書き込む。
+   * 追記・補足は反映し、同じ内容は書き込まず、食い違いは確認リストにあるので触らない。
+   * assess の間にノートが変わっていることがあるので、読み直した今の行に1件ずつ当てて確かめ、
+   * 当たらない差分は未反映のまま残す（発言はもう保存してあるので、記録は失敗にしない）
+   */
+  async function writeClear(userId: string, manualId: string, items: { patch: Patch; kind: Check['kind'] }[]) {
+    const s = await load(userId, manualId);
+    let lines = s.lines;
+    // render は反映した時刻の順に当て直すので、今ある反映より後にし、1件ずつ必ず違う時刻にする
+    const latest = Math.max(0, ...s.patches.filter((p) => p.appliedAt).map((p) => Date.parse(p.appliedAt!)));
+    let at = Math.max(Date.now(), latest + 1);
+    for (const { patch: p, kind } of items) {
+      if (kind === 'same') {
+        await store.put(s.owner, manualId, 'patches', { ...p, status: 'discarded' });
+        continue;
+      }
+      if (kind !== 'addition' && kind !== 'qualification') continue;
+      const applied: Patch = { ...p, status: 'applied', appliedAt: new Date(at).toISOString() };
+      try {
+        lines = applyPatch(lines, applied);
+      } catch (e) {
+        if (!(e instanceof PatchError)) throw e;
+        continue;
+      }
+      at++;
+      await store.put(s.owner, manualId, 'patches', applied);
+    }
   }
 
   const recorder = async (userId: string) => ({ id: userId, name: await nameOf(userId) });
@@ -599,6 +635,8 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     await store.put(owner, manualId, 'utterances', utterance);
     await Promise.all(patches.map((p) => store.put(owner, manualId, 'patches', p)));
     await Promise.all(checks.map((x) => store.put(owner, manualId, 'checks', x)));
+    // 読み直すと作った時刻の順になり、同じ時刻の差分の順が決まらないので、items の順のまま返す
+    return patches;
   }
 
   app.post('/manuals/:id/utterances', async (c) => {
@@ -626,7 +664,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const text = [body.text, heard].filter(Boolean).join('\n');
     if (!text) throw new HTTPException(422, { message: 'ファイルや録音から、言われたことを読み取れませんでした。文字で書いて記録してください' });
 
-    const results = await record(userId, states, materials, text, body.today ?? todayInJapan(), !!body.manualIds);
+    const results = await record(userId, states, materials, text, body.today ?? todayInJapan(), !!body.manualIds, body.write);
     // 記録先を選び直してもらうときは、送り直すまでメモを残す
     if (results.length > 0) await Promise.all(body.memoIds.map((id) => store.removeMemo(userId, id)));
     // 関係するマニュアルが無ければ何も保存しない。読み取った文面を返し、利用者に記録先を選んでもらう
