@@ -379,6 +379,40 @@ void main() {
     await tester.tap(find.widgetWithText(MoonOutlinedButton, '閉じる'));
     await tester.pumpAndSettle();
     expect(_editor, findsNothing);
+
+    await tester.tap(find.text('・塩 小さじ1'));
+    await tester.pumpAndSettle();
+    expect(_editor, findsOneWidget);
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '資料'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('戻る'));
+    await tester.pumpAndSettle();
+    expect(_editor, findsNothing);
+  });
+
+  testWidgets('届く前にノートの画面を離れても、積んだ編集と確かめは送り切る', (tester) async {
+    final server = _Server()..editGate = Completer();
+    final nav = GlobalKey<NavigatorState>();
+    tester.view.physicalSize = const Size(800, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(theme: appTheme(), navigatorKey: nav, home: const SizedBox()));
+    nav.currentState!.push(MaterialPageRoute<void>(
+        builder: (_) => ManualScreen(api: Api(client: server.client, baseUrl: 'http://api'), manualId: 'm1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(MoonOutlinedButton, '行を足す'));
+    await tester.pumpAndSettle();
+    await _typeAndEnter(tester, '- 塩 小さじ2');
+    await _typeAndEnter(tester, '- 胡椒 少々');
+    nav.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ManualScreen), findsNothing);
+
+    server.editGate!.complete();
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(server.sent.map((b) => b['text']), ['- 塩 小さじ2', '- 胡椒 少々']);
+    expect(server.checked, [server.sent[0]['patchId'], server.sent[1]['patchId']]);
   });
 
   testWidgets('つながらなくて保存できなければ、行を戻し、書いた文を元の場所の欄に入れ直す', (tester) async {
