@@ -446,6 +446,32 @@ test('配った ID とパスワードでログインすると、その人のノ�
   assert.equal((await get('/health')).status, 200);
 });
 
+test('ログアウトすると、そのトークンだけが使えなくなる', async () => {
+  const store = new MemoryStore();
+  await store.putAccount({ id: 'demo', ...(await hashPassword('pass-demo')), createdAt: '' });
+  const locked = createApp({ store, ...ai });
+  const login = async () =>
+    ((await (
+      await locked.request('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'demo', password: 'pass-demo' }),
+      })
+    ).json()) as any).token as string;
+  const call = (path: string, token: string, method = 'GET') =>
+    locked.request(path, { method, headers: { Authorization: `Bearer ${token}` } });
+  const phone = await login();
+  const pc = await login();
+
+  assert.equal((await call('/logout', phone, 'POST')).status, 200);
+  assert.equal((await call('/me', phone)).status, 401);
+  assert.equal(await store.getSession(sessionIdOf(phone)), null);
+  // ほかの端末のログインは残る
+  assert.equal((await call('/me', pc)).status, 200);
+  // ログアウトにもログインが要る（止めるトークンが分からない）
+  assert.equal((await call('/logout', phone, 'POST')).status, 401);
+});
+
 /** 持ち主 demo・共有する相手 sato・無関係の kim。共有の相手はアカウントがあるかを確かめるので、アカウントも作る */
 async function withAccounts() {
   const store = new MemoryStore();
@@ -670,7 +696,8 @@ test('共有：共有されていない人は、見ることも直すことも�
   assert.deepEqual((await callAs('kim', 'GET', '/shared')).json, []);
   // 記録先を選ばなくても、共有されていないノートには振り分けない
   assert.deepEqual((await callAs('kim', 'POST', '/utterances', { text: '田中さんから塩は小さじ2と言われた' })).json.results, []);
-  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
+  // 読んだ時刻（asOf）のほかは変わらない
+  assert.deepEqual({ ...(await call('GET', '/manuals/demo-kitchen')).json, asOf: before.asOf }, before);
 });
 
 test('共同編集：同じ行をほかの人が先に書き換えていたら、書き換え・削除は 409 でだれがどう直したかを返す', async () => {
@@ -769,7 +796,7 @@ test('ノートを消す：本文と記録・確認・共有・資料がまと�
   assert.deepEqual(await store.listShared('sato'), []);
   assert.deepEqual((await callAs('sato', 'GET', '/shared')).json, []);
   assert.equal((await callAs('sato', 'GET', '/manuals/demo-kitchen')).status, 404);
-  assert.deepEqual((await call('GET', '/manuals/demo-hall')).json, hall);
+  assert.deepEqual({ ...(await call('GET', '/manuals/demo-hall')).json, asOf: hall.asOf }, hall);
   assert.equal((await call('DELETE', '/manuals/demo-kitchen')).status, 404);
 });
 
@@ -780,7 +807,8 @@ test('ノートを消す：持ち主でなければ、共有されていても�
   assert.equal((await callAs('sato', 'DELETE', '/manuals/demo-kitchen')).status, 404);
   assert.equal((await callAs('kim', 'DELETE', '/manuals/demo-kitchen')).status, 404);
   assert.equal((await call('DELETE', '/manuals/nothing')).status, 404);
-  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
+  // 読んだ時刻（asOf）のほかは変わらない
+  assert.deepEqual({ ...(await call('GET', '/manuals/demo-kitchen')).json, asOf: before.asOf }, before);
   assert.equal((await callAs('sato', 'GET', '/manuals/demo-kitchen')).status, 200);
 });
 
@@ -1223,7 +1251,8 @@ test('資料：消すと一覧から消え、無い資料は 404。ノートの�
   assert.deepEqual(await call('GET', `/manuals/demo-kitchen/materials/${a.id}`), gone);
   assert.deepEqual(await call('DELETE', `/manuals/demo-kitchen/materials/${a.id}`), gone);
   assert.equal((await call('GET', '/manuals/nothing/materials')).status, 404);
-  assert.deepEqual((await call('GET', '/manuals/demo-kitchen')).json, before);
+  // 読んだ時刻（asOf）のほかは変わらない
+  assert.deepEqual({ ...(await call('GET', '/manuals/demo-kitchen')).json, asOf: before.asOf }, before);
 });
 
 /** 休憩・ご飯の保温・片付けの決まりを、貼り付けた文の資料として demo-kitchen に足す。ノートにはどの行も無い */

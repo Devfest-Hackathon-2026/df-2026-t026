@@ -14,7 +14,6 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'notices_screen.dart';
 import 'open_checks_screen.dart';
-import 'profile_screen.dart' show MeBuilder;
 import 'search_screen.dart';
 
 /// サイドバーで、いまいる画面
@@ -28,10 +27,13 @@ bool showsSidebar(BuildContext context) {
 
 /// 広い画面では、左にサイドバーを常に出して画面のあいだを直接移れるようにする。狭い画面では child だけ（押して進んで戻る）
 class WithSidebar extends StatelessWidget {
-  const WithSidebar({super.key, required this.api, required this.child, this.place, this.manualId});
+  const WithSidebar({super.key, required this.api, required this.child, this.place, this.manualId, this.onRecord});
   final Api api;
   final Widget child;
   final Place? place;
+
+  /// 入力ページのときだけ。「言われたことを記録」で、リワインドから書く欄に戻す
+  final VoidCallback? onRecord;
 
   /// マニュアルの中（マニュアル画面・確認リスト）にいるときの、そのマニュアル
   final String? manualId;
@@ -41,7 +43,7 @@ class WithSidebar extends StatelessWidget {
     if (!showsSidebar(context)) return child;
     final k = context.tokens;
     return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      SizedBox(width: k.sidebarWidth, child: _Sidebar(api: api, place: place, manualId: manualId)),
+      SizedBox(width: k.sidebarWidth, child: _Sidebar(api: api, place: place, manualId: manualId, onRecord: onRecord)),
       Container(width: k.hairline, color: k.colors.rule),
       Expanded(child: child),
     ]);
@@ -51,11 +53,12 @@ class WithSidebar extends StatelessWidget {
 /// 狭い画面の入力ページで、上部バーの三本線から左に出すメニュー。中身は広い画面のサイドバーと同じ。
 /// 影は付けず、右の罫線で本文と区切る。項目を押すと、先にメニューを閉じてから open で移る
 class SidebarDrawer extends StatelessWidget {
-  const SidebarDrawer({super.key, required this.api, required this.place, required this.open});
+  const SidebarDrawer({super.key, required this.api, required this.place, required this.open, this.onRecord});
   final Api api;
   final Place place;
+  final VoidCallback? onRecord;
 
-  /// 画面を開く（入力ページの push。戻ってきたら入力ページを読み直す）
+  /// 画面を開く（入力ページの push）
   final Future<void> Function(Widget screen) open;
 
   @override
@@ -68,16 +71,17 @@ class SidebarDrawer extends StatelessWidget {
         color: k.colors.canvas,
         border: Border(right: BorderSide(color: k.colors.rule, width: k.hairline)),
       ),
-      child: SafeArea(right: false, child: _Sidebar(api: api, place: place, open: open)),
+      child: SafeArea(right: false, child: _Sidebar(api: api, place: place, open: open, onRecord: onRecord)),
     );
   }
 }
 
 class _Sidebar extends StatefulWidget {
-  const _Sidebar({required this.api, this.place, this.manualId, this.open});
+  const _Sidebar({required this.api, this.place, this.manualId, this.open, this.onRecord});
   final Api api;
   final Place? place;
   final String? manualId;
+  final VoidCallback? onRecord;
 
   /// メニュー（狭い画面）のときだけ。画面の開き方を入力ページに任せ、ふつうの横から出る動きで開く
   final Future<void> Function(Widget screen)? open;
@@ -87,34 +91,11 @@ class _Sidebar extends StatefulWidget {
 }
 
 class _SidebarState extends State<_Sidebar> {
-  /// 自分のノートと、共有されたノート（あとで確認の合計に両方を数える。ADR 0016）と、新しい通知の数（ADR 0020）
-  late Future<(List<ManualSummary>, List<SharedManual>, int)> _notes = _load();
-
   @override
   void initState() {
     super.initState();
-    widget.api.changes.addListener(_reload);
+    widget.api.store.ensureLoaded();
   }
-
-  @override
-  void dispose() {
-    widget.api.changes.removeListener(_reload);
-    super.dispose();
-  }
-
-  // 読めないとき（ログインする前など）はマニュアルを並べないだけにする。FutureBuilder が受け取る前に失敗しても漏れないよう、ここで受ける
-  Future<(List<ManualSummary>, List<SharedManual>, int)> _load() => (
-        widget.api.listManuals().catchError((Object _) => const <ManualSummary>[]),
-        widget.api.listShared().catchError((Object _) => const <SharedManual>[]),
-        widget.api
-            .notices()
-            .then((n) => n.items.where((x) => n.seenAt == null || x.at.compareTo(n.seenAt!) > 0).length)
-            .catchError((Object _) => 0),
-      ).wait;
-
-  void _reload() => setState(() {
-        _notes = _load();
-      });
 
   /// 行き来するたびに画面が積み重ならないよう、最初の画面（入力ページ）まで戻してから開く。
   /// 広い画面のサイドバーでは、戻る動き・横から出る動きは付けない（違和感 #1）。
@@ -155,13 +136,19 @@ class _SidebarState extends State<_Sidebar> {
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
+    final store = widget.api.store;
     return Container(
       color: k.colors.canvas,
-      child: FutureBuilder(
-        future: _notes,
-        builder: (context, snap) {
-          final (manuals, shared, fresh) = snap.data ?? (const <ManualSummary>[], const <SharedManual>[], 0);
-          final open = manuals.fold<int>(0, (n, m) => n + m.openCount) + shared.fold<int>(0, (n, m) => n + m.openCount);
+      child: ListenableBuilder(
+        listenable: store,
+        builder: (context, _) {
+          // 自分のノートと、共有されたノート。あとで確認の合計に両方を数える（ADR 0016）。
+          // 読めないとき（ログインする前など）はノートを並べないだけにする
+          final notes = store.notes ?? const <ManualState>[];
+          final manuals = [for (final m in notes) if (m.sharedBy == null) m];
+          final shared = [for (final m in notes) if (m.sharedBy != null) m];
+          final open = notes.fold<int>(0, (n, m) => n + m.openChecks.length);
+          final me = store.me;
           // 上から：アプリ名 → 言われたことを記録 → あとで確認 → ノートを探す → 「ノート」と＋ → 全部のノート → 自分と使い方（いちばん下に固定）。
           // ノートの並びの所だけスクロールする
           return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -179,7 +166,10 @@ class _SidebarState extends State<_Sidebar> {
                   icon: LucideIcons.squarePen,
                   selected: widget.place == Place.input,
                   strong: true,
-                  onTap: () => _go(null),
+                  onTap: () {
+                    _go(null);
+                    widget.onRecord?.call();
+                  },
                 ),
                 // 全部のノートのあとで確認をまとめた画面へ。アイコンはタブバーの「確認リスト」と同じ
                 _item(
@@ -207,7 +197,7 @@ class _SidebarState extends State<_Sidebar> {
                     _item(
                       m.title,
                       selected: widget.manualId == m.id,
-                      open: m.openCount,
+                      open: m.openChecks.length,
                       onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
                     ),
                   // ほかの人から共有されたノート。共有された人も確定できるので、あとで確認の件数も付ける（ADR 0016）
@@ -223,9 +213,9 @@ class _SidebarState extends State<_Sidebar> {
                     for (final m in shared)
                       _item(
                         m.title,
-                        owner: m.sharedBy.name,
+                        owner: m.sharedBy!.name,
                         selected: widget.manualId == m.id,
-                        open: m.openCount,
+                        open: m.openChecks.length,
                         onTap: () => _go(ManualScreen(api: widget.api, manualId: m.id)),
                       ),
                   ],
@@ -237,18 +227,18 @@ class _SidebarState extends State<_Sidebar> {
               padding: EdgeInsets.all(k.space.sm),
               // 自分の右に使い方（?）。上部バーには置かない
               child: Row(children: [
+                // 読めない（ログインする前など）ときは何も出さない
                 Expanded(
-                  child: MeBuilder(
-                    api: widget.api,
-                    builder: (context, me) => _item(
-                      me.name,
-                      leading: Avatar(me.name, image: me.icon?.bytes),
-                      // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
-                      selected: widget.place == Place.notices || widget.place == Place.profile,
-                      fresh: fresh,
-                      onTap: () => _go(NoticesScreen(api: widget.api)),
-                    ),
-                  ),
+                  child: me == null
+                      ? const SizedBox.shrink()
+                      : _item(
+                          me.name,
+                          leading: Avatar(me.name, image: me.icon?.bytes),
+                          // 自分を押すと通知を開く。名前とアイコンへは通知のページから移る（ADR 0020）
+                          selected: widget.place == Place.notices || widget.place == Place.profile,
+                          fresh: store.freshNotices,
+                          onTap: () => _go(NoticesScreen(api: widget.api)),
+                        ),
                 ),
                 SizedBox(width: k.space.xs),
                 MoonButton.icon(

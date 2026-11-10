@@ -42,11 +42,11 @@ test('知らないトークンは毎回読んで 401 にし、あとからでき
   assert.equal(((await (await me('new-token')).json()) as any).id, 'sato');
 });
 
-test('覚えるのは5分だけで、過ぎたらもう一度読む', async (t) => {
+test('覚えるのは1分だけで、過ぎたらもう一度読む', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 0 });
   const { store, me } = await setup();
   await me('test-token');
-  t.mock.timers.tick(5 * 60 * 1000 - 1);
+  t.mock.timers.tick(60 * 1000 - 1);
   await me('test-token');
   assert.equal(store.reads, 1);
   t.mock.timers.tick(1);

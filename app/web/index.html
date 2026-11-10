@@ -41,7 +41,7 @@
   <!-- デプロイのとき tool/web_postbuild.dart が API の URL を入れる。手元では空のままで、API を呼ばない -->
   <meta name="diffnote-api" content="">
   <script>
-    // 止まっていたサーバーの起動を、アプリの読み込みと重ねる（設計書 0020 §4.5）。応答は使わない
+    // 止まっていたサーバーの起動を、アプリの読み込みと重ねる（設計書 0021 §4.5）。応答は使わない
     (() => {
       const api = document.querySelector('meta[name="diffnote-api"]').content;
       if (api) fetch(api + '/health', { mode: 'no-cors' }).catch(() => {});
