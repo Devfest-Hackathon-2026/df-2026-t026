@@ -77,10 +77,12 @@ Map<String, dynamic> _memo(String id, DateTime at, String text) =>
     {'id': id, 'at': at.toUtc().toIso8601String(), 'text': text};
 
 /// GET /home と各マニュアルを返し、POST /utterances は onIntake、POST /listen は onListen（書き起こした {text}）に任せる。
-/// memos はサーバーに置いた未整理メモで、アプリの読み書きをそのまま映す
+/// memos はサーバーに置いた未整理メモで、アプリの読み書きをそのまま映す。onSaveMemo があれば、メモを置く・書き直す前に呼び、
+/// 応答を返したらそれを返す（失敗させる）
 MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onIntake,
     {void Function(http.Request)? onOther,
     Future<http.Response> Function(Map<String, dynamic> body)? onListen,
+    Future<http.Response?> Function()? onSaveMemo,
     List<Map<String, dynamic>>? memos}) {
   final saved = memos ?? [];
   var added = 0;
@@ -98,6 +100,9 @@ MockClient _client(Future<http.Response> Function(Map<String, dynamic> body) onI
       final memo = {'id': 'new${++added}', 'at': body['at'], 'text': jsonDecode(utf8.decode(res.bodyBytes))['text']};
       saved.add(memo);
       return _json(memo, 201);
+    }
+    if (req.method != 'DELETE' && req.url.path.startsWith('/memos')) {
+      if (await onSaveMemo?.call() case final failed?) return failed;
     }
     if (req.url.path == '/memos') {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
@@ -942,6 +947,59 @@ void main() {
     expect([for (final m in memos) m['text']], ['お冷やはすぐ出す']);
   });
 
+  testWidgets('リワインドで書き直したメモを置けないうちにリワインドを OFF にしたら、OFF の画面に書き直す欄を出さない', (tester) async {
+    final memos = [_memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじいち')];
+    final gate = Completer<http.Response?>();
+    await _pumpInput(tester, _client((_) async => _json({}), memos: memos, onSaveMemo: () => gate.future),
+        mic: StreamController());
+    await _startRewind(tester);
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(MoonTextArea, '塩は小さじいち'), '塩は小さじ1');
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    await tester.pump();
+
+    await tester.tap(find.byType(MoonSwitch));
+    await tester.pumpAndSettle();
+    gate.complete(_json({'error': 'サーバーにつながりません'}, 503));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MoonTextArea, '塩は小さじ1'), findsNothing);
+    expect(find.text('塩は小さじいち'), findsOneWidget);
+    await _waitToast(tester);
+  });
+
+  testWidgets('リワインドで書き直したメモが、ほかの端末で記録されていて置けなければ（404）、読み直してそのメモを外す', (tester) async {
+    final memos = [_memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじいち')];
+    var homes = 0;
+    await _pumpInput(
+      tester,
+      _client(
+        (_) async => _json({}),
+        memos: memos,
+        onOther: (req) => req.url.path == '/home' ? homes++ : null,
+        onSaveMemo: () async {
+          memos.clear();
+          return _json({'error': '見つかりません'}, 404);
+        },
+      ),
+      mic: StreamController(),
+    );
+    await _startRewind(tester);
+    final before = homes;
+    await tester.tap(find.text('塩は小さじいち'));
+    await tester.pump();
+    await tester.enterText(find.widgetWithText(MoonTextArea, '塩は小さじいち'), '塩は小さじ1');
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    await tester.pumpAndSettle();
+
+    expect(homes, before + 1);
+    expect(find.text('塩は小さじいち'), findsNothing);
+    expect(find.widgetWithText(MoonTextArea, '塩は小さじ1'), findsNothing);
+    await _waitToast(tester);
+    await tester.tap(find.byType(MoonSwitch));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('リワインドの間に記録したメモは、欄を閉じて待ち受けの面の下に「照らし合わせています…」で出し、待ち受けは止めない', (tester) async {
     final memos = [
       _memo('a', DateTime(2026, 11, 3, 14, 5), '塩は小さじ1/2'),
@@ -1131,6 +1189,41 @@ void main() {
     await tester.pumpAndSettle();
     expect(_typed(tester), '田中さんから\n塩は小さじ1/2でいい');
     expect(find.byIcon(LucideIcons.mic), findsOneWidget);
+  });
+
+  testWidgets('音声入力の途中で、前に送った文面をメモに置けずに入力欄へ戻しても、届く文面で消さない', (tester) async {
+    final mic = StreamController<Uint8List>();
+    final socket = _FakeSocket();
+    final gate = Completer<http.Response?>();
+    await _pumpInput(tester, _client((_) async => _json({}), onSaveMemo: () => gate.future), mic: mic, socket: socket);
+    await tester.enterText(find.byType(MoonTextArea), '塩は小さじ1/2');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'ノートと照らし合わせる'));
+    await tester.pump();
+    expect(_typed(tester), isEmpty);
+
+    await tester.tap(find.byIcon(LucideIcons.mic));
+    await tester.pump();
+    mic.add(_pcm(500, voice: true));
+    await tester.pump();
+    socket.reply({'text': 'お冷やは'});
+    await tester.pump();
+    expect(_typed(tester), 'お冷やは');
+
+    gate.complete(_json({'error': 'サーバーにつながりません'}, 503));
+    await tester.pump();
+    expect(_typed(tester), '塩は小さじ1/2\nお冷やは');
+    socket.reply({'text': 'お冷やはすぐ出す'});
+    await tester.pump();
+    expect(_typed(tester), '塩は小さじ1/2\nお冷やはすぐ出す');
+
+    mic.add(_pcm(1600, voice: false));
+    await tester.pump();
+    socket.reply({'text': 'お冷やはすぐ出す', 'done': true});
+    await socket.close();
+    await tester.pumpAndSettle();
+    expect(_typed(tester), '塩は小さじ1/2\nお冷やはすぐ出す');
+    await _waitToast(tester);
   });
 
   testWidgets('音声入力は、話し出さないまま8秒たったら、無音を送らずに止めて知らせる', (tester) async {

@@ -191,14 +191,15 @@ Map<String, dynamic> _hall(List<String> kinds) {
       utterances: [_said('u2', '田中さん', '2026-11-04', 'お冷やはすぐ出す')], patches: patches, checks: checks);
 }
 
-/// 同じホールに続けて記録した、別の発言 u3 の追記を足す。前の発言 u2 の差分はそのまま残る
+/// 同じホール（hall）に続けて記録した、別の発言 u3 を足す。kind は追記（addition）か同じ内容（same）。前の発言 u2 の差分はそのまま残る
 /// （画面は1つの store を見るので、同じ発言 ID の状態を返すと前のカードの発言まで書き換わってしまう）
-Map<String, dynamic> _hallThenNext(List<String> kinds) {
-  final s = _hall(kinds);
-  (s['utterances'] as List).add(_said('u3', '田中さん', '2026-11-05', 'おしぼりは温める'));
-  (s['patches'] as List).add(_patch('p9', 'u3', '2026-11-05', 'insert', _hallLines.last, '- おしぼりは温める'));
-  (s['checks'] as List).add(_check('c9', 'p9', 'u3', 'addition'));
-  return s;
+Map<String, dynamic> _thenNext(Map<String, dynamic> hall, {String kind = 'addition'}) {
+  final same = kind == 'same';
+  (hall['utterances'] as List).add(_said('u3', '田中さん', '2026-11-05', same ? 'お冷やはすぐ出す' : 'おしぼりは温める'));
+  (hall['patches'] as List)
+      .add(_patch('p9', 'u3', '2026-11-05', 'insert', _hallLines.last, same ? _hallLines.last : '- おしぼりは温める'));
+  (hall['checks'] as List).add(_check('c9', 'p9', 'u3', kind, sameLine: same ? _hallLines.last : null));
+  return hall;
 }
 
 /// サーバーと同じく、発言者が分かれば追記・補足を書き込み、同じ内容は書き込まない（POST /utterances の write）。
@@ -795,7 +796,7 @@ void main() {
     await _pump(tester, [
       [(unnamed(['addition']), 'u2')],
       [(_kitchen(), 'u1')],
-      [(_hall(['same']), 'u2')],
+      [(_thenNext(unnamed(['addition']), kind: 'same'), 'u3')],
     ]);
     await _recordText(tester, 'おしぼりも一緒に出す');
     await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
@@ -827,7 +828,7 @@ void main() {
         (tester) async {
       final server = await _pump(tester, [
         [(_hall(['addition', 'same']), 'u2')],
-        [(_hallThenNext(['addition', 'same']), 'u3')],
+        [(_thenNext(_hall(['addition', 'same'])), 'u3')],
       ], size: size);
       server.changedWhileMatching = true;
       await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
@@ -937,6 +938,80 @@ void main() {
     ], size: pc);
     await recordWithoutTime(tester);
     expectCardShown(tester, pc);
+  });
+
+  /// 田中さんの「小さじ1/2」を、誰が言ったか分からないまま記録した。settled ならほかの画面で確定し、named なら発言者も入った
+  Map<String, dynamic> unnamedKitchen({bool settled = false, bool named = false}) {
+    final k = _kitchen();
+    (k['utterances'] as List).first['speaker'] = named ? '田中さん' : null;
+    if (settled) {
+      ((k['checks'] as List).first as Map<String, dynamic>)['resolution'] = {
+        'utteranceId': 'a1',
+        'patchId': null,
+        'decidedBy': '店長',
+        'answeredBy': null,
+        'decidedAt': '2026-11-10',
+        'text': _half,
+        'note': '1/2で統一',
+      };
+    }
+    return k;
+  }
+
+  testWidgets('誰が言ったか分からない記録の食い違いをほかの画面で確定しても、確かめることが残るあいだはカードを残す', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamedKitchen(), 'u1')],
+    ]);
+    await _recordText(tester, '塩は小さじ1/2でいい');
+    expect(_inCard(find.text('誰が言ったか分かりませんでした')), findsOneWidget);
+
+    // 確認リストで確定した。誰が言ったかはまだ入っていない
+    server.notes['m1'] = unnamedKitchen(settled: true);
+    await server.api.store.load();
+    await tester.pumpAndSettle();
+    expect(_card, findsOneWidget);
+    await tester.tap(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')));
+    await tester.pumpAndSettle();
+    expect(find.text('ノートに書き込む前の確認'), findsOneWidget);
+  });
+
+  testWidgets('誰が言ったか分からない記録で、読み直したら発言者も入り食い違いも確定されていたら、カードを外す', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamedKitchen(), 'u1')],
+    ]);
+    await _recordText(tester, '塩は小さじ1/2でいい');
+    expect(_card, findsOneWidget);
+
+    // ほかの端末で発言者を入れ、確認リストで確定した。確かめることは無く、カードの食い違いはもう今と合わない
+    server.notes['m1'] = unnamedKitchen(settled: true, named: true);
+    await server.api.store.load();
+    await tester.pumpAndSettle();
+    expect(_card, findsNothing);
+  });
+
+  testWidgets('誰が言ったか分からない記録を、ノートの画面の発言から確かめて書き込んだら、カードを今の状態に合わせ、次の結果で入れ替える', (tester) async {
+    final server = await _pump(tester, [
+      [(unnamed(['addition']), 'u2')],
+      [(_kitchen(), 'u1')],
+    ]);
+    await _recordText(tester, 'おしぼりも一緒に出す');
+    expect(_inCard(find.text(unnamedTitle)), findsOneWidget);
+
+    // ノートの画面の発言の付箋から開いた確認で、発言者を入れて書き込んだ（その画面のコントローラーから送る）
+    final written = _hall(['addition']);
+    ((written['patches'] as List).first as Map<String, dynamic>)['status'] = 'applied';
+    ((written['patches'] as List).first as Map<String, dynamic>)['appliedAt'] = '2026-11-10T00:00:00Z';
+    server.notes['m2'] = written;
+    await server.api.applyPatch('m2', 'p0');
+    await tester.pumpAndSettle();
+    expect(find.text(unnamedTitle), findsNothing);
+    expect(_inCard(find.text('ノートに1行書き込みました')), findsOneWidget);
+
+    // もう確かめることは無いので、次の結果で入れ替わる
+    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+    expect(_card, findsOneWidget);
+    expect(find.text('ノートに1行書き込みました'), findsNothing);
+    expect(_inCard(find.text('ノートと食い違っています')), findsOneWidget);
   });
 
   testWidgets('カードの食い違いをほかの画面で確定したら、読み直したときにカードを消す', (tester) async {

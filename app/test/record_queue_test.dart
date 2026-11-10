@@ -47,6 +47,9 @@ class _Server {
   /// あれば、POST /memos はこれが終わるまで待ち、エラーが入っていればそれを返す
   Completer<http.Response?>? memoGate;
 
+  /// GET /home を読んだ回数
+  var homes = 0;
+
   late final api = Api(client: MockClient(_handle), baseUrl: 'http://api');
 
   Future<http.Response> _handle(http.Request req) async {
@@ -61,7 +64,14 @@ class _Server {
       if (res.statusCode == 201) memos.removeWhere((m) => (body['memoIds'] ?? []).contains(m['id']));
       return res;
     }
-    if (path == '/home') return _json(homeJson([_hall()], memos: [...memos]));
+    if (path == '/home') {
+      homes++;
+      return _json(homeJson([_hall()], memos: [...memos]));
+    }
+    if (req.method == 'DELETE' && path.startsWith('/memos/')) {
+      memos.removeWhere((m) => m['id'] == req.url.pathSegments[1]);
+      return http.Response('', 204);
+    }
     if (path == '/memos') {
       if (await memoGate?.future case final failed?) return failed;
       final m = {'id': 'memo${++_memoCount}', ...jsonDecode(req.body) as Map<String, dynamic>};
@@ -70,6 +80,9 @@ class _Server {
     }
     return _json(_hall());
   }
+
+  /// i 番目の照らし合わせに、関係するノートが無かった結果を返す。サーバーと同じく、記録していないのでメモは消さない
+  void missed(int i) => intakes[i].reply.complete(_json({'text': intakes[i].body['text'], 'results': []}));
 
   /// i 番目の照らし合わせに、記録できた結果を返す
   void recorded(int i) => intakes[i].reply.complete(_json({
@@ -273,5 +286,113 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(_kept), findsOneWidget);
     expect(tester.getRect(_area).top, before);
+  });
+
+  group('関係するノートが無かったカードは、その文面のメモがほかから記録された・消されたら外す（同じ発言を2回入れない）', () {
+    const text = '傘は入口に置く';
+    const missedTitle = '関係するノートが見つかりませんでした';
+
+    Future<_Server> missedOnce(WidgetTester tester) async {
+      final server = _Server();
+      await _pump(tester, server);
+      await _press(tester, text);
+      server.missed(0);
+      await tester.pumpAndSettle();
+      expect(find.text(missedTitle), findsOneWidget);
+      expect(find.text('未整理メモに残しています'), findsOneWidget);
+      return server;
+    }
+
+    testWidgets('未整理メモのほうから記録したら', (tester) async {
+      final server = await missedOnce(tester);
+      // 未整理メモを入力欄に入れて記録する。サーバーはそのメモを消す
+      await tester.tap(find.text(text));
+      await tester.pump();
+      await tester.tap(_send);
+      await tester.pump();
+      expect(server.intakes[1].body['memoIds'], contains('memo1'));
+      server.recorded(1);
+      await tester.pumpAndSettle();
+
+      expect(find.text(missedTitle), findsNothing);
+      expect(find.widgetWithText(MoonFilledButton, '記録先を選ぶ'), findsNothing);
+    });
+
+    testWidgets('未整理メモを消したら', (tester) async {
+      await missedOnce(tester);
+      await tester.tap(find.bySemanticsLabel('メモを消す'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(missedTitle), findsNothing);
+      expect(find.text('未整理メモに残しています'), findsNothing);
+    });
+  });
+
+  testWidgets('照らし合わせの応答の形が違っても知らせ、後ろの記録は止めずに送る。サーバーで記録できていたメモは読み直して消す', (tester) async {
+    final server = _Server();
+    await _pump(tester, server);
+    await _press(tester, '塩は小さじ1/2');
+    await _press(tester, '塩は小さじ1');
+    expect(server.intakes, hasLength(1));
+
+    // 記録はできた（201）が、応答の形が違う
+    server.intakes[0].reply.complete(_json({'text': '塩は小さじ1/2', 'results': [{'manualId': 'm2'}]}, 201));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+    expect(find.text('サーバーの応答を読めませんでした。もう一度送ってください'), findsOneWidget);
+    expect(server.intakes, hasLength(2));
+    expect(find.text(_waiting), findsOneWidget);
+
+    server.recorded(1);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+    expect(find.text(_waiting), findsNothing);
+    expect(find.text(_kept), findsOneWidget);
+    // 記録できていた1件目のメモは、読み直して未整理メモに出さない
+    expect(find.text('塩は小さじ1/2'), findsNothing);
+  });
+
+  testWidgets('文面を置く応答の形が違っても知らせ、入力欄へ戻し、次の記録は送れる', (tester) async {
+    final server = _Server()..memoGate = Completer();
+    await _pump(tester, server);
+    await _press(tester, '塩は小さじ1/2');
+
+    server.memoGate!.complete(_json([], 201));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+    expect(find.text('サーバーの応答を読めませんでした。もう一度送ってください'), findsOneWidget);
+    expect(_typed(tester), '塩は小さじ1/2');
+    expect(find.text(_waiting), findsNothing);
+    expect(server.intakes, isEmpty);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+
+    server.memoGate = null;
+    await tester.tap(_send);
+    await tester.pump();
+    expect(server.intakes.single.body['text'], '塩は小さじ1/2');
+    server.recorded(0);
+    await tester.pumpAndSettle();
+    expect(find.text(_kept), findsOneWidget);
+  });
+
+  testWidgets('サーバーは記録したのに応答が途中で切れたら、読み直して、消えたメモを未整理メモに残さない', (tester) async {
+    final server = _Server();
+    await _pump(tester, server);
+    await _press(tester, '塩は小さじ1/2');
+    final before = server.homes;
+
+    // サーバーは記録してメモを消したが、応答は届かなかった
+    server.memos.clear();
+    server.intakes[0].reply.complete(http.Response('<html>502 Bad Gateway</html>', 502));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('エラーが起きました（502）'), findsOneWidget);
+    await tester.pumpAndSettle(const Duration(seconds: 10));
+
+    expect(server.homes, before + 1);
+    expect(find.text(_waiting), findsNothing);
+    expect(find.text('塩は小さじ1/2'), findsNothing);
+    expect(find.text('未整理メモ'), findsNothing);
   });
 }

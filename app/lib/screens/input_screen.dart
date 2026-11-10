@@ -170,15 +170,31 @@ class _InputScreenState extends State<InputScreen> {
     await store.load();
   }
 
-  /// store（自分のノートと共有されたノート・未整理メモ）が変わったら描き直す。
-  /// 結果のカードの食い違いがほかの画面で確定された・ノートが消されたら、そのカードは外す
+  /// store（自分のノートと共有されたノート・未整理メモ）が変わったら描き直し、結果のカードを今の状態に合わせる
   void _onStore() {
     if (!mounted) return;
     final store = widget.api.store;
     setState(() {
-      if (store.notes case final manuals?) _results.removeWhere((r) => _outdated(r.records, manuals, r.settled));
+      if (store.notes case final manuals?) _results.removeWhere((r) => _stale(r, manuals, store.memos));
       if (!store.memos.contains(_editingMemo)) _editingMemo = null;
     });
+  }
+
+  /// 結果のカードを外すか。確かめることが残ったカードは、ここで records を今の状態に作り直す。
+  /// - 関係するノートが無かったカードは、そのメモが未整理メモから記録された・消されたら外す。
+  ///   残すと、カードの「記録先を選ぶ」からもう1度送れて二重に記録する。添付だけの記録はメモが無いので外さない
+  /// - 確かめることが残ったカード（records は照らし合わせた時点の写し）は、ほかの画面で書き込んだ・確定した今の状態に
+  ///   作り直す。外すのはノートが消えたときと、作り直して確かめることが無くなったうえで、食い違いがほかの画面で確定されたとき。
+  ///   確かめることが残っていれば、入口として残す
+  /// - それ以外のカードは、食い違いがほかの画面で確定された・ノートが消されたら外す
+  bool _stale(_Result r, List<ManualState> manuals, List<Memo> memos) {
+    if (r.missed case final m?) return m.memoIds.any((id) => !memos.any((x) => x.id == id));
+    if (!needsReview(r.records)) return _outdated(r.records, manuals, r.settled);
+    if (r.records.any((x) => !manuals.any((m) => m.id == x.manualId))) return true;
+    // 確定されたかは、作り直す前の写しで比べる（作り直すと、確定された食い違いはもう開いていない）
+    final outdated = _outdated(r.records, manuals, r.settled);
+    r.records = [for (final t in r.targets) (manualId: t.c.manualId, utteranceId: t.utteranceId, state: t.c.state!)];
+    return outdated && !needsReview(r.records);
   }
 
   /// 結果のカードが古くなったか。カードの食い違いが1つでもほかの画面で確定された、またはノートが消された・共有を外されたら、
@@ -279,7 +295,10 @@ class _InputScreenState extends State<InputScreen> {
     if (text != m.text) {
       // 書き直した文面を先にメモに残す。途中でタブを閉じても、直した文面が残る
       _keep(p, () => widget.api.editMemo(m.id, text), onFailed: () {
-        if (_editingMemo != null) return;
+        // ほかの端末で消したり記録したりしていれば、今のメモに合わせる（消えたメモの欄は _onStore が閉じる）
+        unawaited(widget.api.store.load());
+        // 欄を開き直すのは、リワインドのままで、ほかのメモを書き直していないときだけ
+        if (!_rewind || _editingMemo != null) return;
         _editingMemo = m;
         _memoText.text = text;
       });
@@ -402,8 +421,10 @@ class _InputScreenState extends State<InputScreen> {
     if (text.isNotEmpty) {
       // 失敗して送り直すときも言われた日がずれないよう、流し込んだメモの時刻を引き継ぐ
       _keep(p, () => widget.api.addMemo(earliest ?? DateTime.now(), text), onFailed: () {
-        // 待っている間に書き始めた文は消さず、その前に戻す
+        // 待っている間に書き始めた文は消さず、その前に戻す。音声入力の途中なら、次に届く文面で上書きされないよう、
+        // 音声入力の前の文面にも足す
         _text.text = [text, _text.text.trim()].where((t) => t.isNotEmpty).join('\n');
+        if (_dictating) _beforeDictation = [text, _beforeDictation].where((t) => t.isNotEmpty).join('\n');
         _files.insertAll(0, p.files);
         _poured.addAll(poured);
       });
@@ -424,9 +445,9 @@ class _InputScreenState extends State<InputScreen> {
         if (!mounted) return false;
         setState(() => p.memo = m);
         return true;
-      } on ApiException catch (e) {
+      } catch (e) {
         if (!mounted) return false;
-        showError(context, e);
+        showError(context, _failure(e));
         setState(() {
           _queue.remove(p);
           onFailed();
@@ -451,6 +472,9 @@ class _InputScreenState extends State<InputScreen> {
         final p = _queue.first;
         try {
           await _process(p);
+        } catch (e) {
+          // 想定外の失敗でも、後ろの記録は止めずに送る
+          if (mounted) showError(context, _failure(e));
         } finally {
           if (mounted) setState(() => _queue.remove(p));
         }
@@ -473,15 +497,17 @@ class _InputScreenState extends State<InputScreen> {
         memoIds: p.memoIds,
         write: true,
       );
-    } on ApiException catch (e) {
+    } catch (e) {
       if (!mounted) return;
-      showError(context, e);
+      showError(context, _failure(e));
       setState(() {
         // 文面は待ちを外せば未整理メモに出る。ファイルはメモに置けないので入力欄に戻す
         _files.insertAll(0, p.files);
         // 記録先を選び直して送ったものは、カードを戻す。ファイルだけの記録は、読み取った文面がカードにしか無い
         if (p.retryOf case final r?) _results.insert(0, r);
       });
+      // 応答が途中で切れただけで、サーバーは記録してメモを消しているかもしれない。読み直して未整理メモとノートを合わせる
+      unawaited(widget.api.store.load());
       return;
     }
     if (!mounted) return;
@@ -1213,6 +1239,9 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 }
+
+/// 失敗を知らせる文。応答の形が違ったとき（TypeError など）に、英語の例外の文を出さない
+Object _failure(Object e) => e is ApiException ? e : 'サーバーの応答を読めませんでした。もう一度送ってください';
 
 /// 「ノートと照らし合わせる」を押して、照らし合わせを待っている記録
 class _Pending {
