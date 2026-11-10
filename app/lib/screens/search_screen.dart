@@ -21,29 +21,23 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _query = TextEditingController();
-  late Future<List<ManualState>> _manuals = _load();
 
   @override
   void initState() {
     super.initState();
-    widget.api.changes.addListener(_reload);
+    widget.api.store.ensureLoaded();
   }
 
   @override
   void dispose() {
-    widget.api.changes.removeListener(_reload);
     _query.dispose();
     super.dispose();
   }
 
-  Future<List<ManualState>> _load() async {
-    final (own, shared) = await (widget.api.listManuals(), widget.api.listShared()).wait;
-    return Future.wait([for (final id in [...own.map((m) => m.id), ...shared.map((m) => m.id)]) widget.api.getManual(id)]);
+  void _reload() {
+    widget.api.store.load();
+    setState(() {});
   }
-
-  void _reload() => setState(() {
-        _manuals = _load();
-      });
 
   /// line は押した行の番号。題名を押したときは省き、ノートの頭から見せる
   Future<void> _open(String id, String query, {int line = 0}) async {
@@ -75,7 +69,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   onChanged: (_) => setState(() {}),
                 ),
                 SizedBox(height: k.space.xl),
-                FutureBuilder(future: _manuals, builder: (context, snap) => _results(snap)),
+                ListenableBuilder(listenable: widget.api.store, builder: (context, _) => _results()),
               ]),
             ),
           ),
@@ -84,14 +78,17 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _results(AsyncSnapshot<List<ManualState>> snap) {
-    if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-    if (!snap.hasData) return const Loading();
+  Widget _results() {
+    final store = widget.api.store;
+    final notes = store.notes;
+    if (notes == null) {
+      return store.error == null ? const Loading() : LoadFailed(message: store.error.toString(), onRetry: _reload);
+    }
     final q = _query.text.trim();
     if (q.isEmpty) return const SizedBox.shrink();
     final k = context.tokens;
     final hits = <(ManualState, List<(int, String)>)>[];
-    for (final s in snap.data!) {
+    for (final s in notes) {
       // マークダウンの印（「## 」「- 」など）では当てない
       final lines = [
         for (final (i, l) in s.lines.indexed)

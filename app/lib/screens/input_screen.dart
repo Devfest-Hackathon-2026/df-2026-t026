@@ -66,8 +66,6 @@ class InputScreen extends StatefulWidget {
 }
 
 class _InputScreenState extends State<InputScreen> {
-  late Future<List<ManualState>> _manuals = _load();
-
   /// 狭い画面のメニュー（Drawer）を閉じるため
   final _scaffold = GlobalKey<ScaffoldState>();
   final _text = TextEditingController();
@@ -86,8 +84,6 @@ class _InputScreenState extends State<InputScreen> {
 
   /// 広い画面と狭い画面で並べ方が変わっても（スマホを横にしたときなど）、待ち受けを途切れさせない
   final _rewindKey = GlobalKey();
-
-  final _memos = <Memo>[];
 
   /// 照らし合わせを待っている記録。押した順で、先頭から1件ずつ送る
   final _queue = <_Pending>[];
@@ -117,7 +113,7 @@ class _InputScreenState extends State<InputScreen> {
 
   late final void Function() _stopWatchingDrops;
 
-  /// ほかの端末でためたメモを、このアプリに戻ってきたときに出す
+  /// アプリに戻ってきたときに読み直し、ほかの人の編集やほかの端末でためたメモを出す
   late final AppLifecycleListener _lifecycle;
 
   @override
@@ -127,9 +123,9 @@ class _InputScreenState extends State<InputScreen> {
     _stopWatchingDrops = onFilesDropped((f, _) {
       if (ModalRoute.of(context)?.isCurrent ?? true) _addPicked(f);
     });
-    _lifecycle = AppLifecycleListener(onResume: _loadMemos);
-    _loadMemos();
-    widget.api.changes.addListener(_follow);
+    _lifecycle = AppLifecycleListener(onResume: _refresh);
+    widget.api.store.addListener(_onStore);
+    _refresh();
   }
 
   @override
@@ -148,7 +144,7 @@ class _InputScreenState extends State<InputScreen> {
 
   @override
   void dispose() {
-    widget.api.changes.removeListener(_follow);
+    widget.api.store.removeListener(_onStore);
     _scroll.dispose();
     _text.dispose();
     _memoText.dispose();
@@ -159,22 +155,30 @@ class _InputScreenState extends State<InputScreen> {
     super.dispose();
   }
 
-  /// 自分のノートと、共有されたノート（共有された人も記録・確定できる。ADR 0016）
-  Future<List<ManualState>> _load() async {
-    // 読み始めより後に出したカードは、この読み込みより新しいので比べない
-    final shown = [..._results];
-    // 失敗を ParallelWaitError で包まず、画面にそのまま出せる ApiException で受ける
-    final ids = await Future.wait([
-      widget.api.listManuals().then((l) => [for (final m in l) m.id]),
-      widget.api.listShared().then((l) => [for (final m in l) m.id]),
-    ]);
-    final manuals = await Future.wait([for (final id in ids.expand((x) => x)) widget.api.getManual(id)]);
-    final stale = [
-      for (final r in shown)
-        if (_results.contains(r) && _outdated(r.records, manuals, r.settled)) r,
-    ];
-    if (mounted && stale.isNotEmpty) setState(() => _results.removeWhere(stale.contains));
-    return manuals;
+  /// 入力ページを開いたとき・ログインしたとき・アプリに戻ってきたときに、GET /home で全部を読み直す（ADR 0020）。
+  /// 前の版がブラウザにためていた未整理メモがあれば、サーバーに移してからもう1度読む
+  Future<void> _refresh() async {
+    final store = widget.api.store;
+    final loading = store.load();
+    try {
+      if (!await _moveLocalMemos()) return;
+    } on ApiException {
+      // ログインの前や通信の失敗では移せない。次に読み直すときにまた試す
+      return;
+    }
+    await loading;
+    await store.load();
+  }
+
+  /// store（自分のノートと共有されたノート・未整理メモ）が変わったら描き直す。
+  /// 結果のカードの食い違いがほかの画面で確定された・ノートが消されたら、そのカードは外す
+  void _onStore() {
+    if (!mounted) return;
+    final store = widget.api.store;
+    setState(() {
+      if (store.notes case final manuals?) _results.removeWhere((r) => _outdated(r.records, manuals, r.settled));
+      if (!store.memos.contains(_editingMemo)) _editingMemo = null;
+    });
   }
 
   /// 結果のカードが古くなったか。カードの食い違いが1つでもほかの画面で確定された、またはノートが消された・共有を外されたら、
@@ -188,44 +192,17 @@ class _InputScreenState extends State<InputScreen> {
                 .any((c) => now.checkOf(c.patchId)?.isOpen != true);
       });
 
+  /// 「もう一度読み込む」とログインのあと。読み込み中の表示にしてから読む
   void _reload() {
-    setState(() {
-      _manuals = _load();
-    });
-    _loadMemos();
+    _refresh();
+    setState(() {});
   }
 
-  /// サイドバーと同じ時機に読み直す。サイドバーから戻ったときは _push を通らないので、
-  /// ほかの画面での確定が「あとで確認」に出ない（#92）。読めなければ今の表示のまま残し、待ち受けや書きかけを消さない
-  void _follow() {
-    final shown = _manuals;
-    setState(() {
-      _manuals = _load().catchError((Object _) => shown);
-    });
-  }
-
-  /// 未整理メモをサーバーから読み直す。ほかの端末でためた・直した・消したメモもここでそろう
-  Future<void> _loadMemos() async {
-    try {
-      await _moveLocalMemos();
-      final memos = await widget.api.listMemos();
-      if (!mounted) return;
-      setState(() {
-        _memos
-          ..clear()
-          ..addAll(memos);
-        if (!_memos.contains(_editingMemo)) _editingMemo = null;
-      });
-    } on ApiException {
-      // ログインの前や通信の失敗では今のメモのまま出し、次に読み直すときにまた試す
-    }
-  }
-
-  /// 前の版がブラウザにためていた未整理メモを、サーバーに移す
-  Future<void> _moveLocalMemos() async {
+  /// 前の版がブラウザにためていた未整理メモを、サーバーに移す。移すものがあったら true
+  Future<bool> _moveLocalMemos() async {
     final p = await SharedPreferences.getInstance();
     final left = p.getStringList(memosKey);
-    if (left == null) return;
+    if (left == null) return false;
     // 先に消して、読み直しが重なっても二重に移さない。移せなかった分は戻す
     await p.remove(memosKey);
     try {
@@ -237,6 +214,7 @@ class _InputScreenState extends State<InputScreen> {
     } finally {
       if (left.isNotEmpty) await p.setStringList(memosKey, left);
     }
+    return true;
   }
 
   Future<void> _login(String id, String password) async {
@@ -280,14 +258,6 @@ class _InputScreenState extends State<InputScreen> {
         _editingMemo = null;
       });
 
-  /// リワインドで書き起こせたメモ（サーバーにはもうある）。書き起こしは前後して返るので、切り出した順に並べ直す
-  void _addMemo(Memo m) {
-    _memos
-      ..add(m)
-      ..sort((a, b) => a.at.compareTo(b.at));
-    if (mounted) setState(() {});
-  }
-
   /// メモを入力欄の後ろに足す。続けて入れると1つの指示にまとめられる
   void _pour(Memo m) => setState(() {
         _text.text = [_text.text.trimRight(), m.text].where((t) => t.isNotEmpty).join('\n');
@@ -325,18 +295,14 @@ class _InputScreenState extends State<InputScreen> {
     if (m == null || text.isEmpty || _busy) return;
     setState(() => _busy = true);
     try {
-      final edited = await widget.api.editMemo(m.id, text);
+      await widget.api.editMemo(m.id, text);
       if (!mounted) return;
-      setState(() {
-        final i = _memos.indexOf(m);
-        if (i >= 0) _memos[i] = edited;
-        _editingMemo = null;
-      });
+      setState(() => _editingMemo = null);
     } on ApiException catch (e) {
       if (!mounted) return;
       showError(context, e);
       // ほかの端末で消したり記録したりしていれば、今のメモに合わせる
-      unawaited(_loadMemos());
+      unawaited(widget.api.store.load());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -349,11 +315,7 @@ class _InputScreenState extends State<InputScreen> {
       if (mounted) showError(context, e);
       return;
     }
-    if (!mounted) return;
-    setState(() {
-      _memos.remove(m);
-      _poured.remove(m);
-    });
+    if (mounted) setState(() => _poured.remove(m));
   }
 
   /// テキスト欄の音声入力。話している途中から入力欄に文字を出し、話し終わったら自動で止める
@@ -460,14 +422,7 @@ class _InputScreenState extends State<InputScreen> {
       try {
         final m = await save();
         if (!mounted) return false;
-        setState(() {
-          p.memo = m;
-          // 書き直したメモは同じ id なので置き換わる
-          _memos
-            ..remove(m)
-            ..add(m)
-            ..sort((a, b) => a.at.compareTo(b.at));
-        });
+        setState(() => p.memo = m);
         return true;
       } on ApiException catch (e) {
         if (!mounted) return false;
@@ -537,10 +492,8 @@ class _InputScreenState extends State<InputScreen> {
             for (final x in r.results) (c: ManualController(widget.api, x.manualId, x.state), utteranceId: x.utteranceId),
           ]);
     setState(() {
-      if (r.results.isNotEmpty) {
-        _memos.removeWhere((m) => p.memoIds.contains(m.id));
-        _poured.removeWhere((m) => p.memoIds.contains(m.id));
-      }
+      // 記録できたメモは、サーバーが消し、Api が store からも外している
+      if (r.results.isNotEmpty) _poured.removeWhere((m) => p.memoIds.contains(m.id));
       _results
         ..removeWhere((x) => !x.kept)
         ..insert(0, result);
@@ -636,10 +589,8 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  Future<void> _push(Widget screen) async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
-    _reload();
-  }
+  /// 戻ってきても読み直さない。ほかの画面で書いた応答は store に入っている（ADR 0020）
+  Future<void> _push(Widget screen) => Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
   @override
   Widget build(BuildContext context) {
@@ -678,19 +629,23 @@ class _InputScreenState extends State<InputScreen> {
                   )
                 : null,
           ),
-          Expanded(child: FutureBuilder(future: _manuals, builder: (context, snap) => _body(snap))),
+          Expanded(child: _body()),
         ])),
       ),
     );
   }
 
-  Widget _body(AsyncSnapshot<List<ManualState>> snap) {
-    if (snap.error case ApiException(status: 401, :final message)) {
+  /// 一度読めたあとは、戻ってきたときの読み直しに失敗しても今の表示のまま残し、待ち受けや書きかけを消さない。
+  /// ログインが切れていたら（401）ログインの欄を出す
+  Widget _body() {
+    final store = widget.api.store;
+    if (store.error case ApiException(status: 401, :final message)) {
       return _LoginForm(message: message, onSubmit: _login);
     }
-    if (snap.hasError) return LoadFailed(message: snap.error.toString(), onRetry: _reload);
-    if (!snap.hasData) return const Loading();
-    final manuals = snap.data!;
+    final manuals = store.notes;
+    if (manuals == null) {
+      return store.error == null ? const Loading() : LoadFailed(message: store.error.toString(), onRetry: _reload);
+    }
 
     final k = context.tokens;
     return LayoutBuilder(builder: (context, box) {
@@ -705,7 +660,6 @@ class _InputScreenState extends State<InputScreen> {
                 key: _rewindKey,
                 api: widget.api,
                 newRecorder: widget.newRecorder,
-                onMemo: _addMemo,
                 onCapturing: (v) => setState(() => _capturing = v),
               ),
               // リワインドの間に未整理メモを記録したときも、待っている記録と結果は待ち受けの面の下に出す
@@ -788,7 +742,7 @@ class _InputScreenState extends State<InputScreen> {
   List<Widget> _unsorted({double? noteWidth}) {
     final k = context.tokens;
     final waiting = {for (final p in _queue) ...p.memoIds};
-    final memos = [for (final m in _memos) if (!waiting.contains(m.id)) m];
+    final memos = [for (final m in widget.api.store.memos) if (!waiting.contains(m.id)) m];
     if (memos.isEmpty && !_rewind) return [];
     return [
       Text('未整理メモ', style: k.text.title),
