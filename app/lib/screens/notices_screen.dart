@@ -13,7 +13,8 @@ import 'profile_screen.dart';
 import 'sidebar.dart';
 
 /// 自分のノートで、共有した相手が答えた・行を直したこと（ADR 0020）。サイドバーの自分から開く。
-/// 通知は store にあるものをすぐ出す（ADR 0021）。開いたら見たことにし、前に見たときより後の通知に「新しい」を付ける
+/// 通知は store にあるものをすぐ出し、裏で1本読み直す（ノートを開くときと同じ形。ADR 0021）。
+/// 読み直してから見たことにし、開いた時点で前に見たときより後の通知に「新しい」を付ける
 class NoticesScreen extends StatefulWidget {
   const NoticesScreen({super.key, required this.api});
   final Api api;
@@ -34,27 +35,28 @@ class _NoticesScreenState extends State<NoticesScreen> {
   @override
   void initState() {
     super.initState();
-    if (_store.notices != null) {
-      _see();
-    } else {
-      _load();
-    }
+    _capture();
+    _load();
   }
 
-  void _load() {
-    _store.load().then((_) {
-      if (mounted && !_opened) setState(_see);
-    });
-  }
-
-  /// 開いた時点の見た時刻を控えてから、見たことにする。先に見たことにすると、そのあと読んだ見た時刻が今になり、印が付かない
-  void _see() {
+  /// 開いた時点の見た時刻を控える。store にまだ通知が無ければ、読めたときに控える
+  void _capture() {
     final n = _store.notices;
-    if (n == null) return;
+    if (n == null || _opened) return;
     _seenAt = n.seenAt;
     _opened = true;
-    // 見たことにできなくても、通知は見せる。次に開いたときにまた新しいと出るだけ
-    widget.api.seeNotices().catchError((Object _) {});
+  }
+
+  /// 裏で読み直し、そのあとで見たことにする。アプリを前面に開いたままだと戻ってきたときの読み直しが無いので、
+  /// ここで読まないと届いていた通知が出ない。先に見たことにすると、読み直しで届いた通知が手元の見た時刻より後になり、
+  /// サイドバーの数がまた出る
+  void _load() {
+    _store.load().then((_) {
+      if (!mounted) return;
+      setState(_capture);
+      // 見たことにできなくても、通知は見せる。次に開いたときにまた新しいと出るだけ
+      if (_opened) widget.api.seeNotices().catchError((Object _) {});
+    });
   }
 
   @override

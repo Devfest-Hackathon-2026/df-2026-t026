@@ -97,6 +97,20 @@ void _wide(WidgetTester tester) {
 
 Finder get _me => find.widgetWithText(MoonMenuItem, 'かなで');
 
+/// 佐藤店長があとから、もう1行直した
+const _later = {
+  'id': 'u10',
+  'kind': 'edit',
+  'manualId': 'm1',
+  'title': 'キッチン',
+  'by': {'id': 'sato', 'name': '佐藤店長'},
+  'at': '2026-11-10T03:00:00.000Z',
+  'op': 'delete',
+  'line': '- 塩 小さじ1/2',
+  'text': '',
+};
+const _laterText = '「塩 小さじ1/2」を消した';
+
 void main() {
   testWidgets('自分の右に新しい通知の数が出て、押すと通知が並び、見たら数が消える。通知からノートを開ける', (tester) async {
     _wide(tester);
@@ -119,8 +133,8 @@ void main() {
     // 見たので、自分の右の数は消える。開いているページの「新しい」は残す
     expect(find.descendant(of: _me, matching: find.text('1')), findsNothing);
     expect(find.text('新しい'), findsOneWidget);
-    // 通知は開いたときに読んだ store から出し、ページを開いても読み直さない
-    expect(server.requests.where((r) => r.startsWith('GET')), ['GET /home']);
+    // store の通知をすぐ出し、裏で1本読み直してから見たことにする
+    expect(server.requests, ['GET /home', 'GET /home', 'POST /notices/seen']);
 
     await tester.tap(find.text('佐藤店長がノートを編集しました'));
     await tester.pumpAndSettle();
@@ -128,38 +142,51 @@ void main() {
     expect(server.requests, contains('GET /manuals/m1'));
   });
 
-  testWidgets('戻ってきたときの読み直しの途中に見たことにしても、その読み直しで届いた通知は出し、「新しい」を付ける', (tester) async {
+  testWidgets('アプリを前面に開いたままでも、通知のページを開くと読み直し、届いていた通知に「新しい」を付けてから見たことにする', (tester) async {
     _wide(tester);
     final server = _Server();
-    final api = Api(client: server.client, baseUrl: 'http://api');
-    await tester.pumpWidget(MaterialApp(theme: appTheme(), home: InputScreen(api: api)));
+    await tester.pumpWidget(
+        MaterialApp(theme: appTheme(), home: InputScreen(api: Api(client: server.client, baseUrl: 'http://api'))));
     await tester.pumpAndSettle();
-
-    // 戻ってきて読み直している間に、佐藤店長がもう1行直していた。読み直しはまだ返らない
-    server.later.add({
-      'id': 'u10',
-      'kind': 'edit',
-      'manualId': 'm1',
-      'title': 'キッチン',
-      'by': {'id': 'sato', 'name': '佐藤店長'},
-      'at': '2026-11-10T03:00:00.000Z',
-      'op': 'delete',
-      'line': '- 塩 小さじ1/2',
-      'text': '',
-    });
+    // 戻ってくる出来事は無いまま、別の端末で佐藤店長がもう1行直した
+    server.later.add(_later);
     server.homeGate = Completer();
-    api.store.load();
-    await tester.pump();
 
     await tester.tap(_me);
-    await tester.pumpAndSettle();
-    expect(server.requests, contains('POST /notices/seen'));
-    expect(find.text('「塩 小さじ1/2」を消した'), findsNothing);
+    await tester.pump();
+    // store にある通知はすぐ出す。読み直しが返るまでは、見たことにしない
+    expect(find.text('佐藤店長が回答しました'), findsOneWidget);
+    expect(find.text(_laterText), findsNothing);
+    expect(server.requests, isNot(contains('POST /notices/seen')));
 
     server.homeGate!.complete();
     await tester.pumpAndSettle();
-    expect(find.text('「塩 小さじ1/2」を消した'), findsOneWidget);
+    expect(find.text(_laterText), findsOneWidget);
     expect(find.text('新しい'), findsNWidgets(2));
+    expect(server.requests.sublist(server.requests.length - 2), ['GET /home', 'POST /notices/seen']);
+    // 読み直した通知まで見たことにしたので、自分の右の数は出ない
+    expect(find.descendant(of: _me, matching: find.byType(StatusTag)), findsNothing);
+  });
+
+  test('読み直しの途中に見たことにしても、その読み直しで届いた通知は入れ、見た時刻は手元の新しい方を残す', () async {
+    final server = _Server();
+    final api = Api(client: server.client, baseUrl: 'http://api');
+    await api.store.load();
+    expect(api.store.freshNotices, 1);
+
+    server.later.add(_later);
+    server.homeGate = Completer();
+    final loading = api.store.load();
+    await api.seeNotices();
+    expect(api.store.freshNotices, 0);
+    server.homeGate!.complete();
+    await loading;
+
+    final n = api.store.notices!;
+    expect([for (final x in n.items) x.id], ['u10', 'u9', 'c1']);
+    // 読み直しの見た時刻（見たことにする前に読んだ 01:00）より、手元で見たことにした時刻（02:00 の通知まで）を残す
+    expect(n.seenAt, '2026-11-10T02:00:00.000Z');
+    expect(api.store.freshNotices, 1);
   });
 
   testWidgets('まだ読めていないときに開いたら、読んでから「新しい」を付け、そのあとで見たことにする', (tester) async {
