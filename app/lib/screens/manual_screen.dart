@@ -150,15 +150,17 @@ class _ManualScreenState extends State<ManualScreen> {
   // 広い画面でも「ノートの上」の印を付けておき、狭い幅に変わっても「ノート」タブで1枚のノートに戻れるようにする
   void _openList() => _open(NoteTab.checks, CheckListScreen(c: c));
 
-  void _openHistory() => _open(NoteTab.history, HistoryScreen(c: c));
+  /// utteranceId を渡すと、その記録で作った版を選んで開く
+  void _openHistory({String? utteranceId}) =>
+      _open(NoteTab.history, HistoryScreen(c: c, utteranceId: utteranceId), utteranceId: utteranceId);
 
   /// 資料は下のタブバーに無いので、狭い画面でもノートの上に積み、戻る矢印で戻る（ADR 0019）
   void _openMaterials() => Navigator.push(
       context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => MaterialsScreen(c: c)));
 
-  void _open(NoteTab tab, Widget screen) => showsSidebar(context)
+  void _open(NoteTab tab, Widget screen, {String? utteranceId}) => showsSidebar(context)
       ? Navigator.push(context, MaterialPageRoute(settings: aboveNote(context, fromNote: true), builder: (_) => screen))
-      : openNoteTab(context, c, from: NoteTab.note, to: tab);
+      : openNoteTab(context, c, from: NoteTab.note, to: tab, utteranceId: utteranceId);
 
   @override
   Widget build(BuildContext context) {
@@ -562,6 +564,8 @@ class _ManualScreenState extends State<ManualScreen> {
   /// 記録した発言のパネル。withHeader が false なら一覧だけ（狭い画面のタブの中身）
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
+    // 共有した相手が行を直した記録も、細い札で時刻の順に混ぜる。持ち主の直しは本人の文なので出さない（ADR 0020）
+    final entries = s.utterances.where((u) => !u.fromEdit || u.editedBy != null).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (withHeader)
         Padding(
@@ -569,7 +573,7 @@ class _ManualScreenState extends State<ManualScreen> {
           child: Text('記録した発言（${s.said.length}）', style: k.text.title),
         ),
       Expanded(
-        child: s.said.isEmpty
+        child: entries.isEmpty
             ? Padding(
                 padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.md),
                 child: Text('入力ページで記録すると、ここに付箋で並びます', style: k.text.small),
@@ -577,8 +581,8 @@ class _ManualScreenState extends State<ManualScreen> {
             : Builder(builder: (context) => ListView(
                 padding: belowTabBar(context, EdgeInsets.fromLTRB(k.space.lg, k.space.md, k.space.lg, k.space.lg)),
                 children: [
-                  for (final u in s.said.reversed) ...[
-                    _utteranceEntry(s, u),
+                  for (final u in entries.reversed) ...[
+                    u.fromEdit ? _editEntry(s, u) : _utteranceEntry(s, u),
                     SizedBox(height: k.space.lg),
                   ],
                 ],
@@ -602,6 +606,25 @@ class _ManualScreenState extends State<ManualScreen> {
           for (final st in _statuses(s, u)) _statusTag(st),
         ]),
       ]),
+    );
+  }
+
+  /// 共有した相手が行を直した記録。付箋より細い白い札にし、押すと履歴でその版を開く（ADR 0020）
+  Widget _editEntry(ManualState s, Utterance u) {
+    final k = context.tokens;
+    final p = s.patchesOf(u.id).firstOrNull;
+    return MoonMenuItem(
+      onTap: () => _openHistory(utteranceId: u.id),
+      backgroundColor: k.colors.canvas,
+      borderRadius: k.radius.paper,
+      menuItemPadding: EdgeInsets.symmetric(horizontal: k.space.md, vertical: k.space.sm),
+      label: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Speaker(name: u.speaker, day: u.saidAt, after: 'が行を直した'),
+        SizedBox(height: k.space.xs),
+        Text(p == null ? u.text : editSummary(p.op, p.line, p.text),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: k.text.small),
+      ]),
+      trailing: Icon(LucideIcons.chevronRight, color: k.colors.inkMuted),
     );
   }
 

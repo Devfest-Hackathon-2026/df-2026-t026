@@ -103,6 +103,15 @@ class Api {
   Future<List<SharedManual>> listShared() async =>
       [for (final m in await _send('GET', '/shared')) SharedManual.fromJson(m)];
 
+  /// 自分のノートで、共有した相手が答えた・直したこと（新しい順）と、通知を最後に見た時刻（ADR 0020）
+  Future<({String? seenAt, List<Notice> items})> notices() async {
+    final j = await _send('GET', '/notices');
+    return (seenAt: j['seenAt'] as String?, items: [for (final x in j['items']) Notice.fromJson(x)]);
+  }
+
+  /// 通知を見たことにする。changes が増え、サイドバーの件数が消える
+  Future<void> seeNotices() async => _send('POST', '/notices/seen');
+
   /// このノートを共有している相手
   Future<List<Person>> shares(String manualId) async => _people(await _send('GET', '/manuals/$manualId/shares'));
 
