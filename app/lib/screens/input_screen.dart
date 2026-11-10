@@ -322,7 +322,8 @@ class _InputScreenState extends State<InputScreen> {
       setState(() {
         final i = _memos.indexOf(m);
         if (i >= 0) _memos[i] = edited;
-        _editingMemo = null;
+        // 外を押した先がほかのメモなら、そちらの欄はもう開いている
+        if (_editingMemo == m) _editingMemo = null;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -754,45 +755,51 @@ class _InputScreenState extends State<InputScreen> {
     );
   }
 
-  /// リワインドの間に付箋のまま書き直す欄。そのまま記録するか、直した文だけ残す
+  /// リワインドの間に付箋のまま書き直す欄。そのまま記録するか、外を押して直した文だけ残す
   Widget _memoEditor(Memo m, List<ManualState> manuals) {
     final k = context.tokens;
     final filled = _memoText.text.trim().isNotEmpty;
-    return StickyNote(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
-        SizedBox(height: k.space.sm),
-        MoonTextArea(
-          controller: _memoText,
-          autofocus: true,
-          // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない。
-          // expands は付けない（moon_design 1.1.0 は expands のとき文字を縦の真ん中に置く）
-          height: k.memoEditorHeight,
-          readOnly: _busy,
-          textStyle: k.text.inputArea,
-          onChanged: (_) => setState(() {}),
-        ),
-        SizedBox(height: k.space.sm),
-        Wrap(spacing: k.space.sm, runSpacing: k.space.xs, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          MoonFilledButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: filled && !_busy ? () => _sendMemo(manuals) : null,
-            leading: _busy ? const ButtonLoader() : null,
-            label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+    return TapOutside(
+      onTapOutside: _closeMemo,
+      child: StickyNote(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
+          SizedBox(height: k.space.sm),
+          MoonTextArea(
+            controller: _memoText,
+            autofocus: true,
+            // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない。
+            // expands は付けない（moon_design 1.1.0 は expands のとき文字を縦の真ん中に置く）
+            height: k.memoEditorHeight,
+            readOnly: _busy,
+            textStyle: k.text.inputArea,
+            onChanged: (_) => setState(() {}),
           ),
-          MoonOutlinedButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: filled && !_busy ? _saveMemo : null,
-            label: const Text('保存する'),
-          ),
-          MoonTextButton(
-            buttonSize: MoonButtonSize.sm,
-            onTap: _busy ? null : () => setState(() => _editingMemo = null),
-            label: const Text('やめる'),
+          SizedBox(height: k.space.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoonFilledButton(
+              buttonSize: MoonButtonSize.sm,
+              onTap: filled && !_busy ? () => _sendMemo(manuals) : null,
+              leading: _busy ? const ButtonLoader() : null,
+              label: Text(_busy ? 'ノートと照らし合わせています…' : 'ノートと照らし合わせる'),
+            ),
           ),
         ]),
-      ]),
+      ),
     );
+  }
+
+  /// 書き直す欄の外を押したら、直した文を残して閉じる。直していない・空にしたなら元のまま閉じる
+  void _closeMemo() {
+    final m = _editingMemo;
+    if (m == null || _busy) return;
+    final text = _memoText.text.trim();
+    if (text.isEmpty || text == m.text) {
+      setState(() => _editingMemo = null);
+      return;
+    }
+    _saveMemo();
   }
 
   /// 書く欄。白い面に載せる。Ctrl/⌘+Enter でも送れる（Slack やレビューのコメントを貼って、そのまま送る使い方のため）

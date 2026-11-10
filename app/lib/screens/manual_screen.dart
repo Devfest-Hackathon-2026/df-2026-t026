@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:moon_design/moon_design.dart';
 
@@ -43,9 +42,6 @@ class _ManualScreenState extends State<ManualScreen> {
   ({int? at, bool insert})? _editing;
   final _draft = TextEditingController();
   var _saving = false;
-
-  /// 直接編集の欄の外を押し始めた所
-  Offset? _downOutside;
 
   /// 食い違いを確かめている編集（パッチの ID）
   final _checking = <String>{};
@@ -344,14 +340,9 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _editor(ManualState s) {
     final k = context.tokens;
     final e = _editing!;
-    return TapRegion(
-      onTapOutside: (down) => _downOutside = down.position,
-      onTapUpOutside: (up) {
-        // スクロールの指で書きかけを消さないよう、ほぼ動かさずに離したときだけ閉じる
-        final down = _downOutside;
-        _downOutside = null;
-        if (_saving || down == null || (up.position - down).distance > kTouchSlop) return;
-        _cancelEdit();
+    return TapOutside(
+      onTapOutside: () {
+        if (!_saving) _cancelEdit();
       },
       child: Padding(
         padding: EdgeInsets.fromLTRB(k.gutter, k.space.xs, 0, k.space.sm),
