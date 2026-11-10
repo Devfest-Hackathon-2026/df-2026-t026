@@ -110,7 +110,7 @@ class _ShareDialogState extends State<_ShareDialog> {
                 children: [
                   Text('共有', style: k.text.title),
                   SizedBox(height: k.space.xs),
-                  Text('共有した人も、このノートに記録・書き込み・確定ができます。ノートを消せるのは持ち主だけです', style: k.text.small),
+                  Text('共有された人も、このノートに記録・書き込み・確定ができます。ノートを消せるのは持ち主だけです', style: k.text.small),
                   if (widget.owner case final o?) ...[
                     SizedBox(height: k.space.md),
                     Text('持ち主：${o.name == o.id ? o.id : '${o.name}（${o.id}）'}', style: k.text.body),
@@ -118,12 +118,12 @@ class _ShareDialogState extends State<_ShareDialog> {
                   SizedBox(height: k.space.lg),
                   Text('相手のログイン ID', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextInput(
+                  typable(MoonTextInput(
                     controller: _id,
                     hintText: '例: haruto',
                     onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _add(),
-                  ),
+                  )),
                   SizedBox(height: k.space.sm),
                   Align(
                     alignment: Alignment.centerLeft,

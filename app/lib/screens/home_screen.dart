@@ -10,7 +10,7 @@ import 'manual_screen.dart';
 import 'new_manual_screen.dart';
 import 'sidebar.dart';
 
-/// ノートの一覧。入力ページの上部バー「ノートを確認」から開く
+/// ノートの一覧。サイドバー（狭い画面はメニュー）の「ノート」の小見出しから開く
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.api});
   final Api api;
@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(padding: EdgeInsets.fromLTRB(k.space.xl, k.space.xxl, k.space.xl, k.space.xxl), children: [
         PageTitle(
           'ノート',
-          meta: [Text('書いたことと教わったことを、誰がいつ言ったか付きで積み上げる', style: k.text.small)],
+          meta: [Text('書いたことと言われたことを、誰がいつ言ったか付きで積み上げる', style: k.text.small)],
           trailing: manuals.isEmpty ? null : _createButton(),
         ),
         SizedBox(height: k.space.xl),

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
 import { checkWithGemini, manualContext, materialContext, type Check } from '../src/conflict/check.ts';
@@ -9,7 +9,7 @@ import type { Material } from '../src/material.ts';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 
-import { httpOptions, isItem, requestJson, toGeminiSchema, type GenerateJson, type JsonRequest, type Usage } from '../src/gemini.ts';
+import { httpOptions, isItem, requestJson, requestWithCache, toGeminiSchema, type GenerateJson, type JsonRequest, type Usage } from '../src/gemini.ts';
 
 const lines = ['## 味噌汁', '- 塩 小さじ1', '', '## ご飯', '- 大盛りは250gまで'];
 
@@ -211,7 +211,10 @@ function assessWithMaterials(patches: unknown[]) {
 test('資料：プロンプトは「# 資料」から始まり、ページの印と L 付きの行をノートより前に置く。資料に結び付いた確定は確定済みの記録の最後に出る', async () => {
   const { run, calls } = assessWithMaterials([]);
   await run();
-  const [{ system, prompt, schema }] = calls;
+  const [{ system, prefix, prompt: rest, schema }] = calls;
+  // 資料のブロックだけを明示のキャッシュに入れる
+  assert.ok(prefix?.endsWith('L1: - 手洗いは30秒\n\n') && rest.startsWith('# マニュアル1: キッチン\n'), prefix ?? '');
+  const prompt = prefix + rest;
   // M の番号は、ノートの順・取り込んだ順に通しで振り、どのノートの資料かを添える
   assert.ok(
     prompt.startsWith(`# 資料
@@ -243,6 +246,8 @@ L1: ## 味噌汁
   );
   assert.match(system, /資料は、職場や学校で配られた/);
   assert.match(system, /資料について:\n/);
+  // 画面に出す理由・聞き方では、資料を中の番号でなく題名で呼ぶ
+  assert.match(system, /資料は番号（資料M1）で呼ばず、資料「題名」と書く/);
   assert.match(JSON.stringify(toGeminiSchema(schema)), /"materialLine"/);
 });
 
@@ -256,11 +261,14 @@ test('資料：直接編集の確かめも、資料をマニュアルより前�
     },
     generate,
   );
-  const [{ system, prompt }] = calls;
+  const [{ system, prefix, prompt: rest }] = calls;
+  assert.ok(prefix?.endsWith('L1: - 手洗いは30秒\n\n') && rest.startsWith('# 現行マニュアル\n'), prefix ?? '');
+  const prompt = prefix + rest;
   assert.ok(prompt.startsWith('# 資料\n## 資料M1: 店舗マニュアル\n〔p.1〕\nL1: ## 開店前\n'), prompt);
   assert.match(prompt, /## 資料M2: 衛生の手引き\nL1: - 手洗いは30秒\n\n# 現行マニュアル\n/);
   assert.match(prompt, /# 確定済みの記録\n- 2026-11-05 .+\n- 資料M1 L3（p\.2）について 2026-11-07 店長に確認：/);
   assert.match(system, /資料について:\n/);
+  assert.match(system, /資料は番号（資料M1）で呼ばず、資料「題名」と書く/);
   // パッチの作り方は直接編集の確かめには要らない
   assert.doesNotMatch(system, /資料は、職場や学校で配られた/);
   // 資料ぶんだけ1本目が遅いので、並べて送るまで assess と同じだけ待つ
@@ -473,6 +481,101 @@ test('呼び出し：使った応答のトークンと、何本目を使った�
   await requestJson(ai, { system: 's', prompt: 'p', schema, hedgeMs: 10, label: 'assess', onUsage: (u) => usages.push(u) }, 1);
   assert.deepEqual(
     usages.map(({ seconds: _, ...u }) => u),
-    [{ label: 'assess', attempt: 2, sent: 2, ...usageMetadata }],
+    [{ label: 'assess', attempt: 2, sent: 2, explicitCache: false, ...usageMetadata }],
+  );
+});
+
+/**
+ * 明示のキャッシュを作る・生成するの両方に応える fetch。create はキャッシュを作る呼び出しへの応答（'ok' か失敗のステータス）、
+ * generate は生成への応答（文面か失敗のステータス）を順に返す。送られた生成の本文を記録する
+ */
+function cacheFetch({ create = ['ok'], generate = [ok] }: { create?: ('ok' | number)[]; generate?: (string | number)[] }) {
+  const creates: Record<string, unknown>[] = [];
+  const gens: Record<string, any>[] = [];
+  const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+  const fetch = (url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    if (String(url).includes('cachedContents')) {
+      const r = create[Math.min(creates.length, create.length - 1)];
+      creates.push(body);
+      return r === 'ok' ? json({ name: `projects/p/locations/global/cachedContents/c${creates.length}` }) : json({ error: { code: r, message: 'x' } }, r);
+    }
+    const r = generate[Math.min(gens.length, generate.length - 1)];
+    gens.push(body);
+    return typeof r === 'string' ? json({ candidates: [{ content: { parts: [{ text: r }] } }] }) : json({ error: { code: r, message: 'x' } }, r);
+  };
+  const ai = new GoogleGenAI({ vertexai: true, apiKey: 'test', httpOptions: { ...httpOptions, fetch } });
+  // キャッシュはモジュールの Map に持つので、テストごとに prefix を変えてキーを分ける
+  const req = { system: 's', prefix: `資料${Math.random()}\n`, prompt: 'p', schema: z.object({ text: z.string() }) };
+  // キャッシュは裏で作るので、送ったあとに作り終わるのを待つ
+  const send = async () => {
+    const r = await requestWithCache(ai, req, 1).then((r) => r.text, (e) => e);
+    await new Promise((done) => setTimeout(done, 5));
+    return r;
+  };
+  /** キャッシュ無しで送ったときの [cachedContent, 指示文, 本文] */
+  const plain = [undefined, 's', `${req.prefix}p`];
+  return { send, req, creates, gens, plain };
+}
+
+const c1 = 'projects/p/locations/global/cachedContents/c1';
+
+test('明示のキャッシュ：1回目は作り始めてキャッシュ無しで送り、2回目から指示文を付けずに prompt だけを送る。作り直さない', async () => {
+  const f = cacheFetch({});
+  assert.equal(await f.send(), 'ok');
+  assert.equal(await f.send(), 'ok');
+  assert.equal(await f.send(), 'ok');
+  assert.equal(f.creates.length, 1);
+  const created = f.creates[0] as { systemInstruction: { parts: { text: string }[] }; contents: { parts: { text: string }[] }[] };
+  assert.deepEqual([created.systemInstruction.parts[0].text, created.contents[0].parts[0].text], ['s', f.req.prefix]);
+  assert.deepEqual(
+    f.gens.map((g) => [g.cachedContent, g.systemInstruction?.parts[0].text, g.contents[0].parts[0].text]),
+    [f.plain, [c1, undefined, 'p'], [c1, undefined, 'p']],
+  );
+});
+
+test('明示のキャッシュ：作れなければ、今まで通り指示文を付けて prefix + prompt を送る。小さすぎて断られた（400）ものは作り直さない', async () => {
+  const f = cacheFetch({ create: [400] });
+  assert.equal(await f.send(), 'ok');
+  assert.equal(await f.send(), 'ok');
+  assert.equal(f.creates.length, 1);
+  assert.deepEqual(
+    f.gens.map((g) => [g.cachedContent, g.systemInstruction?.parts[0].text, g.contents[0].parts[0].text]),
+    [f.plain, f.plain],
+  );
+});
+
+test('明示のキャッシュ：キャッシュが無い（404）と断られたら、今回はキャッシュ無しで送り、次の回に作り直す', async () => {
+  const f = cacheFetch({ generate: [ok, 404, ok] });
+  await f.send();
+  assert.equal(await f.send(), 'ok');
+  assert.deepEqual(
+    f.gens.map((g) => g.cachedContent ?? null),
+    [null, c1, null],
+  );
+  await f.send();
+  assert.equal(f.creates.length, 2);
+});
+
+test('明示のキャッシュ：期限の5分前を過ぎたら、前のキャッシュを使いながら作り直す。期限を過ぎた名前は送らない', async () => {
+  const f = cacheFetch({});
+  const now = Date.now();
+  const at = (ms: number) => mock.method(Date, 'now', () => now + ms);
+  at(0);
+  await f.send();
+  await f.send();
+  at(56 * 60_000);
+  await f.send();
+  assert.equal(f.creates.length, 2);
+  // 作り直しが断られたまま期限を過ぎた
+  const g = cacheFetch({ create: ['ok', 503] });
+  at(0);
+  await g.send();
+  at(61 * 60_000);
+  await g.send();
+  mock.restoreAll();
+  assert.deepEqual(
+    [...f.gens, ...g.gens].map((x) => x.cachedContent ?? null),
+    [null, c1, c1, null, null],
   );
 });

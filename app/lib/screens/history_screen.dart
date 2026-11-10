@@ -53,6 +53,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           bottomNavigationBar: showsNoteTabBar(context) ? NoteTabBar(c: c, current: NoteTab.history) : null,
           body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TopBar(crumbs: [s.title, '履歴']),
+            if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.history),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, h, narrow: true, selected: _selected, onOpen: _push));
@@ -102,7 +103,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       if (versions == 1) ...[
         SizedBox(height: k.space.md),
-        Text('行を書き換えたり、教わったことを反映したりすると、ここに版が積み重なります', style: k.text.small),
+        Text('行を書き換えたり、言われたことを書き込んだりすると、ここに版が積み重なります', style: k.text.small),
       ],
     ]);
   }
@@ -301,7 +302,7 @@ class _CommitDetail extends StatelessWidget {
           ),
         ],
         SizedBox(height: k.space.xl),
-        Text(x.onBranch ? 'ノートに入れていない差分' : 'この版のノート', style: k.text.title),
+        Text(x.onBranch ? 'ノートに書き込んでいない行' : 'この版のノート', style: k.text.title),
         SizedBox(height: k.space.md),
         if (unchanged) ...[
           Text('ノートは変えずに確定しました', style: k.text.small),
@@ -456,7 +457,7 @@ String _status(Commit x) {
   if (chk?.resolution != null) return '確認済み';
   if (chk?.isOpen ?? false) return 'あとで確認';
   if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
-  return p.status == 'discarded' ? '反映しない' : '未反映';
+  return p.status == 'discarded' ? '書き込まない' : '未書き込み';
 }
 
 /// 1行分のグラフ。Miro のコネクタと図形のように、線は細く明るい色にし、点は白抜きに色の枠を付ける。

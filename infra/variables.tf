@@ -32,6 +32,11 @@ variable "billing_account" {
   type        = string
 }
 
+variable "alert_email" {
+  description = "API が応答しなくなったときに知らせるメールアドレス"
+  type        = string
+}
+
 variable "budget_amount" {
   description = "1か月の予算。単位は課金アカウントの通貨（いまは円）"
   type        = number

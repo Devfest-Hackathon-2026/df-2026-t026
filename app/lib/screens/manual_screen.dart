@@ -274,14 +274,13 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         // 消された・共有を外されたノートは、古い内容を出さずに「見つかりません」を出す。書いている欄は閉じるまで残す
         final s = c.gone && _editing == null ? null : c.state;
-        final open = s?.openChecks.length ?? 0;
         if (s != null && _toFound) {
           _toFound = false;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (_foundKey.currentContext case final ctx?) Scrollable.ensureVisible(ctx, alignment: 0.3);
           });
         }
-        // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
+        // 確認リスト・履歴・資料へは、狭い画面では下のタブバー、広い画面ではノートのタブから移る
         final narrow = s != null && !showsSidebar(context);
         // 共有は共有された人もできる。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0016）。ノートを消すのは持ち主だけ
         final mine = s != null && s.sharedBy == null;
@@ -294,27 +293,15 @@ class _ManualScreenState extends State<ManualScreen> {
               trailing: s == null
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
-                      // 資料は共有された人も見て足せる。タブバーに無いので、狭い画面でも出す（ADR 0019）
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openMaterials,
-                        label: const Text('資料'),
-                      ),
-                      SizedBox(width: context.tokens.space.sm),
-                      if (!narrow) ...[
+                      // 資料は下のタブバーに無いので、狭い画面では上部バーに出す（ADR 0019）
+                      if (narrow) ...[
                         MoonOutlinedButton(
                           buttonSize: MoonButtonSize.sm,
-                          onTap: _openHistory,
-                          label: const Text('履歴'),
+                          onTap: _openMaterials,
+                          label: const Text('資料'),
                         ),
                         SizedBox(width: context.tokens.space.sm),
-                        MoonOutlinedButton(
-                          buttonSize: MoonButtonSize.sm,
-                          onTap: _openList,
-                          label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
-                        ),
                       ],
-                      if (!narrow) SizedBox(width: context.tokens.space.sm),
                       MoonOutlinedButton(
                         buttonSize: MoonButtonSize.sm,
                         onTap: () => showShare(context, widget.api, widget.manualId, owner: s.sharedBy),
@@ -326,6 +313,7 @@ class _ManualScreenState extends State<ManualScreen> {
                       ],
                     ]),
             ),
+            if (s != null && !narrow) NoteTabRow(c: c, current: NoteTab.note),
             Expanded(
               child: s == null
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())
@@ -382,7 +370,7 @@ class _ManualScreenState extends State<ManualScreen> {
             Padding(
               padding: EdgeInsets.only(left: k.gutter),
               child: PageTitle(s.title, meta: [
-                if (s.sharedBy case final owner?) Text('${owner.name} から共有', style: k.text.small),
+                if (s.sharedBy case final owner?) Text('${owner.name}から共有', style: k.text.small),
                 Text('記録 ${s.said.length} 件', style: k.text.small),
                 Text('口頭で変わった行 $changed 行', style: k.text.small),
                 if (s.openChecks.isNotEmpty)
@@ -396,7 +384,7 @@ class _ManualScreenState extends State<ManualScreen> {
             if (s.lines.isEmpty && _editing == null)
               Padding(
                 padding: EdgeInsets.only(left: k.gutter, bottom: k.space.md),
-                child: Text('まだ白紙です。ここに直接書くか、入力ページで教わったことを記録すると書き足されます。', style: k.text.small),
+                child: Text('まだ白紙です。ここに直接書くか、入力ページで言われたことを記録すると書き足されます。', style: k.text.small),
               ),
             for (final (i, line) in s.lines.indexed) ...[
               if (_editing == (at: i, insert: false))
@@ -457,7 +445,7 @@ class _ManualScreenState extends State<ManualScreen> {
         child: CallbackShortcuts(
           bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _draft,
               focusNode: _focus,
               autofocus: true,
@@ -484,7 +472,7 @@ class _ManualScreenState extends State<ManualScreen> {
                   icon: Icon(LucideIcons.x, color: k.colors.inkMuted),
                 ),
               ]),
-            ),
+            )),
             if (!e.insert) ...[
               SizedBox(height: k.space.sm),
               MoonTextButton(
@@ -544,7 +532,7 @@ class _ManualScreenState extends State<ManualScreen> {
           after: confirmed.resolution!.verb,
           onTap: () => _openCheck(confirmed),
         ),
-      if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています', style: k.text.small),
+      if (patch != null && _checking.contains(patch.id)) Text('食い違いがないか確かめています…', style: k.text.small),
       for (final c in s.sameChecksFor(line))
         Wrap(spacing: k.space.sm, crossAxisAlignment: WrapCrossAlignment.center, children: [
           Speaker(
@@ -688,12 +676,13 @@ class _ManualScreenState extends State<ManualScreen> {
   Widget _utterances(ManualState s, {required bool withHeader}) {
     final k = context.tokens;
     // 共有した相手が行を直した記録も、細い札で時刻の順に混ぜる。持ち主の直しは本人の文なので出さない（ADR 0020）
-    final entries = s.utterances.where((u) => !u.fromEdit || u.editedBy != null).toList();
+    final said = s.said.toSet();
+    final entries = s.utterances.where((u) => said.contains(u) || (u.fromEdit && u.editedBy != null)).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (withHeader)
         Padding(
           padding: EdgeInsets.fromLTRB(k.space.lg, k.space.xl, k.space.lg, k.space.md),
-          child: Text('記録した発言（${s.said.length}）', style: k.text.title),
+          child: Text('記録した発言 ${s.said.length} 件', style: k.text.title),
         ),
       Expanded(
         child: entries.isEmpty
@@ -758,26 +747,22 @@ class _ManualScreenState extends State<ManualScreen> {
     final c = context.tokens.colors;
     final (bg, fg) = switch (status) {
       'あとで確認' => (c.pendingBg, c.pending),
-      // 確認の答え・記録を見せたも確認で決まった記録。朱は確認印だけに使い、札を赤くしてエラーに見せない
-      '確認済み' || '反映済み' || '確認の答え' || '記録を見せた' => (c.addedBg, c.added),
+      // 朱は確認印だけに使い、札を赤くしてエラーに見せない
+      '確認済み' || '書き込み済み' => (c.addedBg, c.added),
       _ => (c.rule, c.ink),
     };
     return StatusTag(status, bg: bg, fg: fg);
   }
 
   List<String> _statuses(ManualState s, Utterance u) {
-    // 記録を見せて済ませた確定の発言は、見せた人の行いで、確認の答えではない（#118）
-    if (s.resolvedChecks.where((c) => c.resolution!.utteranceId == u.id).firstOrNull case final c?) {
-      return [c.isDecision ? '確認の答え' : '記録を見せた'];
-    }
     final patches = s.patchesOf(u.id);
-    if (patches.isEmpty) return ['差分なし'];
+    if (patches.isEmpty) return ['関係なし'];
     return patches.map((p) {
       final chk = s.checkOf(p.id);
       if (chk?.resolution != null) return '確認済み';
       if (chk?.isOpen ?? false) return 'あとで確認';
       if (chk?.kind == Kind.same && p.status == 'discarded') return '同じ内容';
-      return switch (p.status) { 'applied' => '反映済み', 'discarded' => '反映しない', _ => '未反映' };
+      return switch (p.status) { 'applied' => '書き込み済み', 'discarded' => '書き込まない', _ => '未書き込み' };
     }).toList();
   }
 }

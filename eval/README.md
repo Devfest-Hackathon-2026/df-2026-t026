@@ -6,7 +6,7 @@
 cd api
 pnpm eval                 # Gemini（Vertex AI）で回す。GOOGLE_CLOUD_PROJECT と ADC が必要
 pnpm eval -- --fake       # 偽の Gemini で、スクリプトが動くかだけ確かめる（数字に意味はない）
-pnpm eval -- --only plain       # 資料なしの cases.json（18件）だけ
+pnpm eval -- --only plain       # 資料なしの cases.json（20件）だけ
 pnpm eval -- --only materials   # 資料つきの material-cases.json（24件）だけ
 pnpm eval -- --check      # 直接編集の確かめ（check）で回す。発言を1行の追記として渡し、待ち時間を見る
 ```
@@ -63,6 +63,7 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 - **衝突相手の行の正答率**：矛盾と正しく判定したケースのうち、衝突相手の行（`conflictLine`）が正解と同じ割合
 - **言った人・日付の正答率**：`speaker`・`saidAt` が正解と同じ割合。日付は、メモに書かれていなければ Gemini は null を返し、アプリは記録した日（`today`）を使うので、評価も同じように読む
 - **質問文の約束を破った数**：AI を使わずに確かめられる約束（責める言い方をしない、120字以内、判断を仰ぐ問いになっている）を破った質問文の数。「もう一方の指示を出した人の名前を出さない」は、いまのケースのマニュアルに出どころの人がいないので確かめていない
+- **見せる文に中の事情が出た件数**：理由（`reason`）・確認先の候補の理由（`why`）・聞き方（`question`）のどれかに、行番号（`L9`・`5行目`・`第5行`、資料の番号 `資料M1`）、「マニュアル」、ISO の日付（`2026-11-07`）が出たケースの数。画面では「ノート」「11/7」と呼ぶため。「」の外だけを見る（「」の中は行の文や題名で、ケースのノートの題名が「マニュアル」、資料の行に「1行目に書く」があるため）
 
 衝突相手・同じ内容の相手が資料の行なら `M1 L38` の形にして正解と比べる。資料の行を指すべきところでノートの行を指した（またはその逆の）ものは誤りにする。`--check` では言った人・日付は判定しないので数えない。
 
@@ -99,6 +100,8 @@ pnpm exec node ../eval/multi.mts --overlap   # 話題が重なるマニュアル
 | supplement（補足） | `addition` | 4 |
 | same（同じ） | `same` | 2 |
 | update（更新） | 入れていない（読み替えが分かれるため。[#10](https://github.com/df-dev-kuma/diff-note/issues/10)） | 6 |
+
+あとから、仕様の「UUID を使うなと言う先輩と、こだわらない先輩」の板挟み（PC の前で働く人）を `c07`・`c08` として足した（どちらも `contradiction`）。
 
 ## 資料つきのケース（`material-cases.json`・`materials/`）
 

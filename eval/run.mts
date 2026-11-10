@@ -58,6 +58,8 @@ interface Judged {
   /** 相手が資料の行なら "M1 L38"。ノートの行なら null */
   materialLine?: string | null;
   question: string | null;
+  /** 確認先の候補の理由（ask.candidates の why） */
+  why?: string[];
   speaker: string | null;
   saidAt: string | null;
 }
@@ -72,6 +74,20 @@ function questionProblems(q: string): string[] {
   // どちらに合わせるか判断を仰ぐ問いになっている
   if (!/[？?]|か。?$/.test(q.trim())) out.push('問いになっていない');
   return out;
+}
+
+/** 利用者に見せる文（理由・確認先の候補の理由・聞き方）に出てはいけない中の事情 */
+const wordingRules: [string, RegExp][] = [
+  ['行番号', /L\d+|\d+行目|第\d+行|資料\s*M\d/],
+  ['マニュアル', /マニュアル/],
+  ['ISO の日付', /\d{4}-\d{1,2}-\d{1,2}/],
+];
+
+/** 利用者に見せる文の決まりを破ったものの名前を返す */
+function wordingProblems(j: Judged): string[] {
+  // 「」の中は行の文や題名（ケースのノートの題名は「マニュアル」、資料の行には「1行目に書く」など）なので見ない
+  const texts = [j.reason, ...(j.why ?? []), j.question ?? ''].map((t) => t.replace(/「[^」]*」/g, ''));
+  return wordingRules.filter(([, bad]) => texts.some((t) => bad.test(t))).map(([name]) => name);
 }
 
 const arg = (name: string) => {
@@ -140,6 +156,7 @@ function judgedOf(ctx: ManualContext, r: CheckResult, who: Pick<Judged, 'speaker
     sameLine: r.sameLine,
     materialLine: m ? `M${ctx.materials.findIndex((x) => x.id === m.materialId) + 1} L${m.lineNo}` : null,
     question: r.ask?.question ?? null,
+    why: r.ask?.candidates.map((c) => c.why) ?? [],
     ...who,
   };
 }
@@ -200,6 +217,7 @@ function outputIssues(c: Case, j: Judged): string[] {
   if (!checkMode && c.speaker && !(j.speaker && c.speaker.includes(j.speaker))) out.push(`言った人: ${j.speaker ?? 'なし'}`);
   if (!checkMode && c.saidAt && dateOf(c, j) !== c.saidAt) out.push(`日付: ${dateOf(c, j)}`);
   if (j.question) out.push(...questionProblems(j.question).map((p) => `質問文: ${p}`));
+  out.push(...wordingProblems(j).map((p) => `見せる文: ${p}`));
   return out;
 }
 for (const c of cases) {
@@ -281,6 +299,8 @@ interface Metrics {
   promptTokens?: number;
   cachedTokens?: number;
   outputTokens?: number;
+  /** 利用者に見せる文の決まりを破ったケースの数。決まりの名前ごと。前の版の JSON には無い */
+  wording?: Record<string, number>;
 }
 
 /** 正解が人によって分かれうるケース（unsure）は数えない */
@@ -313,6 +333,7 @@ function metricsOf(rs: Row[]): Metrics {
     promptTokens: sum((r) => r.usage.prompt),
     cachedTokens: sum((r) => r.usage.cached),
     outputTokens: sum((r) => r.usage.output),
+    wording: Object.fromEntries(wordingRules.map(([name]) => [name, judged.filter((r) => wordingProblems(r.out!).includes(name)).length])),
   };
 }
 
@@ -362,6 +383,10 @@ const metricRows = (m: Metrics): [string, string][] => [
   ['並べて送った件数', m.hedged === undefined ? '-' : `${m.hedged} 件`],
   ['入力トークン（うちキャッシュ）', m.promptTokens === undefined ? '-' : `${m.promptTokens}（${m.cachedTokens}）`],
   ['出力トークン（考えた分を含む）', m.outputTokens === undefined ? '-' : `${m.outputTokens}`],
+  [
+    '見せる文に中の事情が出た件数',
+    m.wording === undefined ? '-' : `${wordingRules.map(([name]) => `${name} ${m.wording![name]}`).join('・')}（${m.judged} 件中）`,
+  ],
 ];
 
 const md: string[] = [

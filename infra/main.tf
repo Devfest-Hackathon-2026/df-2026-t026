@@ -9,6 +9,7 @@ resource "google_project_service" "this" {
     "firestore.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "monitoring.googleapis.com",
     "run.googleapis.com",
     "serviceusage.googleapis.com",
     "speech.googleapis.com",
@@ -24,7 +25,10 @@ resource "google_firestore_database" "default" {
   name        = "(default)"
   location_id = var.region
   type        = "FIRESTORE_NATIVE"
-  depends_on  = [google_project_service.this]
+  # 消した・壊したデータを7日前まで戻せるようにし、データベースごと消す操作も止める
+  point_in_time_recovery_enablement = "POINT_IN_TIME_RECOVERY_ENABLED"
+  delete_protection_state           = "DELETE_PROTECTION_ENABLED"
+  depends_on                        = [google_project_service.this]
 }
 
 # ---------- API（Cloud Run） ----------
@@ -56,17 +60,19 @@ resource "google_cloud_run_v2_service" "api" {
   template {
     service_account = google_service_account.api.email
     scaling {
+      # 1台は止めずに置き、最初の応答で起動を待たせない
+      min_instance_count = 1
       max_instance_count = 2
     }
     containers {
       # 初回だけ置くイメージ。以後は GitHub Actions がビルドしたイメージに差し替える
       image = "us-docker.pkg.dev/cloudrun/container/hello"
       # 止まっていたサーバーの起動を速くするため、起動時だけ CPU を上乗せする。resources を書くと cpu_idle の既定が外れるので、
-      # 今の値（1 vCPU・512MiB・リクエストの外では CPU を絞る）も書く
+      # 今の値（1 vCPU・リクエストの外では CPU を絞る）も書く。メモリは、10MB までのファイルの読み取りが重なっても足りるよう 1GiB にする
       resources {
         limits = {
           cpu    = "1000m"
-          memory = "512Mi"
+          memory = "1Gi"
         }
         cpu_idle          = true
         startup_cpu_boost = true
@@ -226,4 +232,62 @@ resource "google_billing_budget" "this" {
     threshold_percent = 1.0
   }
   depends_on = [google_project_service.this]
+}
+
+# ---------- 稼働の監視 ----------
+
+# API が落ちたことに気づくためのメール通知。5分おきに /health を見て、続けて失敗したら知らせる
+resource "google_monitoring_uptime_check_config" "api" {
+  display_name = "DiffNote API /health"
+  timeout      = "10s"
+  period       = "300s"
+
+  http_check {
+    path         = "/health"
+    port         = 443
+    use_ssl      = true
+    validate_ssl = true
+  }
+  monitored_resource {
+    type = "uptime_url"
+    labels = {
+      project_id = var.project_id
+      host       = trimprefix(google_cloud_run_v2_service.api.uri, "https://")
+    }
+  }
+  depends_on = [google_project_service.this]
+}
+
+resource "google_monitoring_notification_channel" "email" {
+  display_name = "DiffNote の障害の連絡先"
+  type         = "email"
+  labels = {
+    email_address = var.alert_email
+  }
+  depends_on = [google_project_service.this]
+}
+
+resource "google_monitoring_alert_policy" "api_down" {
+  display_name          = "DiffNote API が応答しない"
+  combiner              = "OR"
+  notification_channels = [google_monitoring_notification_channel.email.name]
+
+  conditions {
+    display_name = "/health の失敗が5分続く"
+    condition_threshold {
+      filter          = "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${google_monitoring_uptime_check_config.api.uptime_check_id}\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 1
+      duration        = "300s"
+      aggregations {
+        alignment_period     = "1200s"
+        per_series_aligner   = "ALIGN_NEXT_OLDER"
+        cross_series_reducer = "REDUCE_COUNT_FALSE"
+        group_by_fields      = ["resource.label.*"]
+      }
+      trigger {
+        count = 1
+      }
+    }
+  }
 }

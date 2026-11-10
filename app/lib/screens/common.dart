@@ -12,7 +12,11 @@ import '../theme.dart';
 import 'sidebar.dart';
 
 /// 何の道具かを言う一文。ログイン・入力ページ・ノートが無いときの案内で同じ文を出す。中央揃えの案内でも読点で折れるよう、改行を入れておく
-const appPurpose = '書いたことと口頭で教わったことを積み上げ、\n食い違いに気づけるノートです。';
+const appPurpose = '書いたことと口頭で言われたことを積み上げ、\n食い違いに気づけるノートです。';
+
+/// moon_design の入力欄（MoonTextInput・MoonTextArea）は、必ずこれで包む。moon_design は入力欄の読み上げ用の情報に
+/// 「使える」を付けず、Flutter の Web 版はそれを disabled の欄にするので、読み上げソフトからは打てない（純正の TextField は付ける）
+Widget typable(Widget input) => Semantics(enabled: true, child: input);
 
 /// YYYY-MM-DD → 11/3
 String fmtDay(String ymd) {
@@ -20,7 +24,7 @@ String fmtDay(String ymd) {
   return p.length == 3 ? '${int.parse(p[1])}/${int.parse(p[2])}' : ymd;
 }
 
-// ノートは1行を1まとまりとするマークダウン。表やコードブロックのように複数行にまたがる書き方は読まない（ADR 0009）
+// ノートは1行を1まとまりとするマークダウン。表やコードブロックのように複数行にまたがる書き方は読まない（ADR 0022）
 final _heading = RegExp(r'^(#{1,6})[ \t]+(.*)');
 final _rule = RegExp(r'^ {0,3}([-*_])(\s*\1){2,}\s*$');
 final _block = RegExp(r'^([ \t]*)([-*+][ \t]+|\d+[.)][ \t]+|>[ \t]?)?(.*)');
@@ -285,7 +289,7 @@ class LineText extends StatelessWidget {
     return spans..add(TextSpan(text: text.substring(at), style: s));
   }
 
-  // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0009）
+  // リンクは押せるようにしない。行を押すと編集が開くので、押し分けられない（ADR 0022）
   TextStyle _style(AppTokens k, String tag, TextStyle s) => switch (tag) {
         'strong' => s.copyWith(fontWeight: FontWeight.w700),
         'em' => s.copyWith(fontStyle: FontStyle.italic),
@@ -528,7 +532,8 @@ String counterpartLine(Check c, String line) =>
     c.materialRef == null ? plain(line) : '${c.materialRef!.label}：${plain(line)}';
 
 /// 衝突を左右に並べて見せる。「マニュアル：塩 小さじ1 ／ 田中さん（11/3）：小さじ1/2」
-/// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の帯で示す。
+/// どちらが正しいかはアプリが決めないので、左右は同じ色。未解決であることだけを中央の黄の「／」で示す。
+/// 白い面の上に置くので、箱にせず上下の罫線だけで区切る（黄は面を塗らない）
 class ConflictPair extends StatelessWidget {
   const ConflictPair({
     super.key,
@@ -554,22 +559,20 @@ class ConflictPair extends StatelessWidget {
   Widget build(BuildContext context) {
     final k = context.tokens;
     final c = k.colors;
-    Widget head(String label) => Container(
-          color: c.shell,
-          padding: EdgeInsets.symmetric(horizontal: k.space.lg, vertical: k.space.sm),
+    Widget head(String label) => Padding(
+          padding: EdgeInsets.only(top: k.space.md),
           child: Text(label, style: k.text.small),
         );
     Widget body(String text) => Padding(
-          padding: EdgeInsets.all(k.space.lg),
+          padding: EdgeInsets.only(top: k.space.xs, bottom: k.space.md),
           child: Text(plain(text), style: k.text.title),
         );
     Widget band({bool slash = true}) => Container(
           width: stacked ? null : k.space.xl + k.space.sm,
-          height: stacked ? k.space.xl : null,
-          color: settled ? c.shell : c.pendingBg,
-          alignment: Alignment.center,
-          child: slash ? Text('／', style: k.text.heading.copyWith(color: settled ? c.inkMuted : c.pending)) : null,
+          alignment: stacked ? Alignment.centerLeft : Alignment.center,
+          child: slash ? Text('／', style: k.text.title.copyWith(color: settled ? c.inkMuted : c.pending)) : null,
         );
+    final line = BorderSide(color: c.rule, width: k.hairline);
     // 左右に並べるときは、見出しと本文を別の行にする。片方の見出しだけが2行に折れても、左右の段がずれない（#120）
     Widget row(Widget l, Widget m, Widget r) => IntrinsicHeight(
           child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -579,12 +582,7 @@ class ConflictPair extends StatelessWidget {
           ]),
         );
     return Container(
-      decoration: BoxDecoration(
-        color: c.canvas,
-        border: Border.all(color: c.rule, width: k.hairline),
-        borderRadius: k.radius.surface,
-      ),
-      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(border: Border(top: line, bottom: line)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: stacked
@@ -596,23 +594,17 @@ class ConflictPair extends StatelessWidget {
 }
 
 /// マニュアル本文や入力欄を載せる白い面。ホワイトボードのフレームのように、影を付けずに方眼の上に置く。
-/// outline を渡すと、白いままその状態の色の線で囲む（記録した結果のカードの食い違いだけ。黄は面を塗らない）
 class PaperSheet extends StatelessWidget {
-  const PaperSheet({super.key, required this.child, required this.padding, this.outline});
+  const PaperSheet({super.key, required this.child, required this.padding});
   final Widget child;
   final EdgeInsets padding;
-  final Color? outline;
 
   @override
   Widget build(BuildContext context) {
     final k = context.tokens;
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: k.colors.canvas,
-        border: outline == null ? null : Border.all(color: outline!, width: k.hairline * 2),
-        borderRadius: k.radius.paper,
-      ),
+      decoration: BoxDecoration(color: k.colors.canvas, borderRadius: k.radius.paper),
       child: child,
     );
   }
@@ -642,11 +634,11 @@ class ConfirmedRecord extends StatelessWidget {
       Text('確定した内容：${plain(r.text)}', style: k.text.body),
     ]);
     final stamp = ConfirmStamp(who: r.decidedBy, day: r.decidedAt, decided: r.answeredBy != null);
-    // スマホの幅で印を文の横に置くと、印に幅を取られて文が細切れに折れるので、印を文の上に置く（#126）
+    // スマホの幅で印を文の横に置くと、印に幅を取られて文が細切れに折れるので、印を文の上に置く（#126）。
+    // 白い面の上に置くので、灰色の箱にせず、印と文だけで見せる（箱の中に箱を作らない）
     final box = LayoutBuilder(
-      builder: (context, size) => Container(
-        padding: EdgeInsets.all(k.space.xl),
-        decoration: BoxDecoration(color: k.colors.shell, borderRadius: k.radius.surface),
+      builder: (context, size) => Padding(
+        padding: EdgeInsets.symmetric(vertical: k.space.sm),
         child: size.maxWidth < k.stackBelow
             ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, SizedBox(height: k.space.lg), text])
             : Row(children: [Expanded(child: text), SizedBox(width: k.space.lg), stamp]),
@@ -760,13 +752,16 @@ class LoadFailed extends StatelessWidget {
 
 /// 送信中はボタンの中に出す読み込み中の印
 class ButtonLoader extends StatelessWidget {
-  const ButtonLoader({super.key});
+  const ButtonLoader({super.key, this.onCanvas = false});
+
+  /// 枠のボタン（白地）の中に出すときは、白でなく文字の色にする
+  final bool onCanvas;
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
         dimension: context.tokens.space.lg,
         child: MoonCircularLoader(
-          color: context.tokens.colors.canvas,
+          color: onCanvas ? context.tokens.colors.ink : context.tokens.colors.canvas,
           circularLoaderSize: MoonCircularLoaderSize.x2s,
         ),
       );

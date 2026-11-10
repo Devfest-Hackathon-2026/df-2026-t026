@@ -218,16 +218,27 @@ PickedFile _pdf([int size = 3]) => (name: 'manual.pdf', type: '', bytes: Uint8Li
 void main() {
   for (final size in const [_narrow, _wide]) {
     for (final shared in const [false, true]) {
-      testWidgets('ノートのページの上部バーに「資料」が出て、押すと資料の一覧を積む（$size・${shared ? '共有された' : '自分の'}ノート）',
+      testWidgets(
+          size == _wide
+              ? '広い画面ではノートのタブの「資料」から資料の一覧を開く（$size・${shared ? '共有された' : '自分の'}ノート）'
+              : '狭い画面ではノートのページの上部バーに「資料」が出て、押すと資料の一覧を積む（$size・${shared ? '共有された' : '自分の'}ノート）',
           (tester) async {
         await _pump(tester, size: size, shared: shared, from: (s) => ManualScreen(api: s.api, manualId: 'm1'));
-        final button = _inTopBar(find.widgetWithText(MoonOutlinedButton, '資料'));
+        final inBar = _inTopBar(find.widgetWithText(MoonOutlinedButton, '資料'));
+        final Finder button;
+        if (size == _wide) {
+          // 移る先はタブにまとめ、上部バーには共有と…だけを置く
+          expect(inBar, findsNothing);
+          button = noteTab('資料');
+        } else {
+          // 「共有」の左
+          button = inBar;
+          expect(tester.getRect(button).right, lessThan(tester.getRect(_inTopBar(find.widgetWithText(MoonOutlinedButton, '共有'))).left));
+        }
         expect(button, findsOneWidget);
-        // 広い画面では「履歴」の左、狭い画面では「共有」の左
-        final next = _inTopBar(find.widgetWithText(MoonOutlinedButton, size == _wide ? '履歴' : '共有'));
-        expect(tester.getRect(button).right, lessThan(tester.getRect(next).left));
 
-        await tester.tap(button);
+        // タブは名前の文字を押す（押した所はタブの中なので、当たりの警告は出さない）
+        await tester.tap(button, warnIfMissed: false);
         await tester.pumpAndSettle();
         expect(find.byType(MaterialsScreen), findsOneWidget);
         // 資料は下のタブバーに無いので、出さずに戻る矢印で戻る
@@ -244,8 +255,8 @@ void main() {
       await _pump(tester, size: size);
       expect(find.text('2 冊'), findsOneWidget);
       expect(find.text('店舗マニュアル'), findsOneWidget);
-      expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
+      expect(find.text('2 ページ'), findsOneWidget);
+      expect(find.text('かなでが 11/10 に足した'), findsOneWidget);
       expect(find.text('衛生の手引き'), findsOneWidget);
       expect(find.text('貼り付けた文'), findsOneWidget);
       expect(find.text('11/9 に足した'), findsOneWidget);
@@ -289,8 +300,8 @@ void main() {
       expect(find.byType(MaterialScreen), findsOneWidget);
       // 題名と、ページ数・足した日
       expect(find.descendant(of: find.byType(PageTitle), matching: find.text('店舗マニュアル')), findsOneWidget);
-      expect(find.text('2ページ'), findsOneWidget);
-      expect(find.text('かなで が 11/10 に足した'), findsOneWidget);
+      expect(find.text('2 ページ'), findsOneWidget);
+      expect(find.text('かなでが 11/10 に足した'), findsOneWidget);
       expect(find.text('開店前'), findsOneWidget);
       expect(find.text('p.1'), findsOneWidget);
       expect(find.text('p.2'), findsOneWidget);
@@ -414,7 +425,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       expect(find.byType(MoonModal), findsNothing);
-      expect(find.text('資料「店舗マニュアル（秋）」を足しました（3ページ）'), findsOneWidget);
+      expect(find.text('資料「店舗マニュアル（秋）」を足しました（3 ページ）'), findsOneWidget);
       await _waitToast(tester);
     });
 

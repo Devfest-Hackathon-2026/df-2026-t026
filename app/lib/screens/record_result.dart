@@ -15,6 +15,11 @@ import 'review_dialog.dart';
 /// 入力ページは、このカードを次の結果が出ても消さない
 bool needsReview(List<Recorded> records) => records.any((r) => _speakerMissing(r) || _unwritten(r).isNotEmpty);
 
+/// 確認リストに入れた食い違いが、まだ確定されずに残っているか。入力ページは、このカードも次の結果が出ても消さない。
+/// 続けて記録すると、食い違いを知らせたカードが次の「書き込みました」で流れ、件数が増えたことでしか気づけないため
+bool hasOpenConflict(List<Recorded> records) =>
+    records.any((r) => r.state.checks.any((c) => c.utteranceId == r.utteranceId && c.isOpen));
+
 bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == null;
 
 /// まだ書き込んでいない行。食い違いは確認リストに入っているので数えない
@@ -128,9 +133,9 @@ class _RecordResultCardState extends State<RecordResultCard> {
     if (conflicts.isNotEmpty) return '${conflicts.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と食い違っています';
     // 実際に書き込めた行だけを数える
     final written = items.where((x) => x.$1.status == 'applied' && _writes(x.$2.kind)).length;
-    if (written > 0) return 'ノートに$written行書き込みました';
+    if (written > 0) return 'ノートに $written 行書き込みました';
     if (checks.isNotEmpty) {
-      return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（記録として残しました）';
+      return '${checks.every((chk) => chk.materialRef != null) ? '資料' : 'ノート'}と同じ内容でした（言われた記録として残しました）';
     }
     return 'ノートは変えずに、言われた記録として残しました';
   }
@@ -171,7 +176,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
             final shown? => '$shown（$record）',
             null => record,
           });
-      showToast(context, '確定しました。確認の記録に残しています');
+      showToast(context, '確認済みにしました。確認の記録に残しています');
     } on ApiException catch (e) {
       if (mounted) showError(context, e);
     } finally {
@@ -185,35 +190,27 @@ class _RecordResultCardState extends State<RecordResultCard> {
     final conflicts = _conflicts();
     final open = conflicts.where((x) => !_settled.containsKey(x.$2.id));
     final review = needsReview(widget.records);
-    // 記録を見せて決着できる食い違いがあれば、そのボタンを主にし、「確かめる」は二番手にする。
-    // ただし確かめることが残っていれば、書き込む前の確認を開く「確かめる」を主にする
-    final settleable = !review && open.any((x) => x.$1.state.confirmedRecordFor(x.$2) != null);
+    // 主ボタンはカードに1つだけにする。確かめることが残っていれば、書き込む前の確認を開く「確かめる」を主にする。
+    // そうでなく記録を見せて決着できる食い違いがあれば、いちばん上のものの決着のボタンだけを主にし、「確かめる」は二番手にする
+    final lead = review ? null : open.where((x) => x.$1.state.confirmedRecordFor(x.$2) != null).firstOrNull?.$2.id;
     final decision = _decision();
     return LayoutBuilder(
       builder: (context, box) {
         final stacked = box.maxWidth < k.stackBelow;
         final heading = _title(decision);
-        // 食い違いはこのアプリの見せ場なので、見出しを大きくする。食い違いが無ければ落ち着いた見た目のまま
-        final title = Text(heading, style: conflicts.isNotEmpty ? k.text.display : k.text.title);
+        // 題名（text.display）は入力ページの「言われたことを記録」だけにし、カードの見出しはそれより小さくする
+        final title = Text(heading, style: k.text.title);
         final close = MoonButton.icon(
           semanticLabel: '結果を閉じる',
           icon: Icon(LucideIcons.x, color: k.colors.ink),
           onTap: widget.onClose,
         );
-        // 確定済みの記録と食い違ったら、誰の決定かを大きめの確認印で見出しに添える。狭い幅では見出しの上に置く
+        // 確定済みの記録と食い違ったら、誰の決定かを確認印で見出しに添える。狭い幅では見出しの上に置く
         final stamp = decision == null
             ? null
-            : SizedBox.square(
-                dimension: k.stampDiameterLarge,
-                child: FittedBox(
-                  child: ConfirmStamp(who: decision.decidedBy, day: decision.decidedAt, decided: decision.answeredBy != null),
-                ),
-              );
+            : ConfirmStamp(who: decision.decidedBy, day: decision.decidedAt, decided: decision.answeredBy != null);
         return PaperSheet(
           padding: EdgeInsets.fromLTRB(k.space.xl, k.space.lg, k.space.lg, k.space.xl),
-          // まだ確認していない食い違いは黄の線で囲んで目立たせる。黄は付箋の色でもあるので面は塗らない（flutter-ui.md）。
-          // 全部決着したら、あとで確認の黄をやめる
-          outline: open.isNotEmpty ? k.colors.pending : null,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (stamp != null && stacked) ...[
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [stamp, const Spacer(), close]),
@@ -226,7 +223,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
                 SizedBox(width: k.space.sm),
                 close,
               ]),
-            for (final r in widget.records) ..._note(context, r, stacked: stacked),
+            for (final r in widget.records) ..._note(context, r, stacked: stacked, lead: lead),
             SizedBox(height: k.space.xl),
             Wrap(
               spacing: k.space.md,
@@ -234,7 +231,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 // 記録した時点では解決を求めない。確認リストに入ったことだけを伝え、中身は「確かめる」で見せる
-                if (review || (open.isNotEmpty && !settleable))
+                if (review || (open.isNotEmpty && lead == null))
                   MoonFilledButton(onTap: _review, label: const Text('確かめる'))
                 else
                   MoonTextButton(onTap: _review, label: const Text('確かめる')),
@@ -250,8 +247,8 @@ class _RecordResultCardState extends State<RecordResultCard> {
     );
   }
 
-  /// 1冊のノートで起きたこと。どのノートの話かを題名で示す
-  List<Widget> _note(BuildContext context, Recorded r, {required bool stacked}) {
+  /// 1冊のノートで起きたこと。どのノートの話かを題名で示す。lead は決着のボタンを主にする食い違いの id
+  List<Widget> _note(BuildContext context, Recorded r, {required bool stacked, required String? lead}) {
     final k = context.tokens;
     final s = r.state;
     final u = s.utterance(r.utteranceId);
@@ -274,7 +271,7 @@ class _RecordResultCardState extends State<RecordResultCard> {
           if (_settled[chk.id] case final line?)
             ..._settledLine(context, line)
           else if (s.confirmedRecordFor(chk) case final confirmed?)
-            ..._evidence(context, r, chk, confirmed, primary: !needsReview(widget.records)),
+            ..._evidence(context, r, chk, confirmed, primary: chk.id == lead),
         ] else ...[
           SizedBox(height: k.space.sm),
           // 行が折り返しても、分類のタグは1行目にそろえる
@@ -287,10 +284,11 @@ class _RecordResultCardState extends State<RecordResultCard> {
                   chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
                   style: k.text.body,
                 ),
-                // 書き込んだ行とまだの行がまざるときだけ、どの行がまだかを示す。全部がまだなら見出しで言うだけにする
+                // 書き込んだ行とまだの行がまざるときだけ、どの行がまだかを示す。全部がまだなら見出しで言うだけにする。
+                // 文なのでタグにせず、小さい文字で添える
                 if (p.status == 'proposed' && chk.kind != Kind.contradiction && mixed) ...[
                   SizedBox(height: k.space.xs),
-                  StatusTag('まだ書き込んでいません', bg: k.colors.shell, fg: k.colors.inkMuted),
+                  Text('まだ書き込んでいません', style: k.text.small),
                 ],
               ]),
             ),
@@ -298,20 +296,20 @@ class _RecordResultCardState extends State<RecordResultCard> {
         ],
       if (items.isEmpty && widget.records.length > 1) ...[
         SizedBox(height: k.space.xs),
-        Text('このノートは変えずに、記録として残しました', style: k.text.small),
+        Text('このノートは変えずに、言われた記録として残しました', style: k.text.small),
       ],
     ];
   }
 
   /// 食い違った相手の確定の記録と、相手に見せる文と、記録を見せて決着させるボタン。
   /// 確認印は見出しに添えたので、ここでは見せる文を主にしてコピーできるようにする。
-  /// primary でなければ（「確かめる」が主のカード）、決着のボタンは枠にする
+  /// primary でなければ（「確かめる」が主のカードか、上の食い違いの決着のボタンが主のとき）、決着のボタンは枠にする
   List<Widget> _evidence(BuildContext context, Recorded r, Check chk, Check confirmed, {required bool primary}) {
     final k = context.tokens;
     final res = confirmed.resolution!;
     final show = showRecordText(res);
     final settle = _settling == null ? () => _keepByRecord(r, chk, confirmed) : null;
-    final loading = _settling == chk.id;
+    final leading = _settling == chk.id ? ButtonLoader(onCanvas: !primary) : null;
     // 名前が長く、幅 360 ほどのスマホでは1行に収まらないので、収まらないときだけ文字を少し縮める
     final label = Flexible(
       child: FittedBox(fit: BoxFit.scaleDown, child: Text(keepByRecordLabel(_target(r).c.state!, chk, res))),
@@ -338,14 +336,8 @@ class _RecordResultCardState extends State<RecordResultCard> {
       Align(
         alignment: Alignment.centerLeft,
         child: primary
-            ? MoonFilledButton(onTap: settle, leading: loading ? const ButtonLoader() : null, label: label)
-            : MoonOutlinedButton(
-                onTap: settle,
-                leading: loading
-                    ? MoonCircularLoader(color: k.colors.inkMuted, circularLoaderSize: MoonCircularLoaderSize.x2s)
-                    : null,
-                label: label,
-              ),
+            ? MoonFilledButton(onTap: settle, leading: leading, label: label)
+            : MoonOutlinedButton(onTap: settle, leading: leading, label: label),
       ),
     ];
   }

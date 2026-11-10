@@ -142,7 +142,7 @@ const Edit = z
     op: z.enum(['insert', 'replace', 'delete']),
     /** insert はこの行の後ろ（null なら末尾）、replace・delete はこの行 */
     line: z.string().nullable(),
-    // 行頭の空白はマークダウンの入れ子なので残す（ADR 0009）
+    // 行頭の空白はマークダウンの入れ子なので残す（ADR 0022）
     text: z.string().overwrite((s) => s.trimEnd()).default(''),
     today: date.optional(),
     /** アプリが作った発言と差分の ID。先に画面へ出した編集と、届いた編集を取り違えないため（ADR 0007）。省くとサーバーが作る */

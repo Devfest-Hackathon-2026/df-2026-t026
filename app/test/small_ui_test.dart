@@ -198,7 +198,7 @@ void main() {
       _size(tester, const Size(1440, 900));
       await tester.pumpWidget(MaterialApp(theme: appTheme(), home: ManualScreen(api: _confirmedApi(), manualId: 'm1')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(MoonOutlinedButton, '履歴'));
+      await tester.tap(noteTab('履歴'), warnIfMissed: false);
       await tester.pumpAndSettle();
       final history = find.byType(HistoryScreen);
       expect(find.descendant(of: history, matching: find.byType(ConfirmStamp)), findsNothing);
@@ -236,7 +236,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final list = find.byType(CheckListScreen);
-      expect(find.text('確認済み（1）'), findsOneWidget);
+      expect(find.text('確認済み 1 件'), findsOneWidget);
       expect(find.descendant(of: list, matching: find.byType(ConfirmStamp)), findsNothing);
       final who = find.descendant(of: list, matching: find.widgetWithText(Speaker, '店長'));
       expect(who, findsOneWidget);

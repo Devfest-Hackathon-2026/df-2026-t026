@@ -4,9 +4,9 @@ import 'dart:typed_data';
 /// 分類名はコード・UI・評価で揃える（same / addition / qualification / contradiction）
 enum Kind {
   same('同じ内容'),
-  addition('追記'),
-  qualification('条件付きの補足'),
-  contradiction('矛盾');
+  addition('追加'),
+  qualification('補足'),
+  contradiction('食い違い');
 
   const Kind(this.label);
   final String label;
@@ -494,8 +494,12 @@ class ManualState {
 
   Utterance utterance(String id) => _utteranceById[id] ?? (throw StateError('No element'));
 
-  /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
-  late final List<Utterance> said = List.unmodifiable(utterances.where((u) => !u.fromEdit));
+  /// 口頭で言われた記録。直接編集の記録と、確定のときに残した答え（記録を見せた答えも）は付箋や記録の数に入れない。
+  /// 答えは確認リストと行の確認印で見せる
+  late final List<Utterance> said = () {
+    final answers = {for (final c in checks) ?c.resolution?.utteranceId};
+    return List<Utterance>.unmodifiable(utterances.where((u) => !u.fromEdit && !answers.contains(u.id)));
+  }();
   Patch patch(String id) => _patchById[id] ?? (throw StateError('No element'));
   Check? checkOf(String patchId) => _checkByPatch[patchId];
   List<Patch> patchesOf(String utteranceId) => _patchesByUtterance[utteranceId] ?? const [];

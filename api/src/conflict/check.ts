@@ -165,13 +165,19 @@ export const checkRules = `kind は次のどれか1つ:
 - 聞かれすぎると新人はこの道具を使わなくなる。両立する読み方が自然にできるなら contradiction にしない
 - ただし、同じ状況で数値・手順・担当・場所が食い違うなら contradiction。「〜から変わった」と言われても、マニュアルと両立しなければ contradiction（どちらが正しいかはアプリが決めない）
 - 確認して確定した行や確定済みの記録と食い違うときは contradiction。reason にその確認（誰がいつ）を書く
+- 「〜しない」「〜は使わない」のように禁止している行に対して、ある条件のときはそれをしてよい・するように、と言われたら、条件付きでも contradiction（禁止の行は例外を書いていないので、その条件でも禁止と読む）
 
 conflictLineNo: contradiction のときだけ、衝突相手の行番号。それ以外は null
 sameLineNo: same のときだけ、同じ内容が書かれている行の番号。それ以外は null
 reason: 判定の理由を1〜2文で
 ask: contradiction のときだけ入れる。それ以外は null
 - candidates: 確認する相手の候補を1〜3人。その判断に責任を持つ立場（店長・社員など）を優先する。言った本人も候補になる。マニュアルや記録に出てくる人・役職から選び、いなければ「店長」のような一般的な役職にする。who は呼び方、why はその人に聞く理由を短く
-- question: 新人がそのまま口頭で聞ける、丁寧で短い話し言葉。誰かが間違っていると責めない。「〜と教わったのですが、〜とも聞いて、どちらに合わせればよいですか」のように両方を並べて判断を仰ぐ。告げ口に聞こえないよう、もう一方の指示を出した人の名前は必要がなければ出さない`;
+- question: 新人がそのまま口頭で聞ける、丁寧で短い話し言葉。誰かが間違っていると責めない。「〜と教わったのですが、〜とも聞いて、どちらに合わせればよいですか」のように両方を並べて判断を仰ぐ。告げ口に聞こえないよう、もう一方の指示を出した人の名前は必要がなければ出さない
+
+reason・ask の why・question は、利用者の画面にそのまま出す文。次のように書く:
+- 行番号（L5、5行目など）は書かない。どの行かは、その行の中身の言葉で言う（例: 「塩 小さじ1/2」の行）
+- 画面ではマニュアルを「ノート」と呼ぶので、「マニュアル」ではなく「ノート」と書く（マニュアル1 のような番号も書かない）
+- 日付は年を書かず「11/7」の形で書く（2026-11-07 なら 11/7）`;
 
 /**
  * 資料（ADR 0019）について。資料が1冊以上あるときだけ checkRules の後ろに足す。
@@ -183,7 +189,8 @@ export const materialRules = `資料について:
 - マニュアルの行と資料の行の両方が相手になるなら、マニュアルの行を指す
 - 確認して確定した記録（確定済みの記録と、〔…に確認して確定〕の付いたマニュアルの行）は資料より優先する。資料の行と食い違っても、確定した内容と同じなら contradiction にしない
 - 確定した内容と食い違うなら contradiction。相手には、確定した内容が書かれたマニュアルの行を指す。マニュアルに無ければ、その確定の「資料M1 L3 について」の資料の行を指す
-- 資料には、いま言われた場面とは別の場面・別の対象の記述も多い。同じ状況について両立しないときだけ contradiction にする。似た言葉があるだけで相手にしない`;
+- 資料には、いま言われた場面とは別の場面・別の対象の記述も多い。同じ状況について両立しないときだけ contradiction にする。似た言葉があるだけで相手にしない
+- reason・why・question では、資料は番号（資料M1）で呼ばず、資料「題名」と書く（例: 資料「店舗マニュアル」）`;
 
 /** 資料の本文。ページが変わる所に〔p.N〕を置き、行は資料ごとに通しの L 付き（material.ts の materialText と同じ形） */
 export const numberedMaterial = (lines: MaterialContext['lines']) =>
@@ -288,13 +295,13 @@ export async function checkWithGemini(input: CheckInput, generate: GenerateJson 
   const lines = input.lines.map((l) => l.text);
   const { utterance: u, patch: p, materials } = input;
   const no = (id: string) => materials.findIndex((m) => m.id === id) + 1;
-  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、暗黙のコンテキストキャッシュに乗せる。
-  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置く
+  // 変わらない部分（指示・資料・マニュアル・確定済みの記録）を前に置き、コンテキストキャッシュに乗せる。
+  // 資料は足す・消すまで変わらないので、編集のたびに変わるマニュアルより前に置き、指示文と合わせて明示のキャッシュに入れる
   const head = materials.length
     ? `# 資料\n${materials.map((m, i) => `## 資料M${i + 1}: ${m.title}\n${numberedMaterial(m.lines)}`).join('\n\n')}\n\n`
     : '';
   const confirmations = [...input.confirmations, ...input.materialConfirmations.map((c) => materialConfirmation(no(c.materialId), c))];
-  const prompt = `${head}# 現行マニュアル
+  const prompt = `# 現行マニュアル
 ${numbered(lines, (i) => input.lines[i].note)}
 
 # 確定済みの記録
@@ -309,7 +316,7 @@ ${p.op === 'replace' ? `「${p.line}」を「${p.text}」に置き換える` : `
   // 資料（3万〜8.4万トークン）を載せると1本目が8〜14秒で返ることが多く、8秒で並べた2本目はほとんど使われずに
   // 資料ぶんの入力を二重に払うので、資料があるときは assess と同じ12秒にする（ADR 0019 設計書 §12.3）
   const hedgeMs = materials.length ? 12_000 : 8_000;
-  const out = await generate({ system: system(materials.length > 0), prompt, schema: schema(lines, materials), hedgeMs, label: 'check' });
+  const out = await generate({ system: system(materials.length > 0), ...(head && { prefix: head }), prompt, schema: schema(lines, materials), hedgeMs, label: 'check' });
   const n = out.kind === 'contradiction' ? out.conflictLineNo : out.kind === 'same' ? out.sameLineNo : null;
   const m = materialLineOf(out);
   return counterpart(out, n === null ? undefined : lines[n - 1], m ? { ctx: materials[m.materialNo - 1], lineNo: m.lineNo } : undefined);

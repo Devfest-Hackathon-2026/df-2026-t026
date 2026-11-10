@@ -90,7 +90,8 @@ class _InputScreenState extends State<InputScreen> {
   var _sending = false;
 
   /// 照らし合わせた結果。入力欄の下にカードで新しいものを上に並べる。迷う所の無いカードは次の結果が出るか、閉じるか、
-  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）。確かめることが残ったカードは、確かめるか閉じるまで残す
+  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）。確かめることが残ったカードと、確定していない食い違いのある
+  /// カードは、確かめる・確定するか閉じるまで残す
   final _results = <_Result>[];
   final _scroll = ScrollController();
 
@@ -762,7 +763,7 @@ class _InputScreenState extends State<InputScreen> {
     final k = context.tokens;
     final purpose = Text(appPurpose, style: k.text.small);
     // 音声は押すまで送らないが、切り出した発話は書き起こしのためにサーバーへ送る（ADR 0005）。「端末の中で文字にする」とは書かない
-    final rewind = Text('リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その発話を切り出して文字にします', style: k.text.small);
+    final rewind = Text('リワインドは、直前60秒の音声を端末の中だけに持ち、言われた後にボタンを押すと、その声を切り出して文字にします', style: k.text.small);
     if (!wide) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [purpose, SizedBox(height: k.space.sm), rewind]);
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Expanded(child: purpose),
@@ -822,7 +823,7 @@ class _InputScreenState extends State<InputScreen> {
         Text(m.text, style: k.text.body),
         if (poured) ...[
           SizedBox(height: k.space.sm),
-          StatusTag('入力欄に入れました', bg: k.colors.shell, fg: k.colors.inkMuted),
+          Text('入力欄に入れました', style: k.text.small),
         ],
       ]),
     );
@@ -839,7 +840,7 @@ class _InputScreenState extends State<InputScreen> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text(DateFormat('M/d HH:mm').format(m.at), style: k.text.small),
           SizedBox(height: k.space.sm),
-          MoonTextArea(
+          typable(MoonTextArea(
             controller: _memoText,
             autofocus: true,
             // 高さを決めないと1行分の高さになり、付箋の幅で折り返した文が見えない。
@@ -847,7 +848,7 @@ class _InputScreenState extends State<InputScreen> {
             height: k.memoEditorHeight,
             readOnly: _busy,
             textStyle: k.text.inputArea,
-          ),
+          )),
           SizedBox(height: k.space.sm),
           Align(
             alignment: Alignment.centerLeft,
@@ -912,7 +913,7 @@ class _InputScreenState extends State<InputScreen> {
                   ),
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  MoonTextArea(
+                  typable(MoonTextArea(
                     controller: _text,
                     height: k.composerHeight - k.composerTools,
                     readOnly: _dictating,
@@ -929,7 +930,7 @@ class _InputScreenState extends State<InputScreen> {
                     onChanged: (v) {
                       if (v.trim().isEmpty && _poured.isNotEmpty) setState(_poured.clear);
                     },
-                  ),
+                  )),
                   SizedBox(
                     height: k.composerTools,
                     child: Padding(
@@ -964,7 +965,7 @@ class _InputScreenState extends State<InputScreen> {
             SizedBox(height: k.space.md),
             Align(
               alignment: Alignment.centerLeft,
-              child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
+              child: Text('聞き取り中。話し終わると止まります', style: k.text.small),
             ),
           ],
           SizedBox(height: k.space.lg),
@@ -1002,7 +1003,8 @@ class _InputScreenState extends State<InputScreen> {
                   Text(p.files.map((f) => f.name).join('、'), style: k.text.small),
                 ],
                 SizedBox(height: k.space.sm),
-                StatusTag('照らし合わせています…', bg: k.colors.shell, fg: k.colors.inkMuted),
+                // 進んでいることの知らせはタグにせず、小さい文字で添える（「聞き取り中」と同じ）
+                Text('照らし合わせています…', style: k.text.small),
               ]),
             ),
           ),
@@ -1155,7 +1157,7 @@ class _InputScreenState extends State<InputScreen> {
       // moon_design 1.1.0 はラベルを幅の決まらない Row に入れるので、Flexible で包まないと長い題名がはみ出す
       label: Flexible(
         child: Text(
-          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length}冊' }}',
+          '記録先：${switch (titles) { [] => '自動', [final t] => t, _ => '${titles.length} 冊' }}',
           style: k.text.small.copyWith(color: titles.isEmpty ? k.colors.inkMuted : k.colors.action),
           overflow: TextOverflow.ellipsis,
         ),
@@ -1183,12 +1185,12 @@ class _InputScreenState extends State<InputScreen> {
     final k = context.tokens;
     final open = manuals.fold(0, (n, s) => n + s.openChecks.length);
     return [
-      // 件数は節の見出しに添え、サイドバーから開く「あとで確認」の画面と同じ札にする
-      Row(children: [
+      // 件数は各ノートの行の札で出すので、見出しには合計を文字で添えるだけにする（札を重ねない）
+      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
         Text('あとで確認', style: k.text.title),
         if (open > 0) ...[
           SizedBox(width: k.space.sm),
-          StatusTag('全部で $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+          Text('全部で $open 件', style: k.text.small),
         ],
       ]),
       SizedBox(height: k.space.sm),
@@ -1200,10 +1202,10 @@ class _InputScreenState extends State<InputScreen> {
   /// noteWidth は付箋1枚の幅。広い画面の右の列では、列の幅いっぱいに縦に積む
   List<Widget> _recent(List<ManualState> manuals, {double? noteWidth}) {
     final k = context.tokens;
-    final recent = [
+    final recent = sameInput([
       for (final s in manuals)
         for (final u in s.said) (manual: s, u: u),
-    ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt));
+    ]..sort((a, b) => b.u.createdAt.compareTo(a.u.createdAt)));
     return [
       Text('最近の記録', style: k.text.title),
       SizedBox(height: k.space.sm),
@@ -1213,17 +1215,18 @@ class _InputScreenState extends State<InputScreen> {
         Padding(
           padding: EdgeInsets.only(top: k.space.sm),
           child: Wrap(spacing: k.space.lg, runSpacing: k.space.xl, children: [
-            for (final (:manual, :u) in recent.take(_recentCount))
+            for (final (:manuals, :u) in recent.take(_recentCount))
               SizedBox(
                 width: noteWidth ?? k.stickyWidth,
                 child: StickyNote(
-                  onTap: () => _push(ManualScreen(api: widget.api, manualId: manual.id)),
+                  // いくつものノートに記録したときは、いちばん新しく記録したノートを開く。ほかはサイドバーから開ける
+                  onTap: () => _push(ManualScreen(api: widget.api, manualId: manuals.first.id)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Speaker(name: u.speaker, day: u.saidAt),
                     SizedBox(height: k.space.sm),
                     Text(u.text, style: k.text.body),
                     SizedBox(height: k.space.sm),
-                    Text(manual.title, style: k.text.small),
+                    Text(manuals.map((m) => m.title).join('・'), style: k.text.small),
                   ]),
                 ),
               ),
@@ -1250,6 +1253,26 @@ class _InputScreenState extends State<InputScreen> {
       ]),
     );
   }
+}
+
+/// 最近の記録で、1つの入力からいくつものノートにできた記録を1枚の付箋にまとめる。
+/// サーバーはノートごとに発言を作るので、文・言った人・言われた日が同じで、1分以内に記録したものを同じ入力とみなす。
+/// recent は新しい順。まとめたノートも、新しく記録した順に並ぶ
+List<({List<ManualState> manuals, Utterance u})> sameInput(List<({ManualState manual, Utterance u})> recent) {
+  final out = <({List<ManualState> manuals, Utterance u})>[];
+  for (final (:manual, :u) in recent) {
+    final same = out.where((g) =>
+        g.u.text == u.text &&
+        g.u.speaker == u.speaker &&
+        g.u.saidAt == u.saidAt &&
+        DateTime.parse(g.u.createdAt).difference(DateTime.parse(u.createdAt)).abs() < const Duration(minutes: 1));
+    if (same.firstOrNull case final g?) {
+      g.manuals.add(manual);
+    } else {
+      out.add((manuals: [manual], u: u));
+    }
+  }
+  return out;
 }
 
 /// 失敗を知らせる文。応答の形が違ったとき（TypeError など）に、英語の例外の文を出さない。then はどうすればいいか
@@ -1306,8 +1329,8 @@ class _Result {
   final settled = <String>{};
   final key = GlobalKey();
 
-  /// 次の結果が出ても消さない。確かめること・記録先を選ぶことが残っている
-  bool get kept => missed != null || needsReview(records);
+  /// 次の結果が出ても消さない。確かめること・記録先を選ぶこと・確定していない食い違いが残っている
+  bool get kept => missed != null || needsReview(records) || hasOpenConflict(records);
 }
 
 class _LoginForm extends StatefulWidget {
@@ -1357,23 +1380,23 @@ class _LoginFormState extends State<_LoginForm> {
             SizedBox(height: k.space.xs),
             Text('ID とパスワードは、このアプリを紹介した人に聞いてください', style: k.text.small),
             SizedBox(height: k.space.lg),
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _id,
               autofocus: true,
               hintText: 'ID',
               autofillHints: const [AutofillHints.username],
               textInputAction: TextInputAction.next,
               onSubmitted: (_) => _passwordFocus.requestFocus(),
-            ),
+            )),
             SizedBox(height: k.space.sm),
-            MoonTextInput(
+            typable(MoonTextInput(
               controller: _password,
               focusNode: _passwordFocus,
               obscureText: true,
               hintText: 'パスワード',
               autofillHints: const [AutofillHints.password],
               onSubmitted: (_) => _submit(),
-            ),
+            )),
             SizedBox(height: k.space.md),
             Align(
               alignment: Alignment.centerLeft,

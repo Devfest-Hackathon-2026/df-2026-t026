@@ -19,9 +19,9 @@ List<Widget> materialMeta(BuildContext context, MaterialSummary m, {int open = 0
   final k = context.tokens;
   final day = fmtDay(DateFormat('yyyy-MM-dd').format(DateTime.parse(m.createdAt).toLocal()));
   return [
-    Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount}ページ', style: k.text.small),
+    Text(m.pageCount == null ? '貼り付けた文' : '${m.pageCount} ページ', style: k.text.small),
     // 前からある資料には足した人が無い
-    Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name} が $day に足した', style: k.text.small),
+    Text(m.addedBy == null ? '$day に足した' : '${m.addedBy!.name}が $day に足した', style: k.text.small),
     if (open > 0) StatusTag('あとで確認 $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
   ];
 }
@@ -56,7 +56,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     );
     if (added == null || !mounted) return;
     _reload();
-    showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount}ページ）'}');
+    showToast(context, '資料「${added.title}」を足しました${added.pageCount == null ? '' : '（${added.pageCount} ページ）'}');
   }
 
   Future<void> _open(MaterialSummary m) async {
@@ -74,6 +74,7 @@ class _MaterialsScreenState extends State<MaterialsScreen> {
     return Scaffold(
       body: WithSidebar(api: c.api, manualId: c.manualId, child: GridBackground(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         TopBar(crumbs: [c.state!.title, '資料']),
+        if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.materials),
         // 確認リストで確定すると「あとで確認」の数が変わるので、ノートの状態も聞く
         Expanded(
           child: FutureBuilder(
@@ -244,23 +245,23 @@ class _AddDialogState extends State<_AddDialog> {
                   SizedBox(height: k.space.lg),
                   Text('題名', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextInput(
+                  typable(MoonTextInput(
                     controller: _title,
                     enabled: !_busy,
                     hintText: '例: 店舗マニュアル',
                     onChanged: (_) => setState(() {}),
-                  ),
+                  )),
                   SizedBox(height: k.space.lg),
                   Text('本文', style: k.text.small),
                   SizedBox(height: k.space.xs),
-                  MoonTextArea(
+                  typable(MoonTextArea(
                     controller: _text,
                     enabled: !_busy,
                     height: k.composerHeight,
                     textStyle: k.text.inputArea,
                     hintText: '資料の文を貼り付ける',
                     onChanged: (_) => setState(() {}),
-                  ),
+                  )),
                   SizedBox(height: k.space.lg),
                   // 狭い画面では、右の2つが次の行に回る
                   Wrap(

@@ -12,7 +12,7 @@ import { generateJson, type GenerateJson, type InlineFile } from './gemini.ts';
 export type Format = (text: string) => Promise<string>;
 
 // ノートの書き方。整形と読み取りの両方で使い、1か所で直せるようにする。
-// 差分化のプロンプトが「## は見出し、- は項目」なので、その書き方に寄せる（ADR 0009）
+// 差分化のプロンプトが「## は見出し、- は項目」なので、その書き方に寄せる（ADR 0022）
 export const noteRules = `ノートは1行を1まとまりとして表示し、あとで1行ずつ書き換えたり、ほかの行との食い違いを確かめたりします。
 - 書いてある言葉・数値・順番を変えない。要約・言い換え・書き足し・削除をしない。誤字も直さない
 - 1行に複数の決まりや手順が詰まっていれば、1つずつ行を分ける
@@ -70,7 +70,7 @@ export async function formatWithGemini(text: string, generate: GenerateJson = ge
     // 並べ替えるだけで、既定だと考えた分が出力の十数倍あった（中央値 12.7〜15.6 秒 → LOW で 5.2〜6.3 秒。ADR 0011）
     thinkingLevel: ThinkingLevel.LOW,
   });
-  // 行頭の空白は入れ子なので残す（ADR 0009）
+  // 行頭の空白は入れ子なので残す（ADR 0022）
   return out.text
     .split('\n')
     .map((l) => l.trimEnd())

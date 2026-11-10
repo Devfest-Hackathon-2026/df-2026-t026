@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 const _salt = '- 塩 小さじ1';
@@ -239,7 +240,7 @@ void main() {
     // 右端のチェック（保存する）は欄を閉じる
     expect(_editor, findsNothing);
     // 確かめは、編集が届いてから
-    expect(find.text('食い違いがないか確かめています'), findsOneWidget);
+    expect(find.text('食い違いがないか確かめています…'), findsOneWidget);
     expect(server.checked, isEmpty);
 
     server.editGate!.complete();
@@ -461,7 +462,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.bySemanticsLabel('保存する'));
     await tester.pump();
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト'));
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
     await tester.pumpAndSettle();
     expect(find.byType(CheckListScreen), findsOneWidget);
 
@@ -483,7 +484,7 @@ void main() {
     (next['checks'] as List).add({'id': 'c9', 'patchId': 'p9', 'utteranceId': 'u9', 'kind': 'contradiction', 'conflictLine': _salt, 'reason': '量が違う', 'resolution': null});
     api.store.put(ManualState.fromJson(next));
     await tester.pumpAndSettle(const Duration(seconds: 10));
-    expect(find.text('あとで確認（1）'), findsOneWidget);
+    expect(find.text('あとで確認 1 件'), findsOneWidget);
   });
 
   testWidgets('続けて書いている途中で前の編集が届かなければ、後ろの編集もまとめて戻し、何行戻したかを出す', (tester) async {
@@ -548,7 +549,7 @@ void main() {
     await _typeAndEnter(tester, '- 胡椒 少々');
     await tester.pump();
     expect(server.sent, hasLength(2));
-    expect(find.text('食い違いがないか確かめています'), findsNWidgets(2));
+    expect(find.text('食い違いがないか確かめています…'), findsNWidgets(2));
 
     // 1行目の確かめの応答は、2行目を書く前に読んだ状態
     server.checkGate!.complete();

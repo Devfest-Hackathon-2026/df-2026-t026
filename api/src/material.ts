@@ -26,7 +26,7 @@ export interface Material {
   createdAt: string;
 }
 
-/** 行ごとに行末の空白を落とし、空白だけの行を除く。行頭の空白は入れ子なので残す（ADR 0009） */
+/** 行ごとに行末の空白を落とし、空白だけの行を除く。行頭の空白は入れ子なので残す（ADR 0022） */
 export const cleanLines = (text: string) =>
   text
     .split('\n')

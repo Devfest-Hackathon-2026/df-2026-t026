@@ -55,6 +55,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
             // パンくずは画面の積み重ねと同じにする。ノートの外（入力ページなど）から開いたときは下にノートが無く、
             // ← もそこへ戻るので、ノートの題名を出さない（どのノートかはサイドバーで分かる）
             TopBar(crumbs: [if (aboveNote(context) != null) s.title, '確認リスト']),
+            if (showsSidebar(context)) NoteTabRow(c: c, current: NoteTab.checks),
             Expanded(
               child: LayoutBuilder(builder: (context, box) {
                 if (box.maxWidth < k.wideLayout) return _scroll(_list(s, onOpen: _push));
@@ -96,7 +97,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const PageTitle('確認リスト'),
       SizedBox(height: k.space.xxl),
-      Text('あとで確認（${s.openChecks.length}）', style: k.text.title),
+      Text('あとで確認 ${s.openChecks.length} 件', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.openChecks.isEmpty)
         Text('食い違いは、いまはありません', style: k.text.small)
@@ -106,7 +107,7 @@ class _CheckListScreenState extends State<CheckListScreen> {
           SizedBox(height: k.space.md),
         ],
       SizedBox(height: k.space.xxl),
-      Text('確認済み（${s.resolvedChecks.length}）', style: k.text.title),
+      Text('確認済み ${s.resolvedChecks.length} 件', style: k.text.title),
       SizedBox(height: k.space.md),
       if (s.resolvedChecks.isEmpty)
         Text('確認済みの食い違いは、まだありません', style: k.text.small)
