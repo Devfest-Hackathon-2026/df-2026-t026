@@ -90,7 +90,8 @@ class _InputScreenState extends State<InputScreen> {
   var _sending = false;
 
   /// 照らし合わせた結果。入力欄の下にカードで新しいものを上に並べる。迷う所の無いカードは次の結果が出るか、閉じるか、
-  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）。確かめることが残ったカードは、確かめるか閉じるまで残す
+  /// 食い違いがもう当てはまらなくなるまで残す（#112・#119）。確かめることが残ったカードと、確定していない食い違いのある
+  /// カードは、確かめる・確定するか閉じるまで残す
   final _results = <_Result>[];
   final _scroll = ScrollController();
 
@@ -1307,8 +1308,8 @@ class _Result {
   final settled = <String>{};
   final key = GlobalKey();
 
-  /// 次の結果が出ても消さない。確かめること・記録先を選ぶことが残っている
-  bool get kept => missed != null || needsReview(records);
+  /// 次の結果が出ても消さない。確かめること・記録先を選ぶこと・確定していない食い違いが残っている
+  bool get kept => missed != null || needsReview(records) || hasOpenConflict(records);
 }
 
 class _LoginForm extends StatefulWidget {

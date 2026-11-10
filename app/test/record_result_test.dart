@@ -733,19 +733,32 @@ void main() {
     });
   }
 
-  testWidgets('次に記録すると、前の結果は新しい結果に入れ替わる', (tester) async {
+  testWidgets('迷う所の無い結果は、次に記録すると新しい結果に入れ替わる', (tester) async {
+    await _pump(tester, [
+      [(_hall(['addition']), 'u2')],
+      [(_kitchen(), 'u1')],
+    ]);
+    await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
+    expect(_inCard(find.text('ノートに 1 行書き込みました')), findsOneWidget);
+
+    await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
+    expect(_card, findsOneWidget);
+    expect(_inCard(find.text('ノートと食い違っています')), findsOneWidget);
+    expect(find.text('ノートに 1 行書き込みました'), findsNothing);
+  });
+
+  testWidgets('確定していない食い違いのカードは、次の結果が出ても消さず、新しい結果を上に出す', (tester) async {
     await _pump(tester, [
       [(_kitchen(), 'u1')],
       [(_hall(['addition']), 'u2')],
     ]);
     await _recordText(tester, '田中さんから、塩は小さじ1/2でいいと言われた');
-    expect(_inCard(find.text('ノートと食い違っています')), findsOneWidget);
-
     await _recordText(tester, '田中さんから、おしぼりも一緒に出すと言われた');
-    expect(_card, findsOneWidget);
-    expect(_inCard(find.text('ノートに 1 行書き込みました')), findsOneWidget);
-    expect(find.text('ノートと食い違っています'), findsNothing);
-    expect(_inCard(find.byType(ConflictPair)), findsNothing);
+
+    expect(_card, findsNWidgets(2));
+    expect(_inCard(find.byType(ConflictPair)), findsOneWidget);
+    final added = tester.getTopLeft(find.text('ノートに 1 行書き込みました')).dy;
+    expect(added, lessThan(tester.getTopLeft(find.text('ノートと食い違っています')).dy));
   });
 
   testWidgets('結果は閉じられる', (tester) async {
@@ -892,10 +905,10 @@ void main() {
     final top = tester.getTopLeft(find.text('ノートと食い違っています')).dy;
     expect(top, lessThan(tester.getTopLeft(find.text(unnamedTitle)).dy));
 
-    // 迷う所の無いカードは、次の結果で入れ替わる。確かめることが残ったカードは残る
+    // 確かめることが残ったカードと、確定していない食い違いのカードは、次の結果が出ても残る
     await _recordText(tester, '田中さんから、お冷やはすぐ出すと言われた');
-    expect(_card, findsNWidgets(2));
-    expect(find.text('ノートと食い違っています'), findsNothing);
+    expect(_card, findsNWidgets(3));
+    expect(find.text('ノートと食い違っています'), findsOneWidget);
     expect(find.text('ノートと同じ内容でした（言われた記録として残しました）'), findsOneWidget);
     expect(find.text(unnamedTitle), findsOneWidget);
 
@@ -907,7 +920,7 @@ void main() {
     await tester.tap(close);
     await tester.pumpAndSettle();
     expect(find.text(unnamedTitle), findsNothing);
-    expect(_card, findsOneWidget);
+    expect(_card, findsNWidgets(2));
   });
 
   for (final size in const [_wide, _narrow]) {

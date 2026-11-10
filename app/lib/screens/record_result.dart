@@ -15,6 +15,11 @@ import 'review_dialog.dart';
 /// 入力ページは、このカードを次の結果が出ても消さない
 bool needsReview(List<Recorded> records) => records.any((r) => _speakerMissing(r) || _unwritten(r).isNotEmpty);
 
+/// 確認リストに入れた食い違いが、まだ確定されずに残っているか。入力ページは、このカードも次の結果が出ても消さない。
+/// 続けて記録すると、食い違いを知らせたカードが次の「書き込みました」で流れ、件数が増えたことでしか気づけないため
+bool hasOpenConflict(List<Recorded> records) =>
+    records.any((r) => r.state.checks.any((c) => c.utteranceId == r.utteranceId && c.isOpen));
+
 bool _speakerMissing(Recorded r) => r.state.utterance(r.utteranceId).speaker == null;
 
 /// まだ書き込んでいない行。食い違いは確認リストに入っているので数えない
