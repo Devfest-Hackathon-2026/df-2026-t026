@@ -243,6 +243,8 @@ L1: ## 味噌汁
   );
   assert.match(system, /資料は、職場や学校で配られた/);
   assert.match(system, /資料について:\n/);
+  // 画面に出す理由・聞き方では、資料を中の番号でなく題名で呼ぶ
+  assert.match(system, /資料は番号（資料M1）で呼ばず、資料「題名」と書く/);
   assert.match(JSON.stringify(toGeminiSchema(schema)), /"materialLine"/);
 });
 
@@ -261,6 +263,7 @@ test('資料：直接編集の確かめも、資料をマニュアルより前�
   assert.match(prompt, /## 資料M2: 衛生の手引き\nL1: - 手洗いは30秒\n\n# 現行マニュアル\n/);
   assert.match(prompt, /# 確定済みの記録\n- 2026-11-05 .+\n- 資料M1 L3（p\.2）について 2026-11-07 店長に確認：/);
   assert.match(system, /資料について:\n/);
+  assert.match(system, /資料は番号（資料M1）で呼ばず、資料「題名」と書く/);
   // パッチの作り方は直接編集の確かめには要らない
   assert.doesNotMatch(system, /資料は、職場や学校で配られた/);
   // 資料ぶんだけ1本目が遅いので、並べて送るまで assess と同じだけ待つ
