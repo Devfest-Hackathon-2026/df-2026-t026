@@ -637,6 +637,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
           text,
           speaker: draft.speaker,
           saidAt: draft.saidAt ?? today,
+          said: draft.said,
           recordedBy,
           createdAt: now(),
         };
@@ -895,6 +896,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
       text,
       speaker: meta.speaker ?? draft.speaker ?? u.speaker,
       saidAt: meta.saidAt ?? draft.saidAt ?? u.saidAt,
+      said: draft.said,
     };
     await propose(s.owner, manualId, fixed, draft.items);
     return c.json(await load(userId, manualId));

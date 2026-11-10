@@ -13,6 +13,8 @@ export interface Utterance {
   speaker: string | null;
   /** YYYY-MM-DD */
   saidAt: string;
+  /** text から言った人や「〜と言われた」を除いた、言われた言葉。画面の付箋に出す。前からある記録と直接編集には無い */
+  said?: string;
   /** 利用者がノートを直接編集した記録。口頭で言われたことではない */
   fromEdit?: boolean;
   /** 共有された人が直接編集したときの、その人のログイン ID。持ち主の編集では付けない（ADR 0013） */

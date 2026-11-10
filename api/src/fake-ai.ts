@@ -54,6 +54,7 @@ export const fakeAssess: Assess = async ({ manuals, text, today }) => {
   return {
     speaker: first.speaker,
     saidAt: first.saidAt,
+    said: text.replace(SPEAKER, '').replace(REPORTED, '').trim() || text,
     items: texts.flatMap((lines, manual) =>
       relevant([...lines, ...manuals[manual].materials.flatMap((m) => m.lines.map((l) => l.text))])
         ? fakePatchify(lines, text, today).patches.map((patch) => ({

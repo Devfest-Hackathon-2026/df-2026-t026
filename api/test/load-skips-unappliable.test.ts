@@ -161,6 +161,7 @@ test('書き込み（/apply）の間に、書き換える前の行の下へ直�
   const call = await open(store, async () => ({
     speaker: '田中さん',
     saidAt: '2026-11-10',
+    said: '言われたこと',
     items: [
       {
         manual: 0,
