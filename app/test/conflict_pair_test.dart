@@ -24,7 +24,7 @@ Future<void> _pump(WidgetTester tester, {required double width, required String 
 void main() {
   // 幅 390 の確認のページでは、比較の表の幅はおよそ 326（左右の余白を除く）
   for (final (width, left, right) in const [
-    (326.0, 'ノート', '田中さん（11/3）'),
+    (326.0, 'ノート', '発言者未入力（11/10）'),
     (480.0, '資料「キッチンの手順書（2026年版）」p.3', '田中さん（11/3）'),
   ]) {
     testWidgets('見出し「$left」「$right」が幅 $width で片方だけ折れても、左右の本文の頭をそろえる', (tester) async {

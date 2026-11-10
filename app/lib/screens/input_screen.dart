@@ -822,7 +822,7 @@ class _InputScreenState extends State<InputScreen> {
         Text(m.text, style: k.text.body),
         if (poured) ...[
           SizedBox(height: k.space.sm),
-          StatusTag('入力欄に入れました', bg: k.colors.shell, fg: k.colors.inkMuted),
+          Text('入力欄に入れました', style: k.text.small),
         ],
       ]),
     );
@@ -964,7 +964,7 @@ class _InputScreenState extends State<InputScreen> {
             SizedBox(height: k.space.md),
             Align(
               alignment: Alignment.centerLeft,
-              child: StatusTag('聞き取り中。話し終わると止まります', bg: k.colors.pendingBg, fg: k.colors.pending),
+              child: Text('聞き取り中。話し終わると止まります', style: k.text.small),
             ),
           ],
           SizedBox(height: k.space.lg),
@@ -1002,7 +1002,8 @@ class _InputScreenState extends State<InputScreen> {
                   Text(p.files.map((f) => f.name).join('、'), style: k.text.small),
                 ],
                 SizedBox(height: k.space.sm),
-                StatusTag('照らし合わせています…', bg: k.colors.shell, fg: k.colors.inkMuted),
+                // 進んでいることの知らせはタグにせず、小さい文字で添える（「聞き取り中」と同じ）
+                Text('照らし合わせています…', style: k.text.small),
               ]),
             ),
           ),
@@ -1183,12 +1184,12 @@ class _InputScreenState extends State<InputScreen> {
     final k = context.tokens;
     final open = manuals.fold(0, (n, s) => n + s.openChecks.length);
     return [
-      // 件数は節の見出しに添え、サイドバーから開く「あとで確認」の画面と同じ札にする
-      Row(children: [
+      // 件数は各ノートの行の札で出すので、見出しには合計を文字で添えるだけにする（札を重ねない）
+      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
         Text('あとで確認', style: k.text.title),
         if (open > 0) ...[
           SizedBox(width: k.space.sm),
-          StatusTag('全部で $open 件', bg: k.colors.pendingBg, fg: k.colors.pending),
+          Text('全部で $open 件', style: k.text.small),
         ],
       ]),
       SizedBox(height: k.space.sm),
