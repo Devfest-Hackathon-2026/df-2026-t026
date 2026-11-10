@@ -645,6 +645,35 @@ void main() {
     expect(find.text('最近の記録'), findsOneWidget);
   });
 
+  testWidgets('リワインドの間にサイドバーの「言われたことを記録」を押すと、待ち受けを止めて書く欄に戻る', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic);
+    await _startRewind(tester);
+    expect(mic.hasListener, isTrue);
+
+    await tester.tap(find.widgetWithText(MoonMenuItem, '言われたことを記録'));
+    await tester.pumpAndSettle();
+    expect(mic.hasListener, isFalse);
+    expect(tester.widget<MoonSwitch>(find.byType(MoonSwitch)).value, isFalse);
+    expect(find.byType(MoonTextArea), findsOneWidget);
+    expect(find.text('最近の記録'), findsOneWidget);
+  });
+
+  testWidgets('狭い画面でも、リワインドの間にメニューの「言われたことを記録」を押すと、メニューを閉じて書く欄に戻る', (tester) async {
+    final mic = StreamController<Uint8List>();
+    await _pumpInput(tester, _client((_) async => _json({})), mic: mic, size: const Size(390, 844));
+    await _startRewind(tester);
+    expect(mic.hasListener, isTrue);
+
+    await tester.tap(find.bySemanticsLabel('メニュー'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(MoonDrawer), matching: find.widgetWithText(MoonMenuItem, '言われたことを記録')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MoonDrawer), findsNothing);
+    expect(mic.hasListener, isFalse);
+    expect(find.byType(MoonTextArea), findsOneWidget);
+  });
+
   testWidgets('切り出すと、押す前の会話を書き起こして未整理メモにため、確認は出さずに続けて押せる', (tester) async {
     final mic = StreamController<Uint8List>();
     final heard = <Completer<http.Response>>[];
