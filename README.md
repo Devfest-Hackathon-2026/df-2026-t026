@@ -4,7 +4,7 @@
 
 # DiffNote
 
-**教わったことを、ノートへの差分として残す。食い違いに気づいて、確かめられる。**
+**教わったことを食い違いに気づいて確かめられるノートに残す。。**
 
 <img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?style=flat-square&logo=flutter&logoColor=white">
 <img alt="Hono" src="https://img.shields.io/badge/Hono-E36002?style=flat-square&logo=hono&logoColor=white">
