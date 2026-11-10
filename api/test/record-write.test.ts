@@ -17,8 +17,20 @@ let app: ReturnType<typeof createApp>;
 /** 照らし合わせの代わり。テストごとに返す中身を決める。照らし合わせている間にノートを変えることもできる */
 let assessed: (input: AssessInput) => Promise<AssessResult>;
 
+/** failWrites の間は、差分を反映・捨てる書き込みが失敗する（記録そのものの保存は通る） */
+class FlakyStore extends MemoryStore {
+  failWrites = false;
+  override async put<T extends { id: string }>(userId: string, manualId: string, collection: string, doc: T) {
+    const status = (doc as { status?: string }).status;
+    if (this.failWrites && collection === 'patches' && status !== 'proposed') throw new Error('Firestore が混んでいます');
+    return super.put(userId, manualId, collection, doc);
+  }
+}
+
+let store: FlakyStore;
+
 beforeEach(async () => {
-  const store = new MemoryStore();
+  store = new FlakyStore();
   await seed(store, 'demo');
   await store.putSession({ id: sessionIdOf('test-token'), userId: 'demo', createdAt: '' });
   app = createApp({
@@ -116,34 +128,94 @@ test('write を付けなければ、今まで通り何も書き込まない', as
   assert.equal(patches[0].status, 'proposed');
 });
 
-test('照らし合わせている間にノートが変わったら、今の行に当てて確かめ、当たらない差分は未反映のまま残して記録は成功にする', async () => {
+/** キッチンに記録する。照らし合わせている間に change でノートを変える */
+async function recordWhileChanging(change: () => Promise<unknown>, items: AssessResult['items']) {
   assessed = async () => {
-    // 照らし合わせている間に、ほかの人が「大盛り」の行を消し、「炊けたら」の下に行を足した
-    await call('POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 大盛りは250gまで', today: '2026-11-10' });
-    await call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: '- 炊けたら10分蒸らす', text: '- 研いだら30分浸ける', today: '2026-11-10' });
-    return {
-      speaker: '田中さん',
-      saidAt: '2026-11-10',
-      items: [
-        item('qualification', { op: 'replace', line: '- 大盛りは250gまで', text: '- 大盛りは250gまで（ランチは300g）', summary: '補足' }),
-        item('addition', insert('- 研いだら30分浸ける', '- 浸けた水は捨てる')),
-        item('addition', insert('- 洗った皿は右の棚に戻す', '- グラスは左の棚')),
-      ],
-    };
+    await change();
+    return { speaker: '田中さん', saidAt: '2026-11-10', items };
   };
   const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen'], write: true });
   assert.equal(res.status, 201);
   const [r] = res.json.results;
-  const patches = r.state.patches.filter((p: any) => p.utteranceId === r.utteranceId);
-  // 消された行への補足は当たらないので、未反映のまま。読み直した行に足された行の下には書き込める
-  assert.equal(statusOf(patches, '- 大盛りは250gまで（ランチは300g）'), 'proposed');
-  assert.equal(statusOf(patches, '- 浸けた水は捨てる'), 'applied');
+  return { state: r.state, patches: r.state.patches.filter((p: any) => p.utteranceId === r.utteranceId) as any[] };
+}
+
+test('照らし合わせている間に食い違う行が足されたら、追記として書き込まず、全部を未反映のまま残す', async () => {
+  const { state, patches } = await recordWhileChanging(
+    () => call('POST', '/manuals/demo-kitchen/edits', { op: 'insert', line: null, text: '- ご飯のおかわりは有料', today: '2026-11-10' }),
+    [
+      item('addition', insert(null, '- ご飯のおかわりは1回まで無料')),
+      item('addition', insert('- 洗った皿は右の棚に戻す', '- グラスは左の棚')),
+    ],
+  );
+  // 分類は足される前のノートに対するもの。食い違いを見逃さないよう、利用者が確かめるまで書き込まない
+  assert.deepEqual(patches.map((p) => p.status), ['proposed', 'proposed']);
+  const texts = state.lines.map((l: any) => l.text);
+  assert.ok(texts.includes('- ご飯のおかわりは有料'));
+  assert.ok(!texts.includes('- ご飯のおかわりは1回まで無料') && !texts.includes('- グラスは左の棚'));
+});
+
+test('照らし合わせている間に同じ内容の行が消されたら、同じ内容の差分も捨てずに未反映のまま残す', async () => {
+  const { patches } = await recordWhileChanging(
+    () => call('POST', '/manuals/demo-kitchen/edits', { op: 'delete', line: '- 味噌は火を止めてから溶く', today: '2026-11-10' }),
+    [item('same', insert(null, '- 味噌は火を止めてから溶く'), { sameLine: '- 味噌は火を止めてから溶く' })],
+  );
+  assert.equal(patches[0].status, 'proposed');
+  // 確かめてから書き込める
+  const applied = await call('POST', `/manuals/demo-kitchen/patches/${patches[0].id}/apply`, {});
+  assert.equal(applied.status, 200);
+  assert.ok(applied.json.lines.some((l: any) => l.text === '- 味噌は火を止めてから溶く'));
+});
+
+test('ノートが変わっていなくても、当たらない差分は未反映のまま残し、記録は成功にする', async () => {
+  const { patches, texts } = await recordKitchen([
+    item('qualification', { op: 'replace', line: '- 大盛りは250gまで', text: '- 大盛りは250gまで（ランチは300g）', summary: '補足' }),
+    // 前の差分が書き換えた行の後ろには足せない
+    item('addition', insert('- 大盛りは250gまで', '- 大盛りは予約のみ')),
+    item('addition', insert('- 洗った皿は右の棚に戻す', '- グラスは左の棚')),
+  ]);
+  assert.equal(statusOf(patches, '- 大盛りは250gまで（ランチは300g）'), 'applied');
+  assert.equal(statusOf(patches, '- 大盛りは予約のみ'), 'proposed');
   assert.equal(statusOf(patches, '- グラスは左の棚'), 'applied');
+  assert.equal(texts[texts.indexOf('- 洗った皿は右の棚に戻す') + 1], '- グラスは左の棚');
+  assert.equal((await call('GET', '/manuals/demo-kitchen')).status, 200);
+});
+
+test('記録先に同じノートが2回入っていても、1回だけ記録し、ノートを開ける', async () => {
+  let given = 0;
+  assessed = async ({ manuals }) => {
+    given = manuals.length;
+    return {
+      speaker: '田中さん',
+      saidAt: '2026-11-10',
+      items: [item('qualification', { op: 'replace', line: '- 大盛りは250gまで', text: '- 大盛りは250gまで（ランチは300g）', summary: '補足' })],
+    };
+  };
+  const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen', 'demo-kitchen'], write: true });
+  assert.equal(res.status, 201);
+  assert.equal(given, 1);
+  assert.equal(res.json.results.length, 1);
   const opened = await call('GET', '/manuals/demo-kitchen');
   assert.equal(opened.status, 200);
-  const texts = opened.json.lines.map((l: any) => l.text);
-  assert.equal(texts[texts.indexOf('- 研いだら30分浸ける') + 1], '- 浸けた水は捨てる');
-  assert.equal(texts[texts.indexOf('- 洗った皿は右の棚に戻す') + 1], '- グラスは左の棚');
+  assert.ok(opened.json.lines.some((l: any) => l.text === '- 大盛りは250gまで（ランチは300g）'));
+});
+
+test('記録を保存したあとの書き込みが失敗しても、記録は成功で返し、メモを消し、差分は未反映のまま残す', async () => {
+  const memo = (await call('POST', '/memos', { at: '2026-11-10T01:00:00.000Z', text: '言われたこと' })).json;
+  store.failWrites = true;
+  assessed = async () => ({
+    speaker: '田中さん',
+    saidAt: '2026-11-10',
+    items: [item('addition', insert('- 炊けたら10分蒸らす', '- ご飯はおかわり1回まで無料'))],
+  });
+  const res = await call('POST', '/utterances', { text: '言われたこと', manualIds: ['demo-kitchen'], write: true, memoIds: [memo.id] });
+  store.failWrites = false;
+  assert.equal(res.status, 201);
+  const [r] = res.json.results;
+  assert.equal(r.state.patches.find((p: any) => p.utteranceId === r.utteranceId).status, 'proposed');
+  assert.deepEqual((await call('GET', '/memos')).json, []);
+  // 送り直さないので、記録は1件だけ
+  assert.equal((await call('GET', '/manuals/demo-kitchen')).json.utterances.length, 1);
 });
 
 test('前の差分の行に重ねる差分を続けて書き込んでも、反映した時刻は1件ずつ増え、ノートを開ける', async (t) => {

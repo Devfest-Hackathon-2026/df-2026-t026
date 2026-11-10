@@ -105,7 +105,8 @@ const NewIntake = z
     text: z.string().trim().default(''),
     files: z.array(Attachment).default([]),
     /** 利用者が選んだマニュアル。省略すると関係するマニュアルを判定する */
-    manualIds: z.array(z.string().min(1)).min(1).optional(),
+    // 同じノートが2回あると、書き込みが同じ状態を読んで同じ行を2回書き換え、ノートが壊れる
+    manualIds: z.array(z.string().min(1)).min(1).transform((ids) => [...new Set(ids)]).optional(),
     today: date.optional(),
     /** 入力欄に入れた未整理メモ。記録できたら消す（ADR 0015） */
     memoIds: z.array(z.string().min(1)).default([]),
@@ -533,7 +534,12 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
         const items = draft.items.filter((x) => x.manual === states.indexOf(s));
         const patches = await propose(s.owner, s.manual.id, utterance, items);
         if (write && utterance.speaker) {
-          await writeClear(userId, s.manual.id, patches.map((p, i) => ({ patch: p, kind: items[i].check.kind })));
+          try {
+            await writeClear(userId, s, patches.map((p, i) => ({ patch: p, kind: items[i].check.kind })));
+          } catch (e) {
+            // 記録はもう保存してある。失敗にすると、メモが残り、送り直して二重に記録される。書き込めなかった分は未反映のまま返す
+            console.error(e);
+          }
         }
         return { manualId: s.manual.id, utteranceId: utterance.id, state: await load(userId, s.manual.id) };
       }),
@@ -543,11 +549,15 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
   /**
    * 発言者の分かった記録の差分を、アプリが1本ずつ apply・discard していたのと同じ決まりで書き込む。
    * 追記・補足は反映し、同じ内容は書き込まず、食い違いは確認リストにあるので触らない。
-   * assess の間にノートが変わっていることがあるので、読み直した今の行に1件ずつ当てて確かめ、
-   * 当たらない差分は未反映のまま残す（発言はもう保存してあるので、記録は失敗にしない）
+   * 分類は assess が読んだ時点のノートに対するもの。その間にノートが1行でも変わっていたら、食い違う行が足された・
+   * 同じ内容の行が消されたかもしれないので、何も書き込まず全部を未反映のまま残す（利用者が確かめる）。
+   * 変わっていなくても、読み直した今の行に1件ずつ当てて確かめ、当たらない差分は未反映のまま残す
+   * assessed: assess に渡したときのノートの状態
    */
-  async function writeClear(userId: string, manualId: string, items: { patch: Patch; kind: Check['kind'] }[]) {
+  async function writeClear(userId: string, assessed: State, items: { patch: Patch; kind: Check['kind'] }[]) {
+    const manualId = assessed.manual.id;
     const s = await load(userId, manualId);
+    if (s.lines.length !== assessed.lines.length || s.lines.some((l, i) => l.text !== assessed.lines[i].text)) return;
     let lines = s.lines;
     // render は反映した時刻の順に当て直すので、今ある反映より後にし、1件ずつ必ず違う時刻にする
     const latest = Math.max(0, ...s.patches.filter((p) => p.appliedAt).map((p) => Date.parse(p.appliedAt!)));
