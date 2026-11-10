@@ -989,6 +989,44 @@ void main() {
     expect(asked, 2);
   });
 
+  testWidgets('書き起こしを待つ間に続けて押しても、前に切り出した発話はもう送らない', (tester) async {
+    final mic = StreamController<Uint8List>();
+    final sent = <Map<String, dynamic>>[];
+    // 書き起こしは返さないまま、続けて押す
+    await _pumpInput(tester, _client((_) async => _json({}), onListen: (body) {
+      sent.add(body);
+      return Completer<http.Response>().future;
+    }), mic: mic);
+    await _startRewind(tester);
+
+    mic
+      ..add(_pcm(500, voice: false))
+      ..add(_pcm(1000, voice: true));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
+    await tester.pump();
+    mic.add(_pcm(1200, voice: false));
+    await tester.pump();
+    expect(base64Decode(sent.single['data']).length, 44 + (300 + 1000 + 300) * 16 * 2);
+
+    // 新しい声が無いまま押しても送らない
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(sent, hasLength(1));
+    expect(find.text('声が入っていませんでした。言われた直後にもう一度押してください'), findsOneWidget);
+    await _waitToast(tester);
+
+    // 前の発話のすぐ後に言われたことは、そこだけを送る
+    mic.add(_pcm(800, voice: true));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(MoonFilledButton, 'いま言われたことをメモする'));
+    await tester.pump();
+    mic.add(_pcm(1200, voice: false));
+    await tester.pump();
+    expect(sent, hasLength(2));
+    expect(base64Decode(sent[1]['data']).length, 44 + (300 + 800 + 300) * 16 * 2);
+  });
+
   testWidgets('声が入っていなければ、切り出しても送らずに知らせる', (tester) async {
     final mic = StreamController<Uint8List>();
     var sent = false;
