@@ -446,6 +446,32 @@ test('配った ID とパスワードでログインすると、その人のノ�
   assert.equal((await get('/health')).status, 200);
 });
 
+test('ログアウトすると、そのトークンだけが使えなくなる', async () => {
+  const store = new MemoryStore();
+  await store.putAccount({ id: 'demo', ...(await hashPassword('pass-demo')), createdAt: '' });
+  const locked = createApp({ store, ...ai });
+  const login = async () =>
+    ((await (
+      await locked.request('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'demo', password: 'pass-demo' }),
+      })
+    ).json()) as any).token as string;
+  const call = (path: string, token: string, method = 'GET') =>
+    locked.request(path, { method, headers: { Authorization: `Bearer ${token}` } });
+  const phone = await login();
+  const pc = await login();
+
+  assert.equal((await call('/logout', phone, 'POST')).status, 200);
+  assert.equal((await call('/me', phone)).status, 401);
+  assert.equal(await store.getSession(sessionIdOf(phone)), null);
+  // ほかの端末のログインは残る
+  assert.equal((await call('/me', pc)).status, 200);
+  // ログアウトにもログインが要る（止めるトークンが分からない）
+  assert.equal((await call('/logout', phone, 'POST')).status, 401);
+});
+
 /** 持ち主 demo・共有する相手 sato・無関係の kim。共有の相手はアカウントがあるかを確かめるので、アカウントも作る */
 async function withAccounts() {
   const store = new MemoryStore();

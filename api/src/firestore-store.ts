@@ -71,6 +71,10 @@ export class FirestoreStore implements Store {
     await this.db.collection('sessions').doc(session.id).set(session);
   }
 
+  async removeSession(id: string) {
+    await this.db.collection('sessions').doc(id).delete();
+  }
+
   async getProfile(userId: string) {
     const doc = await this.db.collection('users').doc(userId).get();
     return doc.exists ? (doc.data() as Profile) : null;

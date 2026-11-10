@@ -43,6 +43,16 @@ class Api {
     return t;
   }
 
+  /// サーバーでトークンを止めてから手放す。もう止まっていた（401）ときもログアウトしたことにする
+  Future<void> logout() async {
+    try {
+      await _send('POST', '/logout');
+    } on ApiException catch (e) {
+      if (e.status != 401) rethrow;
+    }
+    token = null;
+  }
+
   Future<Me> me() async => Me.fromJson(await _send('GET', '/me'));
 
   /// 名前とアイコンを保存する。icon が null ならアイコンを外す

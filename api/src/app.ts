@@ -38,7 +38,7 @@ export interface Deps {
   allowOrigin?: string;
 }
 
-type Env = { Variables: { userId: string } };
+type Env = { Variables: { userId: string; sessionId: string } };
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD で指定してください');
 
@@ -197,6 +197,7 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const session = token ? await store.getSession(sessionIdOf(token)) : null;
     if (!session) throw new HTTPException(401, { message: 'ログインしてください' });
     c.set('userId', session.userId);
+    c.set('sessionId', session.id);
     await next();
   });
   app.onError((e, c) => {
@@ -300,6 +301,12 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     const token = newToken();
     await store.putSession({ id: sessionIdOf(token), userId: account.id, createdAt: now() });
     return c.json({ token });
+  });
+
+  // 使っているトークンだけを止める。ほかの端末でのログインはそのまま
+  app.post('/logout', async (c) => {
+    await store.removeSession(c.var.sessionId);
+    return c.json({ ok: true });
   });
 
   // 名前を決めていなければ ID を名前にする（ADR 0010）

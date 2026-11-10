@@ -48,6 +48,7 @@ export interface Store {
   putAccount(account: Account): Promise<void>;
   getSession(id: string): Promise<Session | null>;
   putSession(session: Session): Promise<void>;
+  removeSession(id: string): Promise<void>;
   getProfile(userId: string): Promise<Profile | null>;
   putProfile(userId: string, profile: Profile): Promise<void>;
   listShared(userId: string): Promise<Shared[]>;
@@ -121,6 +122,10 @@ export class MemoryStore implements Store {
 
   async putSession(session: Session) {
     this.sessions.set(session.id, structuredClone(session));
+  }
+
+  async removeSession(id: string) {
+    this.sessions.delete(id);
   }
 
   async getProfile(userId: string) {

@@ -66,6 +66,11 @@ test('Firestore に保存しても、矛盾を確認して確定する流れが�
   assert.deepEqual(await store.listShared('sato'), []);
   assert.deepEqual(await store.list('demo', 'demo-kitchen', 'shares'), []);
 
+  // ログアウトすると sessions のドキュメントが消え、そのトークンは使えなくなる
+  assert.equal((await asSato('POST', '/logout')).status, 200);
+  assert.equal(await store.getSession(sessionIdOf('sato-token')), null);
+  assert.equal((await asSato('GET', '/me')).status, 401);
+
   // 資料はノートの下に置き、ページの無い資料（page: null）もページのある資料も保存して読める（ADR 0019）
   const pasted = await call('POST', '/manuals/demo-kitchen/materials', { title: '衛生の手引き', text: '- 手洗いは30秒\n\n- 爪は短く' });
   assert.deepEqual(pasted.addedBy, { id: 'demo', name: 'かなで' });
