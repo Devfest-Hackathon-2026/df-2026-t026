@@ -10,7 +10,7 @@ import type { Assess, AssessResult } from './assess.ts';
 import { loginIdPattern, newToken, sessionIdOf, verifyPassword } from './auth.ts';
 import { manualContext, materialContext, type Check, type CheckPatch, type Resolution } from './conflict/check.ts';
 import type { Format, ReadNote } from './format.ts';
-import { applyPatch, PatchError, render, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
+import { applyPatch, PatchError, render, renderSkipping, type Manual, type ManualLine, type Patch, type Utterance } from './foundation/manual.ts';
 import { unmark, type InlineFile } from './gemini.ts';
 import { readFiles, type Transcribe } from './intake.ts';
 import { cleanLines, materialLines, materialText, openPdf, splitImages, splitPdf, type Material, type MaterialPart, type ReadMaterial } from './material.ts';
@@ -242,11 +242,18 @@ export function createApp({ store, assess, check, transcribe, format, readNote, 
     utterances.sort(byCreated);
     patches.sort(byCreated);
     checks.sort(byCreated);
+    // 重なった書き込みで反映順には当たらなくなったパッチは、当てずに未反映として返す。行とパッチの状態をそろえ、
+    // 利用者が書き込み直せるようにする。保存したパッチは書き換えない（ADR 0001）
+    const { lines, skipped } = renderSkipping(manual.base, patches);
+    for (const patchId of skipped) {
+      // 本文（行の文字列）は出さない
+      console.warn(JSON.stringify({ severity: 'WARNING', message: 'skipped unappliable patch', owner, manualId, patchId }));
+    }
     return {
       manual,
-      lines: render(manual.base, patches),
+      lines,
       utterances,
-      patches,
+      patches: patches.map<Patch>((p) => (skipped.includes(p.id) ? { ...p, status: 'proposed', appliedAt: null } : p)),
       checks,
       owner,
       /** 読んでいる人。画面が自分の記録かを決めるのに使う（ADR 0018） */
