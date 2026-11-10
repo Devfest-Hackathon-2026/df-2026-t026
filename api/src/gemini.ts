@@ -119,7 +119,8 @@ function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, 
   const hit = caches.get(key);
   if (hit && hit.expireAt - CACHE_RENEW_MS > Date.now()) return hit.name;
   // 作り直す間も、前のキャッシュは期限まで使える
-  const entry = { name: hit?.name ?? null, expireAt: Date.now() + CACHE_TTL_MS };
+  const usable = hit && hit.expireAt > Date.now() ? hit.name : null;
+  const entry = { name: usable, expireAt: Date.now() + CACHE_TTL_MS };
   caches.set(key, entry);
   const started = performance.now();
   const log = (fields: object) =>
@@ -140,7 +141,7 @@ function cacheFor(ai: GoogleGenAI, key: string, system: string, prefix: string, 
         if (!(e instanceof ApiError && e.status === 400) && caches.get(key) === entry) caches.delete(key);
       },
     );
-  return hit?.name ?? null;
+  return usable;
 }
 
 /**
@@ -161,7 +162,8 @@ export async function requestWithCache<T>(ai: GoogleGenAI, req: JsonRequest<T>, 
     return await requestJson(ai, req, delayMs, name);
   } catch (e) {
     if (!(e instanceof ApiError && (e.status === 400 || e.status === 404))) throw e;
-    caches.delete(key);
+    // 作り直しを始めていれば、その分は残す
+    if (caches.get(key)?.name === name) caches.delete(key);
     return requestJson(ai, req, delayMs);
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 
 import { assessWithGemini } from '../src/assess.ts';
 import { checkWithGemini, manualContext, materialContext, type Check } from '../src/conflict/check.ts';
@@ -552,4 +552,27 @@ test('明示のキャッシュ：キャッシュが無い（404）と断られ�
   );
   await f.send();
   assert.equal(f.creates.length, 2);
+});
+
+test('明示のキャッシュ：期限の5分前を過ぎたら、前のキャッシュを使いながら作り直す。期限を過ぎた名前は送らない', async () => {
+  const f = cacheFetch({});
+  const now = Date.now();
+  const at = (ms: number) => mock.method(Date, 'now', () => now + ms);
+  at(0);
+  await f.send();
+  await f.send();
+  at(56 * 60_000);
+  await f.send();
+  assert.equal(f.creates.length, 2);
+  // 作り直しが断られたまま期限を過ぎた
+  const g = cacheFetch({ create: ['ok', 503] });
+  at(0);
+  await g.send();
+  at(61 * 60_000);
+  await g.send();
+  mock.restoreAll();
+  assert.deepEqual(
+    [...f.gens, ...g.gens].map((x) => x.cachedContent ?? null),
+    [null, c1, c1, null, null],
+  );
 });
