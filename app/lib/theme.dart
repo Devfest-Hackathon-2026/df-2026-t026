@@ -220,9 +220,6 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final double stampTilt = -0.08;
   final double stampDiameter = 84;
 
-  /// 記録した直後の結果のカードで、見出しの横に置く確認印。カードの見せ場なので、ほかより大きく押す
-  final double stampDiameterLarge = 116;
-
   /// 履歴のグラフで、幹と枝を並べる1本分の幅と、版の点の直径
   final double graphLane = 24;
   final double graphDot = 14;
@@ -255,10 +252,10 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// ガラスの縁。細い白の半透明と、上側に少し明るい線（光が当たって見える）
   final Color tabBarEdge = const Color(0x8CFFFFFF);
   final Color tabBarEdgeLight = const Color(0xE6FFFFFF);
-  final List<BoxShadow> tabBarShadow = const [BoxShadow(color: Color(0x2417173D), blurRadius: 24, offset: Offset(0, 8))];
+  final List<BoxShadow> tabBarShadow = const [BoxShadow(color: Color(0x241C2433), blurRadius: 24, offset: Offset(0, 8))];
 
   /// 選んでいるタブの後ろに敷くカプセル（action の青を薄く）と、横に動く時間
-  final Color tabBarPill = const Color(0x262459F5);
+  final Color tabBarPill = const Color(0x261F6FEB);
   final Duration tabBarPillMove = const Duration(milliseconds: 220);
 
   /// 記録したあと、結果のカードが見える所まで送る時間
@@ -276,13 +273,14 @@ extension AppTokensContext on BuildContext {
 }
 
 const _colors = AppColors(
-  shell: Color(0xFFF2F2F4),
+  shell: Color(0xFFF2F3F5),
   canvas: Color(0xFFFFFFFF),
-  ink: Color(0xFF17173D),
-  inkMuted: Color(0xFF5D5D78),
-  rule: Color(0xFFE0E0E8),
-  hover: Color(0x0D17173D),
-  pressed: Color(0x1A17173D),
+  ink: Color(0xFF1C2433),
+  inkMuted: Color(0xFF5B6474),
+  rule: Color(0xFFE1E4E9),
+  hover: Color(0x0D1C2433),
+  pressed: Color(0x1A1C2433),
+  // 文字と灰色は紺寄り（色相 220 前後）にし、紫寄りの灰色にしない。紫がかると画面全体がインディゴに見える
   // 差分の色は、差分表示でなじみのある、はっきりした緑・赤・黄・青にする
   added: Color(0xFF1A7F37),
   addedBg: Color(0xFFDAFBE1),
@@ -293,13 +291,13 @@ const _colors = AppColors(
   qualified: Color(0xFF0E7A86),
   qualifiedBg: Color(0xFFDDF3F5),
   stamp: Color(0xFFDE3A2E),
-  action: Color(0xFF2459F5),
-  found: Color(0xFFD6E1FE),
-  grid: Color(0xFFE4E4EA),
+  action: Color(0xFF1F6FEB),
+  found: Color(0xFFDCEBFF),
+  grid: Color(0xFFE4E7EB),
   sticky: Color(0xFFFFF6A6),
-  avatar: Color(0xFFE0E0E8),
+  avatar: Color(0xFFE1E4E9),
   graphTrunk: Color(0xFF2DA44E),
-  graphBranch: Color(0xFFA9A9C2),
+  graphBranch: Color(0xFFA9B1BD),
   graphPending: Color(0xFFFAC710),
 );
 

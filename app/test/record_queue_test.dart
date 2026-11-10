@@ -135,6 +135,9 @@ void main() {
     final note = _note('田中さんから、お冷やはすぐ出すと言われた');
     expect(note, findsOneWidget);
     expect(find.descendant(of: note, matching: find.text(_waiting)), findsOneWidget);
+    // 進んでいることの知らせなので、タグにせず小さい文字で添える（「聞き取り中」と同じ）
+    expect(find.ancestor(of: find.text(_waiting), matching: find.byType(StatusTag)), findsNothing);
+    expect(tester.widget<Text>(find.text(_waiting)).style, appTheme().extension<AppTokens>()!.text.small);
     // 結果のカードが出る所（入力欄のすぐ下）に出す
     expect(tester.getRect(note).top, greaterThan(tester.getRect(_area).bottom));
     // ボタンは読み込み中にせず、入力欄も止めない
