@@ -27,30 +27,38 @@ final _gradientOnly = RegExp(r'\b(LinearGradient|RadialGradient|SweepGradient)\b
 /// 下のタブバーの影はトークン（theme.dart の tabBarShadow）で持つ。theme.dart は検査の外なので、使ってよいのは tab_bar.dart だけと確かめる
 final _tabBarShadow = RegExp(r'\btabBarShadow\b');
 
+/// 1つのファイルの違反。Windows ではパスの区切りが `\` になるので、`/` にそろえてから例外のファイルと比べる
+List<String> _violations(String filePath, String source) {
+  final path = filePath.replaceAll(r'\', '/');
+  if (path == 'lib/theme.dart') return [];
+  // コメント中の語は検査しない。行の位置は保つ
+  final src = source.replaceAll(RegExp(r'//.*$', multiLine: true), '');
+  final rules = {
+    ..._rules,
+    if (path != _shadowAllowed) '影': _shadow,
+    if (path == _blurTrial) 'グラデーション・ぼかし': _gradientOnly,
+    if (path != _blurTrial) 'タブバーの影（tab_bar.dart だけ）': _tabBarShadow,
+  };
+  return [
+    for (final MapEntry(key: name, value: re) in rules.entries)
+      for (final m in re.allMatches(src)) '$path:${src.substring(0, m.start).split('\n').length} $name: ${m[0]!.split('\n').first}',
+  ];
+}
+
 void main() {
   test('画面のコードが UI ルールに沿っている', () {
-    final violations = <String>[];
-    final files = Directory('lib')
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart') && f.path != 'lib/theme.dart');
-    for (final f in files) {
-      // コメント中の語は検査しない。行の位置は保つ
-      final src = f.readAsStringSync().replaceAll(RegExp(r'//.*$', multiLine: true), '');
-      final rules = {
-        ..._rules,
-        if (f.path != _shadowAllowed) '影': _shadow,
-        if (f.path == _blurTrial) 'グラデーション・ぼかし': _gradientOnly,
-        if (f.path != _blurTrial) 'タブバーの影（tab_bar.dart だけ）': _tabBarShadow,
-      };
-      for (final MapEntry(key: name, value: re) in rules.entries) {
-        for (final m in re.allMatches(src)) {
-          final line = src.substring(0, m.start).split('\n').length;
-          violations.add('${f.path}:$line $name: ${m[0]!.split('\n').first}');
-        }
-      }
-    }
+    final violations = [
+      for (final f in Directory('lib').listSync(recursive: true).whereType<File>().where((f) => f.path.endsWith('.dart')))
+        ..._violations(f.path, f.readAsStringSync()),
+    ];
     expect(violations, isEmpty, reason: violations.join('\n'));
+  });
+
+  test('パスの区切りが \\ でも（Windows）、例外のファイルを見分ける', () {
+    expect(_violations(r'lib\theme.dart', 'Color(0xFF000000)'), isEmpty);
+    expect(_violations(r'lib\screens\common.dart', 'BoxShadow('), isEmpty);
+    expect(_violations(r'lib\screens\tab_bar.dart', 'BackdropFilter(filter: ImageFilter.blur(), child: tabBarShadow)'), isEmpty);
+    expect(_violations(r'lib\screens\home_screen.dart', 'BoxShadow('), ['lib/screens/home_screen.dart:1 影: BoxShadow']);
   });
 
   // iPhone（WebKit）は 16px 未満の入力欄にフォーカスすると画面を拡大して戻さない（調査17）。
