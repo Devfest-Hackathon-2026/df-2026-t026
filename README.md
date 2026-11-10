@@ -45,7 +45,7 @@
 | `api/` | Hono バックエンド |
 | `infra/` | Terraform（Cloud Run・Firestore・Firebase Hosting・GitHub Actions 連携）。手順は [infra/README.md](infra/README.md) |
 | `eval/` | 衝突検知の評価セットとスクリプト |
-| `docs/` | 仕様（`spec/`）・ADR（`adr/`。一覧は [docs/adr/README.md](docs/adr/README.md)）・設計書（`design/`） |
+| `docs/` | 仕様（`spec/`）・ADR（`adr/`。一覧は [docs/adr/README.md](docs/adr/README.md)）・設計書（`design/`）・審査用のモック用データ案（`mock-data/`） |
 
 ## ブランチと公開
 
