@@ -279,10 +279,11 @@ class _RecordResultCardState extends State<RecordResultCard> {
                   chk.kind == Kind.same && chk.sameLine != null ? counterpartLine(chk, chk.sameLine!) : plain(p.text),
                   style: k.text.body,
                 ),
-                // 書き込んだ行とまだの行がまざるときだけ、どの行がまだかを示す。全部がまだなら見出しで言うだけにする
+                // 書き込んだ行とまだの行がまざるときだけ、どの行がまだかを示す。全部がまだなら見出しで言うだけにする。
+                // 文なのでタグにせず、小さい文字で添える
                 if (p.status == 'proposed' && chk.kind != Kind.contradiction && mixed) ...[
                   SizedBox(height: k.space.xs),
-                  StatusTag('まだ書き込んでいません', bg: k.colors.shell, fg: k.colors.inkMuted),
+                  Text('まだ書き込んでいません', style: k.text.small),
                 ],
               ]),
             ),

@@ -1002,7 +1002,8 @@ class _InputScreenState extends State<InputScreen> {
                   Text(p.files.map((f) => f.name).join('、'), style: k.text.small),
                 ],
                 SizedBox(height: k.space.sm),
-                StatusTag('照らし合わせています…', bg: k.colors.shell, fg: k.colors.inkMuted),
+                // 進んでいることの知らせはタグにせず、小さい文字で添える（「聞き取り中」と同じ）
+                Text('照らし合わせています…', style: k.text.small),
               ]),
             ),
           ),

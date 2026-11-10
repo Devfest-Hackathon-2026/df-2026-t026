@@ -121,13 +121,42 @@ Map<String, dynamic> _confirmed({bool answered = false}) {
   return j;
 }
 
-/// 記録を見せて最後の確認を確定した状態。サーバーと同じく、見せた確定（shownFrom）の中身を写し、見せた人と日を付ける（#118）
-Map<String, dynamic> _shownWith(Map<String, dynamic> j, Map<String, dynamic> body) {
+const _sugarHalf = '- 砂糖 大さじ1/2';
+const _sugarOne = '- 砂糖 大さじ1';
+
+/// _confirmed に、砂糖も 11/7 に店長に確認して大さじ1/2 に決めていたことを足す。11/10 に佐藤さんは砂糖も大さじ1と言ったので、
+/// 塩（c2）と砂糖（c5）の2つが、どちらも確定済みの決定と食い違う
+Map<String, dynamic> _confirmedTwice() {
+  final j = _confirmed();
+  (j['lines'] as List).add({'text': _sugarHalf, 'patchId': null});
+  (j['utterances'] as List).insert(0, _said('u4', '田中さん', '2026-11-03', '砂糖は大さじ1/2でいい'));
+  (j['patches'] as List)
+    ..insert(0, _patch('p4', 'u4', '2026-11-03', 'replace', _sugarOne, _sugarHalf, status: 'discarded'))
+    ..add(_patch('p5', 'u3', '2026-11-10', 'replace', _sugarHalf, _sugarOne));
+  (j['checks'] as List)
+    ..insert(
+        0,
+        _check('c4', 'p4', 'u4', 'contradiction', conflictLine: _sugarOne, resolution: {
+          'utteranceId': 'a1',
+          'patchId': null,
+          'decidedBy': '店長',
+          'answeredBy': null,
+          'decidedAt': '2026-11-07',
+          'text': _sugarHalf,
+          'note': '大さじ1/2で統一',
+        }))
+    ..add(_check('c5', 'p5', 'u3', 'contradiction', conflictLine: _sugarHalf));
+  return j;
+}
+
+/// 記録を見せて checkId の確認を確定した状態。サーバーと同じく、見せた確定（shownFrom）の中身を写し、見せた人と日を付ける（#118）
+Map<String, dynamic> _shownWith(Map<String, dynamic> j, Map<String, dynamic> body, String checkId) {
   final checks = j['checks'] as List;
   final prev = checks.firstWhere((c) => c['id'] == body['shownFrom'])['resolution'] as Map<String, dynamic>;
+  final check = checks.firstWhere((c) => c['id'] == checkId) as Map<String, dynamic>;
   (j['utterances'] as List).add(_said('a2', 'かなで', '2026-11-10', '11/7 店長に確認した記録（${prev['note']}）を見せた'));
-  ((j['patches'] as List).last as Map<String, dynamic>)['status'] = 'discarded';
-  (checks.last as Map<String, dynamic>)['resolution'] = {
+  (j['patches'] as List).firstWhere((p) => p['id'] == check['patchId'])['status'] = 'discarded';
+  check['resolution'] = {
     ...prev,
     'utteranceId': 'a2',
     'patchId': null,
@@ -250,7 +279,7 @@ class _Server {
       posted.add(path);
       resolved = jsonDecode(req.body);
       final id = req.url.pathSegments[1];
-      return _json(notes[id] = _shownWith(notes[id]!, resolved!));
+      return _json(notes[id] = _shownWith(notes[id]!, resolved!, req.url.pathSegments[3]));
     }
     if (req.method == 'POST' && path == '/memos') {
       return _json({'id': 'memo${intakeBodies.length}', ...jsonDecode(req.body)}, 201);
@@ -539,6 +568,54 @@ void main() {
     expect(server.resolved, {'shownFrom': 'c1'});
     expect(_inCard(find.text(_shownLine)), findsOneWidget);
     await tester.pump(const Duration(seconds: 10));
+  });
+
+  for (final size in const [_wide, _narrow]) {
+    testWidgets('記録を見せて決着できる食い違いが2つあれば、主のボタンはいちばん上の「記録を見せて、…」だけにし、決着したら次のものを主にする（$size）',
+        (tester) async {
+      final server = await _pump(tester, [
+        [(_confirmedTwice(), 'u3')],
+      ], size: size);
+      await _recordText(tester, '佐藤さんから、塩は小さじ1、砂糖は大さじ1だと言われた');
+      expect(tester.takeException(), isNull);
+
+      // 主のボタンはカードに1つ。上の食い違い（塩）の決着のボタンだけを塗り、下（砂糖）は枠、「確かめる」は文字のボタン
+      expect(_inCard(find.byType(ConflictPair)), findsNWidgets(2));
+      expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
+      expect(_inCard(find.byType(MoonOutlinedButton)), findsOneWidget);
+      final filled = _inCard(find.widgetWithText(MoonFilledButton, _keepLabel));
+      final outlined = _inCard(find.widgetWithText(MoonOutlinedButton, _keepLabel));
+      expect(tester.getRect(filled).top, lessThan(tester.getRect(outlined).top));
+      expect(_inCard(find.widgetWithText(MoonTextButton, '確かめる')), findsOneWidget);
+
+      // 上を決着すると、残った下の食い違いの決着のボタンを主にする。主はやはり1つ
+      await tester.ensureVisible(filled);
+      await tester.tap(filled);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(server.posted, ['/manuals/m1/checks/c2/resolve']);
+      expect(_inCard(find.text(_shownLine)), findsOneWidget);
+      expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
+      expect(_inCard(find.widgetWithText(MoonFilledButton, _keepLabel)), findsOneWidget);
+      expect(_inCard(find.byType(MoonOutlinedButton)), findsNothing);
+      expect(_inCard(find.widgetWithText(MoonTextButton, '確かめる')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 10)); // 確定のトーストが消えるのを待つ
+    });
+  }
+
+  testWidgets('誰が言ったか分からない記録で、記録を見せて決着できる食い違いが2つあっても、主は「確かめる」1つで、決着のボタンは全部枠', (tester) async {
+    final twice = _confirmedTwice();
+    (twice['utterances'] as List).last['speaker'] = null;
+    await _pump(tester, [
+      [(twice, 'u3')],
+    ]);
+    await _recordText(tester, '塩は小さじ1、砂糖は大さじ1だよ');
+    expect(tester.takeException(), isNull);
+
+    expect(_inCard(find.byType(ConflictPair)), findsNWidgets(2));
+    expect(_inCard(find.byType(MoonFilledButton)), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
+    expect(_inCard(find.widgetWithText(MoonOutlinedButton, _keepLabel)), findsNWidgets(2));
   });
 
   testWidgets('発言者が分からず書き込む前に開いた確認は、書き込み終えても題名を変えない', (tester) async {
@@ -878,12 +955,14 @@ void main() {
 
     expect(_inCard(find.text(changedTitle)), findsOneWidget);
     expect(_inCard(find.widgetWithText(MoonFilledButton, '確かめる')), findsOneWidget);
-    // まだなのは補足の行だけ
+    // まだなのは補足の行だけ。文なのでタグにせず、行のすぐ下に小さい文字で添える
     expect(_inCard(find.text('まだ書き込んでいません')), findsOneWidget);
-    final tag = tester.getRect(_inCard(find.text('まだ書き込んでいません')));
+    expect(find.ancestor(of: _inCard(find.text('まだ書き込んでいません')), matching: find.byType(StatusTag)), findsNothing);
+    expect(tester.widget<Text>(_inCard(find.text('まだ書き込んでいません'))).style, _k.text.small);
+    final mark = tester.getRect(_inCard(find.text('まだ書き込んでいません')));
     final line = tester.getRect(_inCard(find.text('レジは現金とカードのみ。団体はまとめて会計')));
-    expect(tag.top, greaterThanOrEqualTo(line.bottom));
-    expect(tag.top - line.bottom, lessThan(_k.space.md));
+    expect(mark.top, greaterThanOrEqualTo(line.bottom));
+    expect(mark.top - line.bottom, lessThan(_k.space.md));
   });
 
   // #119：記録したらカードの所まで送る。古くなったカードは残さず、ほかの画面から戻ったら入力欄から始める
