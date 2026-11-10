@@ -64,6 +64,6 @@ jobs:
         run: |
           API_URL=$(gcloud run services describe diff-note-api --region "$REGION" --format 'value(status.url)')
           flutter build web --release --dart-define=API_URL="$API_URL"
-          # 使っていないフォントを外し、index.html に API の URL を入れる。失敗したらデプロイしない（既定の bash -e で止まる）
+          # 使っていないフォントを外し、MoonIcons を使う字だけに絞り、index.html に API の URL を入れる。失敗したらデプロイしない（既定の bash -e で止まる）
           dart run tool/web_postbuild.dart "$API_URL"
           npx --yes firebase-tools@15 deploy --only hosting --project "$PROJECT_ID" --non-interactive
