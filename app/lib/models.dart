@@ -392,26 +392,74 @@ class ManualState {
   final List<Patch> patches;
   final List<Check> checks;
 
-  Utterance utterance(String id) => utterances.firstWhere((u) => u.id == id);
+  // 索引。画面は行ごと・記録ごとに引くので、毎回先頭から探さず、最初に引いたときに1回だけ組む。
+  // 中身を変えるときは copyWith で別の状態を作るので、組み直しは要らない。同じ ID が並んだら、先頭から探したときと同じく先のもの
+  late final _utteranceById = _first(utterances, (u) => u.id);
+  late final _patchById = _first(patches, (p) => p.id);
+  late final _checkByPatch = _first(checks, (c) => c.patchId);
+  late final _patchesByUtterance = _group(patches, (p) => p.utteranceId);
+  late final _lineByText = _first(lines, (l) => l.text);
+
+  /// 確定した内容の文 → その文に決まった最後の確認
+  late final _decisionByText = {
+    for (final c in checks)
+      if (c.isDecision && !(c.materialRef != null && c.resolution!.text == c.conflictLine)) c.resolution!.text: c,
+  };
+
+  late final _sameByLine =
+      _group([for (final c in checks) if (c.kind == Kind.same && c.materialRef == null) c], (c) => c.sameLine);
+
+  /// まだ確認していない項目（openChecks の位置）を、付く行の文か、付く行の差分で引く。1件はどちらか一方にだけ入る
+  late final ({Map<String, List<int>> text, Map<String, List<int>> patch}) _openAt = () {
+    final text = <String, List<int>>{};
+    final patch = <String, List<int>>{};
+    for (final (i, c) in openChecks.indexed) {
+      final conflict = c.conflictLine;
+      if (c.materialRef == null && conflict != null && _lineByText.containsKey(conflict)) {
+        (text[conflict] ??= []).add(i);
+      } else {
+        (patch[c.patchId] ??= []).add(i);
+      }
+    }
+    return (text: text, patch: patch);
+  }();
+
+  late final _checksByMaterialLine = _group(
+      [for (final c in checks) if (c.materialRef != null) c], (c) => (c.materialRef!.materialId, c.materialRef!.lineNo));
+
+  static Map<K, T> _first<K, T>(List<T> xs, K Function(T) key) {
+    final m = <K, T>{};
+    for (final x in xs) {
+      m.putIfAbsent(key(x), () => x);
+    }
+    return m;
+  }
+
+  static Map<K, List<T>> _group<K, T>(List<T> xs, K Function(T) key) {
+    final m = <K, List<T>>{};
+    for (final x in xs) {
+      (m[key(x)] ??= []).add(x);
+    }
+    return {for (final e in m.entries) e.key: List.unmodifiable(e.value)};
+  }
+
+  Utterance utterance(String id) => _utteranceById[id] ?? (throw StateError('No element'));
 
   /// 口頭で言われた記録。直接編集の記録は付箋や記録の数に入れない
-  List<Utterance> get said => utterances.where((u) => !u.fromEdit).toList();
-  Patch patch(String id) => patches.firstWhere((p) => p.id == id);
-  Check? checkOf(String patchId) => checks.where((c) => c.patchId == patchId).firstOrNull;
-  List<Patch> patchesOf(String utteranceId) => patches.where((p) => p.utteranceId == utteranceId).toList();
+  late final List<Utterance> said = List.unmodifiable(utterances.where((u) => !u.fromEdit));
+  Patch patch(String id) => _patchById[id] ?? (throw StateError('No element'));
+  Check? checkOf(String patchId) => _checkByPatch[patchId];
+  List<Patch> patchesOf(String utteranceId) => _patchesByUtterance[utteranceId] ?? const [];
 
-  List<Check> get openChecks => checks.where((c) => c.isOpen).toList();
-  List<Check> get resolvedChecks => checks.where((c) => c.resolution != null).toList();
+  late final List<Check> openChecks = List.unmodifiable(checks.where((c) => c.isOpen));
+  late final List<Check> resolvedChecks = List.unmodifiable(checks.where((c) => c.resolution != null));
 
   /// この行を確定させた確認の記録。確定した内容と同じ文面の行に付く。
   /// 補足（qualification）で書き換わった行は、書き換える前の行の確認を引き継ぐ
   Check? confirmationFor(ManualLine line) => _confirmedAs(line.text) ?? _beforeQualification(line.patchId);
 
   /// 「資料のまま」に決まった確定は資料の行のもの。同じ資料から作ったノートに同じ文の行があっても、そこには付けない
-  Check? _confirmedAs(String text) => checks
-      .where((c) =>
-          c.isDecision && c.resolution!.text == text && !(c.materialRef != null && c.resolution!.text == c.conflictLine))
-      .lastOrNull;
+  Check? _confirmedAs(String text) => _decisionByText[text];
 
   /// 確認待ちの食い違いの相手が確定済みの記録なら、その確認。相手の行がノートにあればその行の確認の印、
   /// 書き換えられてもう無ければ（#86）同じ内容に確定した確認。
@@ -422,7 +470,7 @@ class ManualState {
     if (c.materialRef case final m?) {
       return checksAt(m.materialId, m.lineNo).where((x) => x.isDecision).lastOrNull;
     }
-    final line = lines.where((l) => l.text == conflict).firstOrNull;
+    final line = _lineByText[conflict];
     return line == null ? _confirmedAs(conflict) : confirmationFor(line);
   }
 
@@ -444,22 +492,19 @@ class ManualState {
   }
 
   /// この行と同じことを言った記録。行の裏付けとして見せる。資料と同じ内容の記録は、ノートの行の裏付けにしない
-  List<Check> sameChecksFor(ManualLine line) =>
-      checks.where((c) => c.kind == Kind.same && c.materialRef == null && c.sameLine == line.text).toList();
+  List<Check> sameChecksFor(ManualLine line) => _sameByLine[line.text] ?? const [];
 
   /// この行と食い違っていて、まだ確認していない項目。相手の行がもうノートに無ければ
   /// （確定済みの行を書き換えたときなど、#86）、その確認の差分が書いた行に付ける。
   /// 資料と食い違った確認は、同じ文の行がノートにあってもそこには付けない。直接書いた行が資料と食い違ったときだけ、書いた行に付く
-  List<Check> openChecksFor(ManualLine line) => openChecks
-      .where((c) => c.materialRef == null && lines.any((l) => l.text == c.conflictLine)
-          ? c.conflictLine == line.text
-          : c.patchId == line.patchId)
-      .toList();
+  List<Check> openChecksFor(ManualLine line) {
+    // 文で付くものと差分で付くものの両方を拾う行もあるので、openChecks の並びに戻す
+    final at = [...?_openAt.text[line.text], ...?_openAt.patch[line.patchId]]..sort();
+    return [for (final i in at) openChecks[i]];
+  }
 
   /// 資料のその行が相手の確認（食い違い・確定・同じ内容）。資料の中の画面で使う
-  List<Check> checksAt(String materialId, int lineNo) => checks
-      .where((c) => c.materialRef?.materialId == materialId && c.materialRef?.lineNo == lineNo)
-      .toList();
+  List<Check> checksAt(String materialId, int lineNo) => _checksByMaterialLine[(materialId, lineNo)] ?? const [];
 
   /// その資料と食い違った、まだ確認していない項目
   List<Check> openChecksIn(String materialId) =>
