@@ -13,6 +13,9 @@ const lucideFamily = 'packages/lucide_icons_flutter/Lucide';
 /// MoonIcons は外さない。MoonTextInput に errorText を渡すと MoonIcons の字を描く（review_dialog.dart）
 final _lucideWeights = RegExp(r'^packages/lucide_icons_flutter/Lucide\d+$');
 
+/// main.dart.js の中で、Lucide の太さ違いの family を使っている所（IconData の fontFamily）
+final _lucideWeightInJs = RegExp(r'''["']Lucide\d+["']''');
+
 /// index.html の、API の URL を入れる所。空のままなら index.html は API を呼ばない
 const apiUrlMarker = '<meta name="diffnote-api" content="">';
 
@@ -61,9 +64,18 @@ List<String> postBuild(Directory web, {String? apiUrl}) {
   final manifestFile = File('${web.path}/assets/FontManifest.json');
   final indexFile = File('${web.path}/index.html');
   final fonts = dropUnusedFonts(jsonDecode(manifestFile.readAsStringSync()) as List<Object?>);
+  final js = File('${web.path}/main.dart.js').readAsStringSync();
   // Flutter を上げてイベント名が変わると、読み込み中の画面が消えなくなる
-  if (!File('${web.path}/main.dart.js').readAsStringSync().contains(firstFrameEvent)) {
+  if (!js.contains(firstFrameEvent)) {
     throw StateError('main.dart.js に $firstFrameEvent が無い。web/index.html の読み込み中の画面を直す');
+  }
+  // アプリが太さ違いを使っているのに外すと、そのアイコンが豆腐になる
+  if (_lucideWeightInJs.firstMatch(js) case final used?) {
+    throw StateError('main.dart.js が Lucide の太さ違い ${used[0]} を使っている。外せない');
+  }
+  final missing = fonts.dropped.where((asset) => !File('${web.path}/assets/$asset').existsSync()).toList();
+  if (missing.isNotEmpty) {
+    throw StateError('消すはずのフォントが無い: ${missing.join(', ')}');
   }
   final html = apiUrl == null ? null : withApiUrl(indexFile.readAsStringSync(), apiUrl);
 
