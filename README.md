@@ -27,7 +27,7 @@
 
 - **言われたことをそのまま入れる**：テキスト、音声入力、直前60秒をさかのぼる録音、PDF・画像から記録できる
 - **ノートへの差分にする**：どのノートのどの行が変わるかを Gemini が案にし、誰がいつ言ったかと一緒に積む。本文は上書きしない
-- **食い違いに気づく**：ノートや確定済みの記録と比べ、同じ内容・追記・条件付きの補足・矛盾に分ける
+- **食い違いに気づく**：ノートや確定済みの記録と比べ、同じ内容（`same`）・追記（`addition`）・条件付きの補足（`qualification`）・矛盾（`contradiction`）に分ける
 - **聞いて確かめる**：矛盾には確認する相手の候補と聞き方の例が出る。確かめた結果は「誰に・いつ・どう決まったか」としてノートに残る
 - **一緒に使う**：ノートを共有し、教える側が確認に直接答えられる
 
@@ -36,6 +36,26 @@
 <div align="center">
 <img src="docs/architecture.png" width="900" alt="アーキテクチャ図。端末の Flutter Web アプリが Firebase Hosting から読み込まれ、Cloud Run の API が Firestore・Vertex AI の Gemini・Speech-to-Text を呼ぶ">
 </div>
+
+### 設計の要点
+
+- **Gemini には意味の判断だけをさせる**：振り分け・差分化・分類・聞き方を、記録1件につき1回の問い合わせにまとめる（[ADR 0006](docs/adr/0006-assess-in-one-call.md)）。Gemini に状態は持たせず、記録・差分・確認の結果はバックエンドが Firestore に持つ。確定の記録は Gemini を通らない
+- **出力は JSON スキーマで受けて確かめる**：Gemini に JSON スキーマを指定し、返ってきたものをバックエンドで検証してから保存する
+- **RAG にしない**：関係しそうな所を探して渡すのではなく、ノート全文と確定済みの記録を毎回載せて比べる。費用と待ちはコンテキストキャッシュで抑え、資料のあるノートでは資料を明示のキャッシュに入れる
+- **本文は上書きしない**：元の本文に反映した差分を積み、ある時点の版はそこまでの差分を当て直して作る。版は Firestore で自前で持ち、Git は使わない（[ADR 0001](docs/adr/0001-manual-as-base-plus-patches.md)・[0023](docs/adr/0023-versions-in-firestore.md)）
+- **遅い返事を待ち続けない**：12秒で返らなければ2本目を並べて送り、先に返ったほうを使う（[ADR 0002](docs/adr/0002-gemini-calls.md)）
+
+### 衝突検知の評価
+
+架空のノートと発言で作った評価セット（`eval/`）を、`gemini-3.8-flash`（Vertex AI）で回した結果（2026-11-10 時点）。矛盾を見落とす割合と、矛盾でないものを矛盾として聞きに来る割合を分けて見る。
+
+| ケース | 矛盾の取りこぼし率 | 誤って聞きに来た率 |
+|---|---|---|
+| 資料なし（18件） | 0%（0/6） | 0%（0/12） |
+| 資料なしに、関係の無い約3万トークンの資料をまぜる（18件） | 0%（0/6） | 0%（0/12） |
+| 資料つき（24件） | 0%（0/12） | 0%（0/12） |
+
+ケースはまだ少なく、件数を増やすと変わりうる。回し方・指標の定義は [eval/README.md](eval/README.md)。
 
 ## リポジトリの構成
 
@@ -86,7 +106,7 @@ API は環境変数で切り替える。認証は ADC（`gcloud auth application
 
 | 変数 | 内容 | 既定 |
 |---|---|---|
-| `AI` | `gemini` で Vertex AI の Gemini を呼ぶ | 偽の Gemini |
+| `AI` | `gemini` で Vertex AI の Gemini と Speech-to-Text v2 を呼ぶ | 偽の Gemini と偽の書き起こし |
 | `STORE` | `firestore` で Firestore に保存する | メモリ |
 | `GOOGLE_CLOUD_PROJECT` | GCP のプロジェクト ID | |
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI のリージョン | `global` |
@@ -109,7 +129,7 @@ gcloud auth application-default set-quota-project diff-note-514023
 
 `STORE=firestore` を付けると、ローカルからでも本番のデータベースに書いてしまう（メンバーは読むだけの権限なので、書こうとすると権限エラーになる）。保存まで確かめたいときは、下のエミュレータを使う。
 
-本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users?project=diff-note-514023)で見られる。ノートはログイン ID ごとに分かれ、`users/{ID}/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に記録が並び、共有の相手は `shares`、資料は `materials` にある。共有されたノートの索引は `users/{ID}/shared`、未整理メモは `users/{ID}/memos`、ログインは `accounts`・`sessions` にある。アカウントの作り方は [infra/README.md](infra/README.md) の「使う人のアカウントを作る」。
+本番に記録されたものは、[Firestore のコンソール](https://console.cloud.google.com/firestore/databases/-default-/data/panel/users?project=diff-note-514023)で見られる。ノートはログイン ID ごとに分かれ、`users/{ID}/manuals/{ノート}/` の下の `utterances`（言われたこと）・`patches`（差分）・`checks`（分類・理由・聞き方）に記録が並び、共有の相手は `shares`、資料は `materials` にある。名前とアイコンは `users/{ID}` そのもの、共有されたノートの索引は `users/{ID}/shared`、未整理メモは `users/{ID}/memos`、通知を最後に見た時刻は `users/{ID}/notices/seen`、ログインは `accounts`・`sessions` にある。アカウントの作り方は [infra/README.md](infra/README.md) の「使う人のアカウントを作る」。
 
 ## テスト
 
