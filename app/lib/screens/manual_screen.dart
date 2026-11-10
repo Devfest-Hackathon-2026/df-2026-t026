@@ -274,14 +274,13 @@ class _ManualScreenState extends State<ManualScreen> {
       builder: (context, _) {
         // 消された・共有を外されたノートは、古い内容を出さずに「見つかりません」を出す。書いている欄は閉じるまで残す
         final s = c.gone && _editing == null ? null : c.state;
-        final open = s?.openChecks.length ?? 0;
         if (s != null && _toFound) {
           _toFound = false;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (_foundKey.currentContext case final ctx?) Scrollable.ensureVisible(ctx, alignment: 0.3);
           });
         }
-        // 狭い画面では下のタブバーから移るので、上部バーには出さない（キーボードでタブバーが隠れている間も出さない）
+        // 確認リスト・履歴・資料へは、狭い画面では下のタブバー、広い画面ではノートのタブから移る
         final narrow = s != null && !showsSidebar(context);
         // 共有は共有された人もできる。タブバーに無いので、狭い画面でも上部バーに出す（ADR 0016）。ノートを消すのは持ち主だけ
         final mine = s != null && s.sharedBy == null;
@@ -294,27 +293,15 @@ class _ManualScreenState extends State<ManualScreen> {
               trailing: s == null
                   ? null
                   : Row(mainAxisSize: MainAxisSize.min, children: [
-                      // 資料は共有された人も見て足せる。タブバーに無いので、狭い画面でも出す（ADR 0019）
-                      MoonOutlinedButton(
-                        buttonSize: MoonButtonSize.sm,
-                        onTap: _openMaterials,
-                        label: const Text('資料'),
-                      ),
-                      SizedBox(width: context.tokens.space.sm),
-                      if (!narrow) ...[
+                      // 資料は下のタブバーに無いので、狭い画面では上部バーに出す（ADR 0019）
+                      if (narrow) ...[
                         MoonOutlinedButton(
                           buttonSize: MoonButtonSize.sm,
-                          onTap: _openHistory,
-                          label: const Text('履歴'),
+                          onTap: _openMaterials,
+                          label: const Text('資料'),
                         ),
                         SizedBox(width: context.tokens.space.sm),
-                        MoonOutlinedButton(
-                          buttonSize: MoonButtonSize.sm,
-                          onTap: _openList,
-                          label: Text(open == 0 ? '確認リスト' : '確認リスト $open'),
-                        ),
                       ],
-                      if (!narrow) SizedBox(width: context.tokens.space.sm),
                       MoonOutlinedButton(
                         buttonSize: MoonButtonSize.sm,
                         onTap: () => showShare(context, widget.api, widget.manualId, owner: s.sharedBy),
@@ -326,6 +313,7 @@ class _ManualScreenState extends State<ManualScreen> {
                       ],
                     ]),
             ),
+            if (s != null && !narrow) NoteTabRow(c: c, current: NoteTab.note),
             Expanded(
               child: s == null
                   ? (c.loadError != null ? LoadFailed(message: c.loadError!, onRetry: c.load) : const Loading())

@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:moon_design/moon_design.dart';
 
+import 'home.dart';
 import 'input_font.dart';
 
 Map<String, dynamic> _state({required bool resolved}) => {
@@ -200,7 +201,7 @@ void main() {
 
     // マニュアル画面では解決を求めず、行の印と確認リストへの入口だけを出す
     expect(find.text('あとで確認 1 件'), findsOneWidget);
-    await tester.tap(find.widgetWithText(MoonOutlinedButton, '確認リスト 1'));
+    await tester.tap(noteTab('確認リスト'), warnIfMissed: false);
     await tester.pumpAndSettle();
 
     // 広い画面では一覧の右にいちばん新しい食い違いの詳細が出ていて、画面を移らずに確認から記録までできる
